@@ -10,7 +10,7 @@ class MinimaxAgent(SequentialAgent):
     def reward(self, reward_value, state, i):
         pass
 
-    def choose_action(self, state, agent_num):
+    def choose_action(self, state, agent_num, verbose = False):
         def V(s, r, level=0, verbose=False):
             state_key = MinimaxAgent.state_to_key(s)
 

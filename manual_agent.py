@@ -5,7 +5,7 @@ class ManualTTTAgent(SequentialAgent):
     def __init__(self):
         pass
 
-    def choose_action(self, state, player_index):
+    def choose_action(self, state, player_index, verbose = False):
         choice = input('Enter the row and column to play: ')
         row, col = list(map(int, choice.split(',')))
         row -= 1
