@@ -15,10 +15,15 @@ class Debugger:
 
     def debug(self, game):
         winning_state = np.array([[-1, -1, 0], [1, 1, 0], [0, 0, 1]])
-        winning_state_processed = game.players[1].Q.process_state(winning_state, game.get_player_index(winning_state))
-        with torch.no_grad():
-            pred_scores = game.players[1].Q(winning_state_processed)
-        self.score_for_winning_position_history.append(pred_scores.topk(1)[0].item())
+        Q = game.players[1].Q
+        scores = []
+        legal_actions = game.legal_actions(winning_state)
+        for action in legal_actions:
+            processed_state_action = Q.process_state_action(winning_state, action, game.get_player_index(winning_state))
+            with torch.no_grad():
+                scores.append(Q(processed_state_action))
+
+        self.score_for_winning_position_history.append(max(scores))
 
         if len(self.score_for_winning_position_history) % 100 == 0:
             plt.plot(self.score_for_winning_position_history)
@@ -115,7 +120,7 @@ def main():
     parser.add_argument('-e', '--exploration_probability', type = float, default = 0.1)
     parser.add_argument('-n', '--n_hidden', type = str, default = '100')
     parser.add_argument('-a', '--activation_fn', type = str, default = 'nn.ReLU')
-    parser.add_argument('-b', '--batch_size', type = str, default = 32)
+    parser.add_argument('-b', '--batch_size', type = int, default = 32)
     parser.add_argument('-c', '--checkpoint_path', type = str, default = None)
     args = parser.parse_args()
     activation_fn = eval(args.activation_fn)

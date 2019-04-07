@@ -5,14 +5,16 @@ from game import *
 
 
 class TicTacToe(SequentialGame):
+    N_PLAYERS = 2
     EMPTY = 0
-    PLAYER_MARKS = [1, -1]
     WIN_REWARD = 1
     LOSE_REWARD = -1
     ILLEGAL_ACTION_PENALTY = -2
 
-    STATE_SIZE = 9
-    ALL_ACTIONS = list(product(range(3), range(3)))
+    STATE_SIZE = 9*3
+    STATE_SHAPE = (3, 3, 3)
+    ACTION_SIZE = 2
+    ALL_ACTIONS = sorted(list(product(range(3), range(3))))
 
     def __init__(self, players, verbose = False, pause_seconds = 0, debugger = None):
         # Save input
@@ -22,40 +24,38 @@ class TicTacToe(SequentialGame):
         self.debugger = debugger
 
         # Initialize the board
-        self.state = self.EMPTY * np.ones((3,3))
+        self.state = np.zeros((3,3,3)).astype(int)
 
     @staticmethod
     def get_player_index(state):
-        num_p0 = len(list(zip(*np.where(state == TicTacToe.PLAYER_MARKS[0]))))
-        num_p1 = len(list(zip(*np.where(state == TicTacToe.PLAYER_MARKS[1]))))
-        if num_p0 > num_p1:
-            return 1
-        else:
-            return 0
+        return state[2,0,0]
 
     @staticmethod
     def legal_actions(state):
-        return list(zip(*np.where(state == TicTacToe.EMPTY)))
+        return sorted(list(set(zip(*np.where(state[0,:,:] == 0))).intersection(set(zip(*np.where(state[1,:,:] == 0))))))
 
     @staticmethod
     def is_terminal_state(state):
-        return any((mask * state == TicTacToe.PLAYER_MARKS[0]).sum() == 3
-                   or (mask * state == TicTacToe.PLAYER_MARKS[1]).sum() == 3
-                   for mask in TicTacToe.masks) \
-               or (state != TicTacToe.EMPTY).all()
+        return (
+            any((mask * state[0, :, :] == 1).sum() == 3 for mask in TicTacToe.masks)
+            or any((mask * state[1,:,:] == 1).sum() == 3 for mask in TicTacToe.masks)
+            or state[:2,:,:].sum() == 9
+        )
 
     @staticmethod
     def get_next_state(state, action):
         new_state = copy.deepcopy(state)
-        new_state[action] = TicTacToe.PLAYER_MARKS[TicTacToe.get_player_index(state)]
+        cur_player_index = TicTacToe.get_player_index(state)
+        new_state[cur_player_index][action] = 1
+        new_state[2,:,:] = 1 - state[2,:,:]  # change the player index
         return new_state
 
     @staticmethod
     def reward(state, player_index):
         other_player_index = 1 if player_index == 0 else 0
-        if any((mask * state == TicTacToe.PLAYER_MARKS[player_index]).sum() == 3 for mask in TicTacToe.masks):
+        if any((mask * state[player_index,:,:] == 1).sum() == 3 for mask in TicTacToe.masks):
             return TicTacToe.WIN_REWARD
-        elif any((mask * state == TicTacToe.PLAYER_MARKS[other_player_index]).sum() == 3 for mask in TicTacToe.masks):
+        elif any((mask * state[other_player_index,:,:] == 1).sum() == 3 for mask in TicTacToe.masks):
             return TicTacToe.LOSE_REWARD
         else:
             return 0
@@ -66,16 +66,20 @@ class TicTacToe(SequentialGame):
     @staticmethod
     def state_to_str(state):
         def line_to_marks(line):
-            marks = {
-                TicTacToe.PLAYER_MARKS[0]: 'x',
-                TicTacToe.PLAYER_MARKS[1]: 'o',
-                TicTacToe.EMPTY: ' '
-            }
-            return list(map(lambda x: marks[x], line))
+            out = []
+            for i in range(line.shape[1]):
+                if line[0,i] == 1:
+                    out.append('x')
+                elif line[1,i] == 1:
+                    out.append('o')
+                else:
+                    out.append(' ')
+
+            return out
 
         return (
-            '-----\n'.join(['{}|{}|{}\n'.format(*line_to_marks(state[i, :])) for i in
-                            range(state.shape[0])])
+            '-----\n'.join(['{}|{}|{}\n'.format(*line_to_marks(state[:,i,:])) for i in
+                            range(state.shape[1])])
         )
 
     masks = [
