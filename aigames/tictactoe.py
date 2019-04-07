@@ -1,7 +1,9 @@
-import numpy as np
 import copy
 from itertools import product
-from game import *
+
+import numpy as np
+
+from aigames.base.game import *
 
 
 class TicTacToe(SequentialGame):

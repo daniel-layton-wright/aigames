@@ -1,6 +1,7 @@
 import time
-from agent import *
 from typing import Callable, List
+
+from aigames.base.agent import *
 
 
 class Game:

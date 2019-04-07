@@ -1,9 +1,11 @@
+import copy
 from enum import Enum
 from itertools import product
-import torch
+
 import numpy as np
-import copy
-from game import *
+import torch
+
+from aigames.base.game import *
 
 
 # Suit = Enum('Suit', 'CLUBS DIAMONDS HEARTS SPADES', qualname = __name__)

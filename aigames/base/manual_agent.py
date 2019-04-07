@@ -1,4 +1,4 @@
-from agent import *
+from aigames.base.agent import *
 
 
 class ManualAgent(SequentialAgent):

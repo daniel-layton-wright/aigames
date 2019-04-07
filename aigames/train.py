@@ -1,11 +1,12 @@
-from manual_agent import *
-from minimax_agent import *
-from qlearning_agent import *
-from tictactoe import *
-from tensorflow.keras.utils import Progbar
+import os
+
 import matplotlib.pyplot as plt
 import torch.nn as nn
-import os
+from manual_agent import *
+from minimax_agent import *
+from tictactoe import *
+
+from aigames.qlearning_agent import *
 
 
 class Debugger:

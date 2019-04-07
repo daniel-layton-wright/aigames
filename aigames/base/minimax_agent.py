@@ -1,5 +1,6 @@
-from agent import *
 import numpy as np
+
+from aigames.base.agent import *
 
 
 class MinimaxAgent(SequentialAgent):

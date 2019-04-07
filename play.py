@@ -1,7 +1,8 @@
 from manual_agent import *
 from minimax_agent import *
-from qlearning_agent import *
 from tictactoe import *
+
+from aigames.qlearning_agent import *
 
 
 def main():

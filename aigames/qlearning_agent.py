@@ -1,9 +1,11 @@
-import numpy as np
 import copy
+from collections import defaultdict
+
+import numpy as np
 import torch
 import torch.nn as nn
-from collections import defaultdict
-from agent import *
+
+from aigames.base.agent import *
 
 
 class QLearningAgent(SequentialAgent):

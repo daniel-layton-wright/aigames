@@ -1,13 +1,13 @@
-from game import *
-from tictactoe import *
-from connect4 import *
-from agent import *
-from minimax_agent import *
-from manual_agent import *
-import torch
-import torch.nn as nn
 import numpy as np
+import torch
+from agent import *
+from connect4 import *
+from game import *
+from manual_agent import *
+from minimax_agent import *
 from torch.utils.data import Dataset, DataLoader
+
+from aigames.tictactoe import *
 
 
 class AlphaAgent(SequentialAgent):
