@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 
@@ -11,7 +11,7 @@ setup(
     author_email='dlwright@alumni.stanford.edu',
     license='MIT',
     packages=[
-        'aigames',
+        find_packages()
     ],
     package_data={
         'aigames': [
