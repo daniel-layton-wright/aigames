@@ -17,12 +17,14 @@ class Connect4(SequentialGame):
     ACTION_SIZE = 1
     ALL_ACTIONS = list(range(7))
 
-    def __init__(self, players, verbose = False, pause_seconds = 0, debugger = None):
+    def __init__(self, players, verbose = False, pause_seconds = 0, monitor = None):
+        super().__init__(players)
+
         # Save input
         self.players = players
         self.verbose = verbose
         self.pause_seconds = pause_seconds
-        self.debugger = debugger
+        self.monitor = monitor
 
         # Initialize the board
         self.state = np.zeros((3,6,7)).astype(int)

@@ -1,18 +1,14 @@
 import numpy as np
 import torch
-from agent import *
-from connect4 import *
-from game import *
-from manual_agent import *
-from minimax_agent import *
-from torch.utils.data import Dataset, DataLoader
-
-from aigames.tictactoe import *
+from .base.game import *
+from .base.agent import *
+from torch.utils.data import Dataset
 
 
 class AlphaAgent(SequentialAgent):
-    def __init__(self, game, evaluator, training_points,
-                 tau, c_puct, n_mcts = 1200):
+    def __init__(self, game: Game, evaluator, training_points,
+                 tau: float, c_puct: float, n_mcts = 1200):
+        super().__init__(game)
         self.game = game
         self.original_tau = tau
         self.tau = tau
@@ -207,69 +203,3 @@ class AlphaDataset(Dataset):
             new_distn = new_distn.reshape(-1, *state.shape[1:]).flip(dims = (2,)).reshape(distn.shape)
 
         return new_state, new_distn, value
-
-
-class AlphaTrainingRun:
-    def __init__(self, game_class, evaluator,
-                 tau = 1, c_puct = 1, n_mcts = 500,
-                 lr = 1e-2, wd = 1e-4,
-                 rotate = False, flip = False):
-        self.game_class = game_class
-        self.evaluator = evaluator
-
-        self.training_data = []
-        self.training_dataset = AlphaDataset(self.training_data, capacity = 50*1000, rotate=rotate, flip = flip)
-
-        self.tau = tau
-        self.agent = AlphaAgent(self.game_class, self.evaluator, self.training_dataset, tau, c_puct, n_mcts)
-        self.minimax_agent = MinimaxAgent(self.game_class)
-        self.optimizer = torch.optim.Adam(self.evaluator.parameters(), lr = lr, weight_decay=wd)
-
-    def self_play_game(self):
-        game = self.game_class([self.agent, self.agent])
-        game.play()
-        return game
-
-    def take_training_step(self, batch_size = 32):
-        # Clear the gradients
-        self.evaluator.zero_grad()
-
-        # Sample batch from training points
-        dataloader = DataLoader(self.training_dataset, batch_size=batch_size, shuffle=True)
-        states, distns, values = next(iter(dataloader))
-
-        # Run through network
-        pred_distns, pred_values = self.evaluator(states)
-
-        # Compute loss
-        losses = (values - pred_values)**2 - torch.sum(distns * torch.log(pred_distns), dim = 1)
-        loss = torch.mean(losses)
-
-        # Backprop
-        loss.backward()
-        self.optimizer.step()
-
-        return loss.item()
-
-    def evaluate(self, n_games = 100):
-        n_losses = 0
-
-        self.agent.eval()
-
-        for _ in range(n_games):
-            game = self.game_class([self.minimax_agent, self.agent])
-            game.play()
-            if game.reward(game.state, 1) == -1:
-                n_losses += 1
-
-        self.agent.train()
-
-        return n_losses / float(n_games)
-
-    def run(self, n_games = 20000, debugger = None):
-        for n_game in range(n_games):
-            cur_game = self.self_play_game()
-            cur_loss = self.take_training_step()
-
-            if debugger is not None:
-                debugger(self, cur_game, cur_loss)

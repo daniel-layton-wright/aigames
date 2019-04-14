@@ -18,12 +18,12 @@ class TicTacToe(SequentialGame):
     ACTION_SIZE = 2
     ALL_ACTIONS = sorted(list(product(range(3), range(3))))
 
-    def __init__(self, players, verbose = False, pause_seconds = 0, debugger = None):
+    def __init__(self, players, verbose = False, pause_seconds = 0, monitor = None):
         # Save input
         self.players = players
         self.verbose = verbose
         self.pause_seconds = pause_seconds
-        self.debugger = debugger
+        self.monitor = monitor
 
         # Initialize the board
         self.state = np.zeros((3,3,3)).astype(int)

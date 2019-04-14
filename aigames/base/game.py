@@ -21,11 +21,11 @@ class Game:
 class PartiallyObservableSequentialGame(Game):
     ILLEGAL_ACTION_PENALTY = 0
 
-    def __init__(self, players : List[SequentialAgent], verbose = False, pause_seconds = 0, debugger : Callable = None):
+    def __init__(self, players : List[SequentialAgent], verbose = False, pause_seconds = 0, monitor : Callable = None):
         self.players = players,
         self.verbose = verbose
         self.pause_seconds = pause_seconds
-        self.debugger = debugger
+        self.monitor = monitor
 
     @staticmethod
     def get_next_state(state, action):
@@ -52,8 +52,8 @@ class PartiallyObservableSequentialGame(Game):
                 print(self)
                 time.sleep(self.pause_seconds)
 
-            if self.debugger:
-                self.debugger(self)
+            if self.monitor:
+                self.monitor(self)
 
 
             observable_state = self.get_observable_state(self.state, i)

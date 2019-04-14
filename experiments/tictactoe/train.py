@@ -1,15 +1,12 @@
 import os
-
+import numpy as np
 import matplotlib.pyplot as plt
 import torch.nn as nn
-from manual_agent import *
-from minimax_agent import *
-from tictactoe import *
-
-from aigames.qlearning_agent import *
+import torch
+from aigames import *
 
 
-class Debugger:
+class Monitor:
     def __init__(self):
         self.score_for_winning_position_history = []
         self.n = 0
@@ -46,10 +43,10 @@ class Debugger:
 def train(lr = 0.005, exploration_probability = 0.1, n_hidden = 100, activation_fn = nn.ReLU, batch_size = 32,
           checkpoint_path = None, n_iters = 100000, update_target_Q_every = 1000):
     minimax_agent = MinimaxAgent(TicTacToe)
-    manual_agent = ManualTTTAgent()
+    manual_agent = ManualAgent()
     q0 = Q(TicTacToe, n_hidden, activation_fn)
     q = Q(TicTacToe, n_hidden, activation_fn)
-    debugger = Debugger()
+    monitor = Monitor()
     learning_agent0 = QLearningAgent(TicTacToe, q0, lr = lr, exploration_probability=exploration_probability,
                                      batch_size = batch_size, update_target_Q_every = update_target_Q_every)
     learning_agent = QLearningAgent(TicTacToe, q, lr = lr, exploration_probability=exploration_probability,
@@ -69,7 +66,7 @@ def train(lr = 0.005, exploration_probability = 0.1, n_hidden = 100, activation_
     update_every = 1000
 
     for i in range(start_iter, n_iters):
-        game = TicTacToe([learning_agent0, learning_agent], verbose = False, debugger=debugger.debug)
+        game = TicTacToe([learning_agent0, learning_agent], verbose = False, monitor=monitor.debug)
         game.play()
 
         if (i + 1) % update_every == 0:
