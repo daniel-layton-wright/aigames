@@ -51,7 +51,7 @@ class TicTacToeMonitor(QLearningMonitor):
 
             qlearning_agent.eval()
             for j in range(n_games):
-                game = TicTacToe([self.minimax_agent, qlearning_agent], verbose = False, pause_seconds=0)
+                game = TicTacToe([self.minimax_agent, qlearning_agent], verbose=False, pause_seconds=0)
                 game.play()
 
                 if game.reward(game.state, 1) == game.LOSE_REWARD:
@@ -74,13 +74,12 @@ class TicTacToeMonitor(QLearningMonitor):
                 metric_value=pct_loss_vs_minimax,
                 global_step=game_number)
 
-
-        winning_state = np.zeros((3,3,3)).astype(int)
-        winning_state[0,1,0] = 1
-        winning_state[0,1,1] = 1
-        winning_state[1,0,0] = 1
-        winning_state[1,0,1] = 1
-        winning_state[2,:,:] = 1
+        winning_state = np.zeros((3, 3, 3)).astype(int)
+        winning_state[0, 1, 0] = 1
+        winning_state[0, 1, 1] = 1
+        winning_state[1, 0, 0] = 1
+        winning_state[1, 0, 1] = 1
+        winning_state[2, :, :] = 1
         Q = qlearning_agent.Q
         scores = []
         legal_actions = TicTacToe.legal_actions(winning_state)
@@ -102,7 +101,8 @@ def main():
     parser.add_argument('-u', '--update_target_Q_every', type=int, default=10000)
     parser.add_argument('--min_replay_memory_size', type=int, default=10000)
     parser.add_argument('--max_replay_memory_size', type=int, default=50000)
-    parser.add_argument('-n', '--n_games', type=int, default=100000)
+    parser.add_argument('-n', '--n_games', type=int, default=2000)
+    parser.add_argument('--evaluate_every_n_games', type=int, default=1000)
     args = parser.parse_args()
 
     q = TicTacToeQNetwork()
@@ -117,7 +117,7 @@ def main():
         checkpoint_path = os.path.join(args.job_dir, 'latest.pt')
         start_iter = load_checkpoint(checkpoint_path, qlearning_agent)
 
-    monitor = TicTacToeMonitor(evaluate_every_n_games=1000, job_dir=args.job_dir)
+    monitor = TicTacToeMonitor(evaluate_every_n_games=args.evaluate_every_n_games, job_dir=args.job_dir)
 
     print(f'{datetime.datetime.now()} Starting training.')
     train_qlearning_agent(TicTacToe, qlearning_agent=qlearning_agent, monitor=monitor,
