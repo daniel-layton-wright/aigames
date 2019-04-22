@@ -7,6 +7,7 @@ top_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, top_dir)
 from aigames import *
 import hypertune
+import datetime
 
 
 class TicTacToeQNetwork(nn.Module):
@@ -60,7 +61,7 @@ class TicTacToeMonitor(QLearningMonitor):
 
             pct_loss_vs_minimax = 100.0 * n_losses / n_games
             self.pct_loss_vs_minimax_history.append(pct_loss_vs_minimax)
-            print('Percent Losses against Minimax: {}%'.format(100.0 * n_losses / n_games))
+            print(f'{datetime.datetime.now()} Game #{game_number}. Percent Losses against Minimax: {100.0 * n_losses / n_games}%.')
 
             if pct_loss_vs_minimax == max(self.pct_loss_vs_minimax_history):
                 # this is the best model
@@ -118,6 +119,7 @@ def main():
 
     monitor = TicTacToeMonitor(evaluate_every_n_games=1000, job_dir=args.job_dir)
 
+    print(f'{datetime.datetime.now()} Starting training.')
     train_qlearning_agent(TicTacToe, qlearning_agent=qlearning_agent, monitor=monitor,
                           start_iter=start_iter, n_games=args.n_games)
 
