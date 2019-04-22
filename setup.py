@@ -1,7 +1,6 @@
 from setuptools import setup, find_packages
 
 
-
 setup(
     name='aigames',
     version='0.0.1',
@@ -20,7 +19,7 @@ setup(
         'pandas',
         'numpy',
         'google-cloud-storage',
-        'tensorboardX'
+        'tensorboardX', 'matplotlib'
     ],
     tests_require=[],
     setup_requires=[],

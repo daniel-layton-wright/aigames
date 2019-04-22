@@ -2,7 +2,6 @@
 FROM pytorch/pytorch:1.0-cuda10.0-cudnn7-runtime
 WORKDIR /root
 
-# Installs pandas, google-cloud-storage, and cloudml-hypertune
 RUN pip install pandas google-cloud-storage cloudml-hypertune
 RUN pip install git+https://github.com/daniel-layton-wright/aigames
 
