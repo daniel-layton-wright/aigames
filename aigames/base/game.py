@@ -55,7 +55,6 @@ class PartiallyObservableSequentialGame(Game):
             if self.monitor:
                 self.monitor(self)
 
-
             observable_state = self.get_observable_state(self.state, i)
             next_action = player.choose_action(observable_state, i, verbose = self.verbose)
 

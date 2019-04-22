@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from .base.game import *
-from .base.agent import *
+from aigames.base.game import *
+from aigames.base.agent import *
 from torch.utils.data import Dataset
 
 

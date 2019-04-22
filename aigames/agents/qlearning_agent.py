@@ -54,6 +54,7 @@ class QLearningAgent(SequentialAgent):
             idx = np.random.choice(legal_action_indices)
         else:
             # Exploit
+            self.Q.eval()
             with torch.no_grad():
                 scores = []
                 for action in legal_actions:
@@ -92,6 +93,7 @@ class QLearningAgent(SequentialAgent):
             {
                 'prev_state': self.prev_state[player_index],
                 'prev_action_index': self.prev_action_index[player_index],
+                'processed_state_action': self.Q.process_state_action(self.prev_state[player_index], self.game.ALL_ACTIONS[self.prev_action_index[player_index]], player_index),
                 'next_state': copy.deepcopy(next_state),
                 'reward': self.prev_rewards[player_index] + reward_value,
                 'next_state_is_terminal': self.game.is_terminal_state(next_state)
@@ -108,7 +110,6 @@ class QLearningAgent(SequentialAgent):
 
         if (self.n_iters + 1) % self.update_target_Q_every == 0:
             self.target_Q = copy.deepcopy(self.Q)
-            self.optimizer = torch.optim.RMSprop(self.Q.parameters(), lr = self.lr)
 
         # Sample a minibatch and train
         train_minibatch = np.random.choice(self.replay_memory, self.batch_size)
@@ -118,7 +119,7 @@ class QLearningAgent(SequentialAgent):
 
         batch_prev_processed_states = torch.cat(
             tuple(
-                self.Q.process_state_action(x['prev_state'], self.game.ALL_ACTIONS[x['prev_action_index']], player_index) for x in train_minibatch
+                x['processed_state_action'] for x in train_minibatch
             )
         )
         prev_action_indices = [x['prev_action_index'] for x in train_minibatch]
@@ -136,6 +137,7 @@ class QLearningAgent(SequentialAgent):
 
         y_target = rewards + next_state_q
 
+        self.Q.train()
         self.Q.zero_grad()
         predicted_values = self.Q(batch_prev_processed_states)
         loss = ((y_target - predicted_values)**2).mean()
@@ -150,6 +152,14 @@ class QLearningAgent(SequentialAgent):
         self.loss_ema_history.append(self.loss_ema)
 
         self.n_iters += 1
+
+    def eval(self):
+        self.training = False
+        self.Q.eval()
+
+    def train(self):
+        self.training = True
+        self.Q.train()
 
 
 class Flatten(nn.Module):
@@ -174,11 +184,14 @@ class Qconv(nn.Module):
         return self.network(processed_state)
 
     def process_state_action(self, state, action, player_index):
+        if state[2,0,0] == player_index:
+            return
         x = (2*player_index - 1) * self.game.get_next_state(state, action)
         x = torch.tensor(x).to(torch.float)
         x = x.unsqueeze(0)
         x = x.unsqueeze(1)
         return x
+
 
 class Q(nn.Module):
     def __init__(self, game, hidden_size, activation_fn):

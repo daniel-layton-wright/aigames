@@ -1,0 +1,36 @@
+trainingInput:
+  hyperparameters:
+    goal: MINIMIZE
+    maxTrials: 10
+    maxParallelTrials: 5
+    hyperparameterMetricTag: pct_loss_vs_minimax
+    enableTrialEarlyStopping: TRUE
+    params:
+    - parameterName: lr
+      type: DOUBLE
+      minValue: 0.0000001
+      maxValue: 0.1
+      scaleType: UNIT_LOG_SCALE
+    - parameterName: exploration_probability
+      type: DOUBLE
+      minValue: 0.0
+      maxValue: 0.5
+      scaleType: UNIT_LINEAR_SCALE
+    - parameterName: batch_size
+      type: DISCRETE
+      discreteValues: 16,32,64
+    - parameterName: update_target_Q_every
+      type: INTEGER
+      minValue: 1000
+      maxValue: 50000
+      scaleType: UNIT_LINEAR_SCALE
+    - parameterName: min_replay_memory_size
+      type: INTEGER
+      minValue: 1000
+      maxValue: 10000
+      scaleType: UNIT_LINEAR_SCALE
+    - parameterName: max_replay_memory_size
+      type: INTEGER
+      minValue: 10001
+      maxValue: 50000
+      scaleType: UNIT_LINEAR_SCALE
