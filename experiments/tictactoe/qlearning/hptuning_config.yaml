@@ -18,7 +18,10 @@ trainingInput:
       scaleType: UNIT_LINEAR_SCALE
     - parameterName: batch_size
       type: DISCRETE
-      discreteValues: 16,32,64
+      discreteValues:
+      - 16
+      - 32
+      - 64
     - parameterName: update_target_Q_every
       type: INTEGER
       minValue: 1000

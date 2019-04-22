@@ -39,6 +39,7 @@ class TicTacToeMonitor(QLearningMonitor):
         self.job_dir = job_dir
         self.pct_loss_vs_minimax_history = []
         self.minimax_agent = MinimaxAgent(TicTacToe)
+        self.hpt = hypertune.HyperTune()
 
     def on_game_end(self, qlearning_agent, game_number):
 
@@ -67,8 +68,7 @@ class TicTacToeMonitor(QLearningMonitor):
 
             save_checkpoint(self.job_dir, game_number, qlearning_agent, 'latest.pt')
 
-            hpt = hypertune.HyperTune()
-            hpt.report_hyperparameter_tuning_metric(
+            self.hpt.report_hyperparameter_tuning_metric(
                 hyperparameter_metric_tag='pct_loss_vs_minimax',
                 metric_value=pct_loss_vs_minimax,
                 global_step=game_number)
