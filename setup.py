@@ -20,6 +20,7 @@ setup(
         'pandas',
         'numpy',
         'google-cloud-storage',
+        'tensorboardX'
     ],
     tests_require=[],
     setup_requires=[],
