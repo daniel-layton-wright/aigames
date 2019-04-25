@@ -11,7 +11,7 @@ import datetime
 
 
 class TicTacToeQNetwork(nn.Module):
-    def __init__(self, n_filters = (64, 16)):
+    def __init__(self, n_filters=(64, 16)):
         super().__init__()
         self.game = TicTacToe
         self.network = nn.Sequential(
@@ -101,7 +101,7 @@ def main():
     parser.add_argument('-u', '--update_target_Q_every', type=int, default=10000)
     parser.add_argument('--min_replay_memory_size', type=int, default=10000)
     parser.add_argument('--max_replay_memory_size', type=int, default=50000)
-    parser.add_argument('-n', '--n_games', type=int, default=2000)
+    parser.add_argument('-n', '--n_games', type=int, default=50000)
     parser.add_argument('--evaluate_every_n_games', type=int, default=1000)
     args = parser.parse_args()
 

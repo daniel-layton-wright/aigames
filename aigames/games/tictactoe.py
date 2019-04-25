@@ -66,6 +66,10 @@ class TicTacToe(SequentialGame):
         return self.state_to_str(self.state)
 
     @staticmethod
+    def hashable_state(state):
+        return tuple(state.flatten())
+
+    @staticmethod
     def state_to_str(state):
         def line_to_marks(line):
             out = []

@@ -1,10 +1,7 @@
 import copy
 from collections import defaultdict
-
 import numpy as np
 import torch
-import torch.nn as nn
-
 from aigames.base.agent import *
 
 
@@ -26,7 +23,7 @@ class QLearningAgent(SequentialAgent):
         self.lr = lr
         self.optimizer = torch.optim.RMSprop(self.Q.parameters(), lr = lr)
 
-        self.replay_memory = []
+        self.replay_memory = QLearningAgentReplayMemory(max_replay_memory_size)
         self.min_replay_memory_size = min_replay_memory_size
         self.max_replay_memory_size = max_replay_memory_size
         assert(self.max_replay_memory_size >= self.min_replay_memory_size)
@@ -43,6 +40,7 @@ class QLearningAgent(SequentialAgent):
         self.prev_processed_state = {}
         self.prev_action_index = {}
         self.prev_rewards = defaultdict(int)
+        self._all_processed_state_actions = {}
 
     def choose_action(self, state, player_index, verbose = False):
         legal_actions = self.game.legal_actions(state)
@@ -78,6 +76,27 @@ class QLearningAgent(SequentialAgent):
 
         return max(scores).flatten()
 
+    def get_all_processed_state_actions(self, state, player_index):
+        return self._get_all_processed_state_actions(self.game, state, player_index, self.Q)
+
+    def _get_all_processed_state_actions(self, game, state, player_index, Q):
+        key = None
+        if hasattr(game, 'hashable_state'):
+            key = (game, game.hashable_state(state), player_index, Q)
+            if key in self._all_processed_state_actions:
+                return self._all_processed_state_actions[key]
+
+        legal_actions = game.legal_actions(state)
+        out = torch.cat(tuple(Q.process_state_action(state, action, player_index) for action in legal_actions), 0)
+        n_nans_to_add = len(game.ALL_ACTIONS) - out.shape[0]
+        nans = torch.FloatTensor(np.nan * np.ones((n_nans_to_add, *out.shape[1:])))
+        out = torch.cat((out, nans), 0)
+
+        if key is not None:
+            self._all_processed_state_actions[key] = out
+
+        return out
+
     def reward(self, reward_value, next_state, player_index):
         # Don't do anything if this is just the initial reward
         if player_index not in self.prev_state or not self.training:
@@ -88,58 +107,62 @@ class QLearningAgent(SequentialAgent):
             self.prev_rewards[player_index] += reward_value
             return
 
-        # Add to replay memory if we're back to the given player's turn
-        self.replay_memory.append(
-            {
-                'prev_state': self.prev_state[player_index],
-                'prev_action_index': self.prev_action_index[player_index],
-                'processed_state_action': self.Q.process_state_action(self.prev_state[player_index], self.game.ALL_ACTIONS[self.prev_action_index[player_index]], player_index),
-                'next_state': copy.deepcopy(next_state),
-                'reward': self.prev_rewards[player_index] + reward_value,
-                'next_state_is_terminal': self.game.is_terminal_state(next_state)
-            }
-        )
-        # Reset running rewards to 0
-        self.prev_rewards[player_index] = 0
+        processed_state_action = self.Q.process_state_action(self.prev_state[player_index],
+                                                             self.game.ALL_ACTIONS[self.prev_action_index[player_index]],
+                                                             player_index)
+        terminal = self.game.is_terminal_state(next_state)
+        all_processed_next_state_actions = None
+        if not terminal:
+            all_processed_next_state_actions = self.get_all_processed_state_actions(next_state, player_index)
+
+        self.replay_memory.add(terminal, processed_state_action, self.prev_rewards[player_index] + reward_value,
+                               all_processed_next_state_actions)
 
         if len(self.replay_memory) < self.min_replay_memory_size:
             return
-
-        while len(self.replay_memory) > self.max_replay_memory_size:
-            self.replay_memory.pop(0)
 
         if (self.n_iters + 1) % self.update_target_Q_every == 0:
             self.target_Q = copy.deepcopy(self.Q)
 
         # Sample a minibatch and train
-        train_minibatch = np.random.choice(self.replay_memory, self.batch_size)
-        train_minibatch_terminal = [x for x in train_minibatch if x['next_state_is_terminal']]
-        train_minibatch_non_terminal = [x for x in train_minibatch if not x['next_state_is_terminal']]
-        train_minibatch = train_minibatch_terminal + train_minibatch_non_terminal
+        terminal_minibatch, nonterminal_minibatch = self.replay_memory.sample(self.batch_size)
 
-        batch_prev_processed_states = torch.cat(
-            tuple(
-                x['processed_state_action'] for x in train_minibatch
-            )
-        )
-        prev_action_indices = [x['prev_action_index'] for x in train_minibatch]
-        rewards = (torch.tensor([x['reward'] for x in train_minibatch]).to(torch.float) )
+        processed_state_actions = torch.FloatTensor()
+        rewards = torch.FloatTensor()
+        next_state_q = torch.FloatTensor()
 
-        best_vals = []
-        for non_terminal in train_minibatch_non_terminal:
-            best_vals.append(self.max_over_actions_target_Q(non_terminal['next_state'], player_index))
+        if terminal_minibatch is not None:
+            terminal_processed_state_actions, terminal_rewards = terminal_minibatch
+            processed_state_actions = torch.cat((processed_state_actions, terminal_processed_state_actions), 0)
+            rewards = torch.cat((rewards, terminal_rewards), 0)
+            next_state_q = torch.cat((next_state_q, torch.FloatTensor(np.zeros((len(terminal_rewards), 1)))), 0)
 
-        if len(train_minibatch_non_terminal) > 0:
-            best_vals = torch.cat(best_vals)
-            next_state_q = torch.cat((torch.tensor(np.zeros((len(train_minibatch_terminal),))).to(torch.float), best_vals)).flatten()
-        else:
-            next_state_q = torch.tensor(np.zeros((len(train_minibatch_terminal),))).to(torch.float).flatten()
+        if nonterminal_minibatch is not None:
+            nonterminal_processed_state_actions, nonterminal_rewards, nonterminal_all_processed_next_state_actions = nonterminal_minibatch
+
+            def strip_nans(x):
+                nans = torch.isnan(x).any(-1)
+                while nans.dim() > 1:
+                    nans = nans.any(-1)
+
+                return x[~nans]
+
+            with torch.no_grad():
+                best_vals = torch.cat(
+                    tuple(
+                        torch.FloatTensor([self.target_Q(strip_nans(x)).max()])
+                        for x in nonterminal_all_processed_next_state_actions
+                    )
+                ).unsqueeze(1)
+
+            processed_state_actions = torch.cat((processed_state_actions, nonterminal_processed_state_actions), 0)
+            rewards = torch.cat((rewards, nonterminal_rewards), 0)
+            next_state_q = torch.cat((next_state_q, best_vals), 0)
 
         y_target = rewards + next_state_q
-
         self.Q.train()
         self.Q.zero_grad()
-        predicted_values = self.Q(batch_prev_processed_states)
+        predicted_values = self.Q(processed_state_actions)
         loss = ((y_target - predicted_values)**2).mean()
         loss.backward()
         self.optimizer.step()
@@ -162,64 +185,77 @@ class QLearningAgent(SequentialAgent):
         self.Q.train()
 
 
-class Flatten(nn.Module):
-    def forward(self, input):
-        return input.view(input.size(0), -1)
+class QLearningAgentReplayMemory:
+    def __init__(self, max_size):
+        self.max_size = max_size
+        self.terminal_processed_state_actions = torch.FloatTensor(())
+        self.terminal_rewards = torch.FloatTensor(())
+        self.nonterminal_processed_state_actions = torch.FloatTensor(())
+        self.nonterminal_rewards = torch.FloatTensor(())
+        self.nonterminal_all_processed_next_state_actions = torch.FloatTensor(())
+        self.terminal_states = []
 
+    def add(self, next_state_is_terminal, processed_state_action, reward,
+            all_processed_next_state_actions=None):
+        while len(self) >= self.max_size:
+            self.pop()
 
-class Qconv(nn.Module):
-    def __init__(self, game, n_filters = (64, 16)):
-        super().__init__()
-        self.game = game
-        self.network = nn.Sequential(
-            torch.nn.Conv2d(1, n_filters[0], 3, stride=1, padding=1),
-            nn.ReLU(),
-            torch.nn.Conv2d(n_filters[0], n_filters[1], 3, stride=1, padding=1),
-            nn.ReLU(),
-            Flatten(),
-            nn.Linear(in_features=(n_filters[1] * 3 * 3), out_features=1, bias=True)
-        )
+        if next_state_is_terminal:
+            self.terminal_states.append(True)
+            self.terminal_processed_state_actions = torch.cat(
+                (self.terminal_processed_state_actions, processed_state_action),
+                0
+            )
+            self.terminal_rewards = torch.cat(
+                (self.terminal_rewards, torch.FloatTensor([reward]).unsqueeze(0)),
+                0
+            )
+        else:
+            self.terminal_states.append(False)
+            self.nonterminal_processed_state_actions = torch.cat(
+                (self.nonterminal_processed_state_actions, processed_state_action),
+                0
+            )
+            self.nonterminal_rewards = torch.cat(
+                (self.nonterminal_rewards, torch.FloatTensor([reward]).unsqueeze(0)),
+                0
+            )
+            self.nonterminal_all_processed_next_state_actions = torch.cat(
+                (self.nonterminal_all_processed_next_state_actions, all_processed_next_state_actions.unsqueeze(0)),
+                0
+            )
 
-    def forward(self, processed_state):
-        return self.network(processed_state)
+    def __len__(self):
+        return len(self.terminal_processed_state_actions) + len(self.nonterminal_processed_state_actions)
 
-    def process_state_action(self, state, action, player_index):
-        if state[2,0,0] == player_index:
-            return
-        x = (2*player_index - 1) * self.game.get_next_state(state, action)
-        x = torch.tensor(x).to(torch.float)
-        x = x.unsqueeze(0)
-        x = x.unsqueeze(1)
-        return x
+    def pop(self):
+        terminal = self.terminal_states.pop(0)
+        if terminal:
+            self.terminal_processed_state_actions = self.terminal_processed_state_actions[1:]
+            self.terminal_rewards = self.terminal_rewards[1:]
+        else:
+            self.nonterminal_processed_state_actions = self.nonterminal_processed_state_actions[1:]
+            self.nonterminal_rewards = self.nonterminal_rewards[1:]
+            self.nonterminal_all_processed_next_state_actions = self.nonterminal_all_processed_next_state_actions[1:]
 
+    def sample(self, batch_size):
+        frac_terminal = len(self.terminal_processed_state_actions) / float(len(self))
+        n_terminal = np.random.binomial(batch_size, frac_terminal)
 
-class Q(nn.Module):
-    def __init__(self, game, hidden_size, activation_fn):
-        super().__init__()
-        self.game = game
-        if not hasattr(hidden_size, '__len__'):
-            hidden_size = (hidden_size,)
-        self.hidden_size = hidden_size
-        self.n_layers = len(hidden_size)
+        terminal_dataset = torch.utils.data.TensorDataset(self.terminal_processed_state_actions, self.terminal_rewards)
+        nonterminal_dataset = torch.utils.data.TensorDataset(self.nonterminal_processed_state_actions,
+                                                             self.nonterminal_rewards,
+                                                             self.nonterminal_all_processed_next_state_actions)
 
-        layers = [nn.Linear(game.STATE_SIZE + game.ACTION_SIZE + 1, self.hidden_size[0])]
-        for i in range(1, self.n_layers):
-            layers.append(activation_fn())
-            layers.append(nn.Linear(self.hidden_size[i-1], self.hidden_size[i]))
-
-        layers.append(activation_fn())
-        layers.append(nn.Linear(self.hidden_size[-1], 1))
-                                #len(self.game.ALL_ACTIONS)))
-
-        self.network = nn.Sequential(
-            *layers
-        )
-
-    def forward(self, processed_state):
-        pred_scores = self.network(processed_state)
-        return pred_scores
-
-    @staticmethod
-    def process_state_action(state, action, player_index):
-        out = torch.tensor(np.concatenate((state.flatten(), np.array(action).flatten(), np.array([player_index])))).to(torch.float)
-        return out
+        if n_terminal == 0:
+            nonterminal_dataloader = torch.utils.data.DataLoader(nonterminal_dataset, batch_size=(batch_size - n_terminal),
+                                                              shuffle=True)
+            return None, next(iter(nonterminal_dataloader))
+        elif n_terminal == batch_size:
+            terminal_dataloader = torch.utils.data.DataLoader(terminal_dataset, batch_size=n_terminal, shuffle=True)
+            return next(iter(terminal_dataloader)), None
+        else:
+            terminal_dataloader = torch.utils.data.DataLoader(terminal_dataset, batch_size=n_terminal, shuffle=True)
+            nonterminal_dataloader = torch.utils.data.DataLoader(nonterminal_dataset, batch_size=(batch_size - n_terminal),
+                                                              shuffle=True)
+            return next(iter(terminal_dataloader)), next(iter(nonterminal_dataloader))
