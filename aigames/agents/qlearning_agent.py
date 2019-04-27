@@ -125,7 +125,12 @@ class QLearningAgent(SequentialAgent):
             terminal_processed_state_actions, terminal_rewards = map(lambda x: x.to(self.device), terminal_minibatch)
             processed_state_actions = torch.cat((processed_state_actions, terminal_processed_state_actions), 0)
             rewards = torch.cat((rewards, terminal_rewards), 0)
-            next_state_q = torch.cat((next_state_q, torch.FloatTensor(np.zeros((len(terminal_rewards), 1)))), 0)
+            next_state_q = torch.cat(
+                (next_state_q,
+                 torch.FloatTensor(np.zeros((len(terminal_rewards), 1))).to(self.device)
+                 ),
+                0
+            )
 
         if nonterminal_minibatch is not None:
             nonterminal_processed_state_actions, nonterminal_rewards, nonterminal_all_processed_next_state_actions = (
