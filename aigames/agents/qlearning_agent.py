@@ -3,22 +3,29 @@ from collections import defaultdict
 import numpy as np
 import torch
 from aigames.base.agent import *
+from aigames.base.utils import *
 
 
 class QLearningAgent(SequentialAgent):
-    def __init__(self, game, Q, exploration_probability = 0.1,
-                 batch_size = 16, lr = 0.01, update_target_Q_every = 10000,
-                 min_replay_memory_size = 10000, max_replay_memory_size = 10000):
+    def __init__(self, game, Q, exploration_probability=0.1,
+                 batch_size=16, lr=0.01, update_target_Q_every=10000,
+                 min_replay_memory_size=10000, max_replay_memory_size=10000,
+                 device='cpu'):
         """
 
         :param Q: the Q predictor to be used
         """
+        super().__init__(game)
+
         self.game = game
         self.exploration_probability = exploration_probability
         self.training = True
 
+        self.device = torch.device(device)
         self.Q = Q
+        self.Q.to(self.device)
         self.target_Q = copy.deepcopy(Q)
+        self.target_Q.to(self.device)
         self.batch_size = batch_size
         self.lr = lr
         self.optimizer = torch.optim.RMSprop(self.Q.parameters(), lr = lr)
@@ -36,9 +43,7 @@ class QLearningAgent(SequentialAgent):
         self.update_target_Q_every = update_target_Q_every
 
         # Used to save so that when the reward comes back we can add to the replay memory
-        self.prev_state = {}
         self.prev_processed_state = {}
-        self.prev_action_index = {}
         self.prev_rewards = defaultdict(int)
         self._all_processed_state_actions = {}
 
@@ -53,28 +58,16 @@ class QLearningAgent(SequentialAgent):
         else:
             # Exploit
             self.Q.eval()
+            all_processed_state_actions = self.get_all_processed_state_actions(state, player_index)
+            all_processed_state_actions.to(self.device)
             with torch.no_grad():
-                scores = []
-                for action in legal_actions:
-                    processed_state_action = self.Q.process_state_action(state, action, player_index)
-                    scores.append(self.Q(processed_state_action))
+                scores = self.Q(strip_nans(all_processed_state_actions))
 
-                idx = legal_action_indices[np.argmax(scores)]
+            idx = legal_action_indices[np.argmax(scores)]
 
-        self.prev_state[player_index] = copy.deepcopy(state)
-        self.prev_action_index[player_index] = idx
-
-        return self.game.ALL_ACTIONS[idx]
-
-    def max_over_actions_target_Q(self, state, player_index):
-        scores = []
-        legal_actions = self.game.legal_actions(state)
-        for action in legal_actions:
-            processed_state_action = self.Q.process_state_action(state, action, player_index)
-            with torch.no_grad():
-                scores.append(self.target_Q(processed_state_action))
-
-        return max(scores).flatten()
+        action = self.game.ALL_ACTIONS[idx]
+        self.prev_processed_state[player_index] = self.Q.process_state_action(state, action,player_index)
+        return action
 
     def get_all_processed_state_actions(self, state, player_index):
         return self._get_all_processed_state_actions(self.game, state, player_index, self.Q)
@@ -99,7 +92,7 @@ class QLearningAgent(SequentialAgent):
 
     def reward(self, reward_value, next_state, player_index):
         # Don't do anything if this is just the initial reward
-        if player_index not in self.prev_state or not self.training:
+        if player_index not in self.prev_processed_state or not self.training:
             return
 
         if player_index != self.game.get_player_index(next_state) and not self.game.is_terminal_state(next_state):
@@ -107,15 +100,12 @@ class QLearningAgent(SequentialAgent):
             self.prev_rewards[player_index] += reward_value
             return
 
-        processed_state_action = self.Q.process_state_action(self.prev_state[player_index],
-                                                             self.game.ALL_ACTIONS[self.prev_action_index[player_index]],
-                                                             player_index)
         terminal = self.game.is_terminal_state(next_state)
         all_processed_next_state_actions = None
         if not terminal:
             all_processed_next_state_actions = self.get_all_processed_state_actions(next_state, player_index)
 
-        self.replay_memory.add(terminal, processed_state_action, self.prev_rewards[player_index] + reward_value,
+        self.replay_memory.add(terminal, self.prev_processed_state[player_index], self.prev_rewards[player_index] + reward_value,
                                all_processed_next_state_actions)
 
         if len(self.replay_memory) < self.min_replay_memory_size:
@@ -140,17 +130,10 @@ class QLearningAgent(SequentialAgent):
         if nonterminal_minibatch is not None:
             nonterminal_processed_state_actions, nonterminal_rewards, nonterminal_all_processed_next_state_actions = nonterminal_minibatch
 
-            def strip_nans(x):
-                nans = torch.isnan(x).any(-1)
-                while nans.dim() > 1:
-                    nans = nans.any(-1)
-
-                return x[~nans]
-
             with torch.no_grad():
                 best_vals = torch.cat(
                     tuple(
-                        torch.FloatTensor([self.target_Q(strip_nans(x)).max()])
+                        torch.FloatTensor([self.target_Q(strip_nans(x).to(self.device)).max()])
                         for x in nonterminal_all_processed_next_state_actions
                     )
                 ).unsqueeze(1)
@@ -160,6 +143,7 @@ class QLearningAgent(SequentialAgent):
             next_state_q = torch.cat((next_state_q, best_vals), 0)
 
         y_target = rewards + next_state_q
+        processed_state_actions.to(self.device)
         self.Q.train()
         self.Q.zero_grad()
         predicted_values = self.Q(processed_state_actions)

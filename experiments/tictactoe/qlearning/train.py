@@ -103,6 +103,7 @@ def main():
     parser.add_argument('--max_replay_memory_size', type=int, default=50000)
     parser.add_argument('-n', '--n_games', type=int, default=50000)
     parser.add_argument('--evaluate_every_n_games', type=int, default=1000)
+    parser.add_argument('--device', type=str, default='cpu')
     args = parser.parse_args()
 
     q = TicTacToeQNetwork()
@@ -110,7 +111,8 @@ def main():
                                      lr=args.lr, exploration_probability=args.exploration_probability,
                                      batch_size=args.batch_size, update_target_Q_every=args.update_target_Q_every,
                                      min_replay_memory_size=args.min_replay_memory_size,
-                                     max_replay_memory_size=args.max_replay_memory_size)
+                                     max_replay_memory_size=args.max_replay_memory_size,
+                                     device=args.device)
 
     start_iter = 0
     if args.job_dir is not None:
