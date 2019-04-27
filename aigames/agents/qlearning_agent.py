@@ -59,9 +59,9 @@ class QLearningAgent(SequentialAgent):
             # Exploit
             self.Q.eval()
             all_processed_state_actions = self.get_all_processed_state_actions(state, player_index)
-            all_processed_state_actions.to(self.device)
+            all_processed_state_actions = strip_nans(all_processed_state_actions).to(self.device)
             with torch.no_grad():
-                scores = self.Q(strip_nans(all_processed_state_actions))
+                scores = self.Q(all_processed_state_actions)
 
             idx = legal_action_indices[np.argmax(scores)]
 
