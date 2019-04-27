@@ -63,7 +63,7 @@ class QLearningAgent(SequentialAgent):
             with torch.no_grad():
                 scores = self.Q(all_processed_state_actions)
 
-            idx = legal_action_indices[np.argmax(scores)]
+            idx = legal_action_indices[scores.max(0)[1]]  # max returns maxvalue, argmax
 
         action = self.game.ALL_ACTIONS[idx]
         self.prev_processed_state[player_index] = self.Q.process_state_action(state, action,player_index)
