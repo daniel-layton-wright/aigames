@@ -143,7 +143,7 @@ class QLearningAgent(SequentialAgent):
             next_state_q = torch.cat((next_state_q, best_vals), 0)
 
         y_target = rewards + next_state_q
-        processed_state_actions.to(self.device)
+        processed_state_actions = processed_state_actions.to(self.device)
         self.Q.train()
         self.Q.zero_grad()
         predicted_values = self.Q(processed_state_actions)
