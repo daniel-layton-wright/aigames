@@ -115,7 +115,6 @@ class QLearningAgent(SequentialAgent):
         if not terminal:
             all_processed_next_state_actions = self.get_all_processed_state_actions(next_state, player_index)
 
-
         self.replay_memory.add(terminal, self.prev_processed_state[player_index],
                                self.prev_rewards[player_index] + reward_value,
                                all_processed_next_state_actions)
@@ -176,10 +175,15 @@ class QLearningAgent(SequentialAgent):
                 map(lambda x: x.to(self.device), nonterminal_minibatch))
 
             with torch.no_grad():
-                best_vals = torch.cat(
+                shape = nonterminal_all_processed_next_state_actions.shape
+                nonterminal_all_processed_next_state_actions = nonterminal_all_processed_next_state_actions.reshape(
+                    shape[0]*shape[1], *shape[2:]
+                ).to(self.device)
+                scores = self.target_Q(nonterminal_all_processed_next_state_actions)
+                scores = scores.reshape(shape[0], shape[1])
+                best_vals = torch.FloatTensor(
                     tuple(
-                        torch.FloatTensor([self.target_Q(strip_nans(x).to(self.device)).max()])
-                        for x in nonterminal_all_processed_next_state_actions
+                        x[~torch.isnan(x)].max() for x in scores
                     )
                 ).unsqueeze(1).to(self.device)
 
