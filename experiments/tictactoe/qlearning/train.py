@@ -96,11 +96,11 @@ class TicTacToeMonitor(QLearningMonitor):
         with torch.no_grad():
             scores = Q(all_processed_state_actions)
 
-        self.score_for_winning_position_history.append(max(scores))
+        self.score_for_winning_position_history.append(max(scores.cpu()))
 
         wandb.log({
             'game_number': game_number,
-            'score_for_winning_position': max(scores),
+            'score_for_winning_position': max(scores.cpu()),
             'loss': qlearning_agent.loss_history[-1],
             'loss_ema': qlearning_agent.loss_ema_history[-1],
             'exploration_probability': qlearning_agent.exploration_probability
