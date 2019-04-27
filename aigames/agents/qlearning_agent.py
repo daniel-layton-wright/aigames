@@ -142,7 +142,7 @@ class QLearningAgent(SequentialAgent):
                         torch.FloatTensor([self.target_Q(strip_nans(x).to(self.device)).max()])
                         for x in nonterminal_all_processed_next_state_actions
                     )
-                ).unsqueeze(1)
+                ).unsqueeze(1).to(self.device)
 
             processed_state_actions = torch.cat((processed_state_actions, nonterminal_processed_state_actions), 0)
             rewards = torch.cat((rewards, nonterminal_rewards), 0)
