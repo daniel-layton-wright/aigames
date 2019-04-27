@@ -1,24 +1,29 @@
 import copy
 from collections import defaultdict
 import numpy as np
-import torch
 from aigames.base.agent import *
 from aigames.base.utils import *
+import torch
 
 
 class QLearningAgent(SequentialAgent):
-    def __init__(self, game, Q, exploration_probability=0.1,
-                 batch_size=16, lr=0.01, update_target_Q_every=10000,
+    def __init__(self, game, Q, update_target_Q_every_n_iters=10000,
+                 exploration_probability=0.1, exploration_probability_decay=1,
+                 decay_exploration_probability_every_n_iters=100,
+                 optimizer_class = torch.optim.RMSprop, batch_size=16, lr=0.01, weight_decay=0,
                  min_replay_memory_size=10000, max_replay_memory_size=10000,
                  device='cpu'):
         """
 
         :param Q: the Q predictor to be used
+        NOTE: iters refers to one step of the optimizer
         """
         super().__init__(game)
 
         self.game = game
         self.exploration_probability = exploration_probability
+        self.exploration_probability_decay = exploration_probability_decay
+        self.decay_exploration_probability_every_n_iters = decay_exploration_probability_every_n_iters
         self.training = True
 
         self.device = torch.device(device)
@@ -28,7 +33,9 @@ class QLearningAgent(SequentialAgent):
         self.target_Q.to(self.device)
         self.batch_size = batch_size
         self.lr = lr
-        self.optimizer = torch.optim.RMSprop(self.Q.parameters(), lr = lr)
+        self.weight_decay = weight_decay
+        self.optimizer_class = optimizer_class
+        self.optimizer = self.optimizer_class(self.Q.parameters(), lr=lr, weight_decay=self.weight_decay)
 
         self.replay_memory = QLearningAgentReplayMemory(max_replay_memory_size)
         self.min_replay_memory_size = min_replay_memory_size
@@ -40,7 +47,7 @@ class QLearningAgent(SequentialAgent):
         self.loss_history = []
         self.loss_ema_history = []
         self.n_iters = 0
-        self.update_target_Q_every = update_target_Q_every
+        self.update_target_Q_every_n_iters = update_target_Q_every_n_iters
 
         # Used to save so that when the reward comes back we can add to the replay memory
         self.prev_processed_state = {}
@@ -52,7 +59,9 @@ class QLearningAgent(SequentialAgent):
         legal_action_indices = [self.game.ALL_ACTIONS.index(a) for a in legal_actions]
 
         # epsilon-Greedy
-        if (self.training and np.random.random() < self.exploration_probability) or len(self.replay_memory) < self.min_replay_memory_size:
+        if (self.training
+            and (np.random.random() < self.exploration_probability
+                 or len(self.replay_memory) < self.min_replay_memory_size)):
             # Explore
             idx = np.random.choice(legal_action_indices)
         else:
@@ -100,21 +109,51 @@ class QLearningAgent(SequentialAgent):
             self.prev_rewards[player_index] += reward_value
             return
 
+        # Add to the replay memory
         terminal = self.game.is_terminal_state(next_state)
         all_processed_next_state_actions = None
         if not terminal:
             all_processed_next_state_actions = self.get_all_processed_state_actions(next_state, player_index)
 
-        self.replay_memory.add(terminal, self.prev_processed_state[player_index], self.prev_rewards[player_index] + reward_value,
+
+        self.replay_memory.add(terminal, self.prev_processed_state[player_index],
+                               self.prev_rewards[player_index] + reward_value,
                                all_processed_next_state_actions)
 
+        # If we haven't reached the min replay memory size, don't do any training
         if len(self.replay_memory) < self.min_replay_memory_size:
             return
 
-        if (self.n_iters + 1) % self.update_target_Q_every == 0:
+        # update the target network every so often
+        if (self.n_iters + 1) % self.update_target_Q_every_n_iters == 0:
             self.target_Q = copy.deepcopy(self.Q)
 
+        # decay the exploration probability every so often
+        if (self.n_iters + 1) % self.decay_exploration_probability_every_n_iters == 0:
+            self.exploration_probability *= self.exploration_probability_decay
+
         # Sample a minibatch and train
+        processed_state_actions, y_target = self.sample_minibatch_training_data()
+
+        self.Q.train()
+        self.Q.zero_grad()
+        predicted_values = self.Q(processed_state_actions)
+        loss = ((y_target - predicted_values)**2).mean()
+        loss.backward()
+        self.optimizer.step()
+
+        # Save some information
+        self.loss_history.append(loss.item())
+        if self.loss_ema is None:
+            self.loss_ema = loss.item()
+        else:
+            self.loss_ema = self.loss_ema_param * self.loss_ema + (1 - self.loss_ema_param) * loss.item()
+        self.loss_ema_history.append(self.loss_ema)
+
+        # Increment the n_iters
+        self.n_iters += 1
+
+    def sample_minibatch_training_data(self):
         terminal_minibatch, nonterminal_minibatch = self.replay_memory.sample(self.batch_size)
 
         processed_state_actions = torch.FloatTensor().to(self.device)
@@ -149,21 +188,7 @@ class QLearningAgent(SequentialAgent):
             next_state_q = torch.cat((next_state_q, best_vals), 0)
 
         y_target = rewards + next_state_q
-        self.Q.train()
-        self.Q.zero_grad()
-        predicted_values = self.Q(processed_state_actions)
-        loss = ((y_target - predicted_values)**2).mean()
-        loss.backward()
-        self.optimizer.step()
-
-        self.loss_history.append(loss.item())
-        if self.loss_ema is None:
-            self.loss_ema = loss.item()
-        else:
-            self.loss_ema = self.loss_ema_param * self.loss_ema + (1 - self.loss_ema_param) * loss.item()
-        self.loss_ema_history.append(self.loss_ema)
-
-        self.n_iters += 1
+        return processed_state_actions, y_target
 
     def eval(self):
         self.training = False

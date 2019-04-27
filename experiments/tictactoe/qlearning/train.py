@@ -8,6 +8,7 @@ sys.path.insert(0, top_dir)
 from aigames import *
 import hypertune
 import datetime
+import wandb
 
 
 class TicTacToeQNetwork(nn.Module):
@@ -28,7 +29,7 @@ class TicTacToeQNetwork(nn.Module):
 
     def process_state_action(self, state, action, player_index):
         x = self.game.get_next_state(state, action)
-        x = torch.tensor(x).to(torch.float)
+        x = torch.FloatTensor(x)
         x = x.unsqueeze(0)
         return x
 
@@ -42,7 +43,11 @@ class TicTacToeMonitor(QLearningMonitor):
         self.minimax_agent = MinimaxAgent(TicTacToe)
         self.hpt = hypertune.HyperTune()
 
-    def on_game_end(self, qlearning_agent, game_number):
+    def on_game_end(self, qlearning_agent: QLearningAgent, game_number):
+
+        # If we haven't started training, no need to log anything
+        if len(qlearning_agent.replay_memory) < qlearning_agent.min_replay_memory_size:
+            return
 
         if game_number % self.evaluate_every_n_games == 0:
             # Play the minimax agent and record the average
@@ -74,6 +79,11 @@ class TicTacToeMonitor(QLearningMonitor):
                 metric_value=pct_loss_vs_minimax,
                 global_step=game_number)
 
+            wandb.log({
+                'game_number': game_number,
+                'pct_loss_vs_minimax': pct_loss_vs_minimax
+            })
+
         winning_state = np.zeros((3, 3, 3)).astype(int)
         winning_state[0, 1, 0] = 1
         winning_state[0, 1, 1] = 1
@@ -88,26 +98,45 @@ class TicTacToeMonitor(QLearningMonitor):
 
         self.score_for_winning_position_history.append(max(scores))
 
+        wandb.log({
+            'game_number': game_number,
+            'score_for_winning_position': max(scores),
+            'loss': qlearning_agent.loss_history[-1],
+            'loss_ema': qlearning_agent.loss_ema_history[-1],
+            'exploration_probability': qlearning_agent.exploration_probability
+        })
+
 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Run training')
     parser.add_argument('-l', '--lr', type=float, default=0.005)
     parser.add_argument('-e', '--exploration_probability', type=float, default=0.1)
+    parser.add_argument('--exploration_probability_decay', type=float, default=1)
     parser.add_argument('-b', '--batch_size', type=int, default=32)
     parser.add_argument('--job-dir', type=str, default=None)
-    parser.add_argument('-u', '--update_target_Q_every', type=int, default=10000)
+    parser.add_argument('-u', '--update_target_Q_every_n_iters', type=int, default=10000)
     parser.add_argument('--min_replay_memory_size', type=int, default=10000)
     parser.add_argument('--max_replay_memory_size', type=int, default=50000)
     parser.add_argument('-n', '--n_games', type=int, default=50000)
     parser.add_argument('--evaluate_every_n_games', type=int, default=1000)
     parser.add_argument('--device', type=str, default='cpu')
+    parser.add_argument('--optimizer_class', type=str, default='RMSprop')
     args = parser.parse_args()
 
+    wandb.init(project='aigames')
+    wandb.config.update(args)
+
     q = TicTacToeQNetwork()
+    wandb.watch(q)
+
+    optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
     qlearning_agent = QLearningAgent(TicTacToe, q,
+                                     optimizer_class=optimizer_class,
                                      lr=args.lr, exploration_probability=args.exploration_probability,
-                                     batch_size=args.batch_size, update_target_Q_every=args.update_target_Q_every,
+                                     exploration_probability_decay=args.exploration_probability_decay,
+                                     batch_size=args.batch_size,
+                                     update_target_Q_every_n_iters=args.update_target_Q_every_n_iters,
                                      min_replay_memory_size=args.min_replay_memory_size,
                                      max_replay_memory_size=args.max_replay_memory_size,
                                      device=args.device)
