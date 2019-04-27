@@ -117,18 +117,19 @@ class QLearningAgent(SequentialAgent):
         # Sample a minibatch and train
         terminal_minibatch, nonterminal_minibatch = self.replay_memory.sample(self.batch_size)
 
-        processed_state_actions = torch.FloatTensor()
-        rewards = torch.FloatTensor()
-        next_state_q = torch.FloatTensor()
+        processed_state_actions = torch.FloatTensor().to(self.device)
+        rewards = torch.FloatTensor().to(self.device)
+        next_state_q = torch.FloatTensor().to(self.device)
 
         if terminal_minibatch is not None:
-            terminal_processed_state_actions, terminal_rewards = terminal_minibatch
+            terminal_processed_state_actions, terminal_rewards = map(lambda x: x.to(self.device), terminal_minibatch)
             processed_state_actions = torch.cat((processed_state_actions, terminal_processed_state_actions), 0)
             rewards = torch.cat((rewards, terminal_rewards), 0)
             next_state_q = torch.cat((next_state_q, torch.FloatTensor(np.zeros((len(terminal_rewards), 1)))), 0)
 
         if nonterminal_minibatch is not None:
-            nonterminal_processed_state_actions, nonterminal_rewards, nonterminal_all_processed_next_state_actions = nonterminal_minibatch
+            nonterminal_processed_state_actions, nonterminal_rewards, nonterminal_all_processed_next_state_actions = (
+                map(lambda x: x.to(self.device), nonterminal_minibatch))
 
             with torch.no_grad():
                 best_vals = torch.cat(
@@ -143,7 +144,6 @@ class QLearningAgent(SequentialAgent):
             next_state_q = torch.cat((next_state_q, best_vals), 0)
 
         y_target = rewards + next_state_q
-        processed_state_actions = processed_state_actions.to(self.device)
         self.Q.train()
         self.Q.zero_grad()
         predicted_values = self.Q(processed_state_actions)
