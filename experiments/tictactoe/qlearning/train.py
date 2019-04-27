@@ -34,13 +34,12 @@ class TicTacToeQNetwork(nn.Module):
 
 
 class TicTacToeMonitor(QLearningMonitor):
-    def __init__(self, evaluate_every_n_games, job_dir, device):
+    def __init__(self, evaluate_every_n_games, job_dir):
         self.score_for_winning_position_history = []
         self.evaluate_every_n_games = evaluate_every_n_games
         self.job_dir = job_dir
         self.pct_loss_vs_minimax_history = []
         self.minimax_agent = MinimaxAgent(TicTacToe)
-        self.device = device
         self.hpt = hypertune.HyperTune()
 
     def on_game_end(self, qlearning_agent, game_number):
