@@ -34,12 +34,13 @@ class TicTacToeQNetwork(nn.Module):
 
 
 class TicTacToeMonitor(QLearningMonitor):
-    def __init__(self, evaluate_every_n_games, job_dir):
+    def __init__(self, evaluate_every_n_games, job_dir, device):
         self.score_for_winning_position_history = []
         self.evaluate_every_n_games = evaluate_every_n_games
         self.job_dir = job_dir
         self.pct_loss_vs_minimax_history = []
         self.minimax_agent = MinimaxAgent(TicTacToe)
+        self.device = device
         self.hpt = hypertune.HyperTune()
 
     def on_game_end(self, qlearning_agent, game_number):
@@ -81,12 +82,10 @@ class TicTacToeMonitor(QLearningMonitor):
         winning_state[1, 0, 1] = 1
         winning_state[2, :, :] = 1
         Q = qlearning_agent.Q
-        scores = []
-        legal_actions = TicTacToe.legal_actions(winning_state)
-        for action in legal_actions:
-            processed_state_action = Q.process_state_action(winning_state, action, TicTacToe.get_player_index(winning_state))
-            with torch.no_grad():
-                scores.append(Q(processed_state_action))
+        all_processed_state_actions = Q.get_all_processed_state_actions(winning_state, 1)
+        all_processed_state_actions.to(Q.device)
+        with torch.no_grad():
+            scores = Q(strip_nans(all_processed_state_actions))
 
         self.score_for_winning_position_history.append(max(scores))
 
