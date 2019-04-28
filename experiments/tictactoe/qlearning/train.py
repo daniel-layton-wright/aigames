@@ -111,8 +111,10 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='Run training')
     parser.add_argument('-l', '--lr', type=float, default=0.005)
+    parser.add_argument('-w', '--weight_decay', type=float, default=0)
     parser.add_argument('-e', '--exploration_probability', type=float, default=0.1)
     parser.add_argument('--exploration_probability_decay', type=float, default=1)
+    parser.add_argument('--decay_exploration_probability_every_n_iters', type=int, default=100)
     parser.add_argument('-b', '--batch_size', type=int, default=32)
     parser.add_argument('--job-dir', type=str, default=None)
     parser.add_argument('-u', '--update_target_Q_every_n_iters', type=int, default=10000)
@@ -132,9 +134,10 @@ def main():
 
     optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
     qlearning_agent = QLearningAgent(TicTacToe, q,
-                                     optimizer_class=optimizer_class,
-                                     lr=args.lr, exploration_probability=args.exploration_probability,
+                                     optimizer_class=optimizer_class, lr=args.lr, weight_decay=args.weight_decay,
+                                     exploration_probability=args.exploration_probability,
                                      exploration_probability_decay=args.exploration_probability_decay,
+                                     decay_exploration_probability_every_n_iters=args.decay_exploration_probability_every_n_iters,
                                      batch_size=args.batch_size,
                                      update_target_Q_every_n_iters=args.update_target_Q_every_n_iters,
                                      min_replay_memory_size=args.min_replay_memory_size,
