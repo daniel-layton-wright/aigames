@@ -130,15 +130,13 @@ def get_parser():
 def main():
     parser = get_parser()
     args = parser.parse_args()
-
-    wandb.init(project='aigames')
-    wandb.config.update(args)
-
     q = TicTacToeQNetwork()
     run(q, args)
 
 
 def run(q, args):
+    wandb.init(project='aigames')
+    wandb.config.update(args)
     wandb.watch(q)
 
     optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
