@@ -107,7 +107,7 @@ class TicTacToeMonitor(QLearningMonitor):
         })
 
 
-def main():
+def get_parser():
     import argparse
     parser = argparse.ArgumentParser(description='Run training')
     parser.add_argument('-l', '--lr', type=float, default=0.005)
@@ -124,12 +124,21 @@ def main():
     parser.add_argument('--evaluate_every_n_games', type=int, default=1000)
     parser.add_argument('--device', type=str, default='cpu')
     parser.add_argument('--optimizer_class', type=str, default='RMSprop')
+    return parser
+
+
+def main():
+    parser = get_parser()
     args = parser.parse_args()
 
     wandb.init(project='aigames')
     wandb.config.update(args)
 
     q = TicTacToeQNetwork()
+    run(q, args)
+
+
+def run(q, args):
     wandb.watch(q)
 
     optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
