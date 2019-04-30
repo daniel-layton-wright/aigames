@@ -206,11 +206,11 @@ class QLearningAgent(SequentialAgent):
 class QLearningAgentReplayMemory:
     def __init__(self, max_size):
         self.max_size = max_size
-        self.terminal_processed_state_actions = torch.FloatTensor(())
-        self.terminal_rewards = torch.FloatTensor(())
-        self.nonterminal_processed_state_actions = torch.FloatTensor(())
-        self.nonterminal_rewards = torch.FloatTensor(())
-        self.nonterminal_all_processed_next_state_actions = torch.FloatTensor(())
+        self.terminal_processed_state_actions = []
+        self.terminal_rewards = []
+        self.nonterminal_processed_state_actions = []
+        self.nonterminal_rewards = []
+        self.nonterminal_all_processed_next_state_actions = []
         self.terminal_states = []
 
     def add(self, next_state_is_terminal, processed_state_action, reward,
@@ -220,28 +220,13 @@ class QLearningAgentReplayMemory:
 
         if next_state_is_terminal:
             self.terminal_states.append(True)
-            self.terminal_processed_state_actions = torch.cat(
-                (self.terminal_processed_state_actions, processed_state_action),
-                0
-            )
-            self.terminal_rewards = torch.cat(
-                (self.terminal_rewards, torch.FloatTensor([reward]).unsqueeze(0)),
-                0
-            )
+            self.terminal_processed_state_actions.append(processed_state_action.squeeze(0))
+            self.terminal_rewards.append(torch.FloatTensor([reward]))
         else:
             self.terminal_states.append(False)
-            self.nonterminal_processed_state_actions = torch.cat(
-                (self.nonterminal_processed_state_actions, processed_state_action),
-                0
-            )
-            self.nonterminal_rewards = torch.cat(
-                (self.nonterminal_rewards, torch.FloatTensor([reward]).unsqueeze(0)),
-                0
-            )
-            self.nonterminal_all_processed_next_state_actions = torch.cat(
-                (self.nonterminal_all_processed_next_state_actions, all_processed_next_state_actions.unsqueeze(0)),
-                0
-            )
+            self.nonterminal_processed_state_actions.append(processed_state_action.squeeze(0))
+            self.nonterminal_rewards.append(torch.FloatTensor([reward]))
+            self.nonterminal_all_processed_next_state_actions.append(all_processed_next_state_actions)
 
     def __len__(self):
         return len(self.terminal_processed_state_actions) + len(self.nonterminal_processed_state_actions)
@@ -249,31 +234,53 @@ class QLearningAgentReplayMemory:
     def pop(self):
         terminal = self.terminal_states.pop(0)
         if terminal:
-            self.terminal_processed_state_actions = self.terminal_processed_state_actions[1:]
-            self.terminal_rewards = self.terminal_rewards[1:]
+            self.terminal_processed_state_actions.pop(0)
+            self.terminal_rewards.pop(0)
         else:
-            self.nonterminal_processed_state_actions = self.nonterminal_processed_state_actions[1:]
-            self.nonterminal_rewards = self.nonterminal_rewards[1:]
-            self.nonterminal_all_processed_next_state_actions = self.nonterminal_all_processed_next_state_actions[1:]
+            self.nonterminal_processed_state_actions.pop(0)
+            self.nonterminal_rewards.pop(0)
+            self.nonterminal_all_processed_next_state_actions.pop(0)
 
     def sample(self, batch_size):
         frac_terminal = len(self.terminal_processed_state_actions) / float(len(self))
         n_terminal = np.random.binomial(batch_size, frac_terminal)
 
-        terminal_dataset = torch.utils.data.TensorDataset(self.terminal_processed_state_actions, self.terminal_rewards)
-        nonterminal_dataset = torch.utils.data.TensorDataset(self.nonterminal_processed_state_actions,
-                                                             self.nonterminal_rewards,
-                                                             self.nonterminal_all_processed_next_state_actions)
+        terminal_dataset = ListDataset(self.terminal_processed_state_actions, self.terminal_rewards)
+        nonterminal_dataset = ListDataset(self.nonterminal_processed_state_actions,
+                                                           self.nonterminal_rewards,
+                                                           self.nonterminal_all_processed_next_state_actions)
 
         if n_terminal == 0:
-            nonterminal_dataloader = torch.utils.data.DataLoader(nonterminal_dataset, batch_size=(batch_size - n_terminal),
-                                                              shuffle=True)
+            nonterminal_dataloader = torch.utils.data.DataLoader(nonterminal_dataset,
+                                                                 batch_size=(batch_size - n_terminal),
+                                                                 shuffle=True)
             return None, next(iter(nonterminal_dataloader))
         elif n_terminal == batch_size:
             terminal_dataloader = torch.utils.data.DataLoader(terminal_dataset, batch_size=n_terminal, shuffle=True)
             return next(iter(terminal_dataloader)), None
         else:
             terminal_dataloader = torch.utils.data.DataLoader(terminal_dataset, batch_size=n_terminal, shuffle=True)
-            nonterminal_dataloader = torch.utils.data.DataLoader(nonterminal_dataset, batch_size=(batch_size - n_terminal),
-                                                              shuffle=True)
+            nonterminal_dataloader = torch.utils.data.DataLoader(nonterminal_dataset,
+                                                                 batch_size=(batch_size - n_terminal),
+                                                                 shuffle=True)
             return next(iter(terminal_dataloader)), next(iter(nonterminal_dataloader))
+
+
+class ListDataset(torch.utils.data.Dataset):
+    """Dataset wrapping tensors.
+
+    Each sample will be retrieved by indexing tensors along the first dimension.
+
+    Arguments:
+        *tensors (Tensor): tensors that have the same size of the first dimension.
+    """
+
+    def __init__(self, *lists):
+        assert all(len(lists[0]) == len(l) for l in lists)
+        self.lists = lists
+
+    def __getitem__(self, index):
+        return tuple(lists[index] for lists in self.lists)
+
+    def __len__(self):
+        return len(self.lists[0])

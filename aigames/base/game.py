@@ -21,7 +21,7 @@ class Game:
 class PartiallyObservableSequentialGame(Game):
     ILLEGAL_ACTION_PENALTY = 0
 
-    def __init__(self, players : List[SequentialAgent], verbose = False, pause_seconds = 0, monitor : Callable = None):
+    def __init__(self, players: List[SequentialAgent], verbose=False, pause_seconds=0, monitor: Callable=None):
         self.players = players,
         self.verbose = verbose
         self.pause_seconds = pause_seconds
@@ -74,7 +74,6 @@ class PartiallyObservableSequentialGame(Game):
         if self.verbose:
             print(self)
             print('Game over.')
-
 
         for player in set(self.players):
             player.end_episode()
