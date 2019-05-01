@@ -1,10 +1,13 @@
 import time
 from typing import Callable, List
-
+import numpy as np
 from aigames.base.agent import *
 
 
 class Game:
+    ALL_ACTIONS = []
+    N_PLAYERS = 0
+
     @staticmethod
     def reward(state, player_index):
         raise NotImplementedError()
@@ -16,6 +19,14 @@ class Game:
     @staticmethod
     def is_terminal_state(state):
         raise NotImplementedError()
+
+    @classmethod
+    def legal_action_indices(cls, state):
+        return np.array([cls.ALL_ACTIONS.index(action) for action in cls.legal_actions(state)])
+
+    @classmethod
+    def all_rewards(cls, state):
+        return np.array([cls.reward(state, i) for i in range(cls.N_PLAYERS)])
 
 
 class PartiallyObservableSequentialGame(Game):

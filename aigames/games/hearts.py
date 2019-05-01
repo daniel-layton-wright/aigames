@@ -180,7 +180,7 @@ class Hearts(PartiallyObservableSequentialGame):
                                             any(card.suit == Suit.HEARTS for card in state.past_trick_cards))
 
     @staticmethod
-    def get_trick_winner(state : HeartsState):
+    def get_trick_winner(state: HeartsState):
         led_card = state.current_trick_cards[state.current_trick_leader]
         winning_card = led_card
         winner = state.current_trick_leader
@@ -192,7 +192,7 @@ class Hearts(PartiallyObservableSequentialGame):
         return winner
 
     @staticmethod
-    def get_trick_scores(state : HeartsState):
+    def get_trick_scores(state: HeartsState):
         scores = np.zeros(len(state.current_trick_cards))
         trick_winner = Hearts.get_trick_winner(state)
         current_trick_points = (sum(1 for card in state.current_trick_cards if card.suit == Suit.HEARTS )
@@ -209,18 +209,22 @@ class Hearts(PartiallyObservableSequentialGame):
         return scores
 
     @staticmethod
-    def reward(state : HeartsState, player_index):
+    def reward(state: HeartsState, player_index):
         if all(card is None for card in state.current_trick_cards):
             return state.prev_trick_scores[player_index]
         else:
             return 0
 
     @staticmethod
-    def is_terminal_state(state : HeartsState):
+    def all_rewards(state: HeartsState):
+        return state.prev_trick_scores
+
+    @staticmethod
+    def is_terminal_state(state: HeartsState):
         return all(len(hand) == 0 for hand in state.player_hands)
 
     @staticmethod
-    def get_current_winning_card(state : PartiallyObservedHeartsState):
+    def get_current_winning_card(state: PartiallyObservedHeartsState):
         led_card = state.current_trick_cards[state.current_trick_leader]
         winning_card = led_card
         winner = state.current_trick_leader
@@ -246,7 +250,7 @@ class Hearts(PartiallyObservableSequentialGame):
 
 class SimpleHeartsAgent(SequentialAgent):
     def __init__(self):
-        super().__init__(game = Hearts)
+        super().__init__(game=Hearts)
 
     def choose_action(self, state : PartiallyObservedHeartsState, player_index, verbose = False):
         # Play the highest card that won't win the trick, otherwise play the lowest card

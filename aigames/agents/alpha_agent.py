@@ -5,15 +5,18 @@ from aigames.base.agent import *
 from torch.utils.data import Dataset
 
 
+# TODO : add Dirichlet noise
 class AlphaAgent(SequentialAgent):
     def __init__(self, game: Game, evaluator, training_points,
-                 tau: float, c_puct: float, n_mcts = 1200):
+                 tau: float, c_puct: float, n_mcts=1200,
+                 discount_rate: float=1):
         super().__init__(game)
         self.game = game
         self.original_tau = tau
         self.tau = tau
         self.c_puct = c_puct
         self.n_mcts = n_mcts
+        self.discount_rate = discount_rate
 
         self.evaluator = evaluator
         self.cur_node = None
@@ -30,15 +33,13 @@ class AlphaAgent(SequentialAgent):
             self.cur_node.search()
 
         pi = np.zeros(len(self.game.ALL_ACTIONS))
-        max_N = np.max([child.N for child in self.cur_node.children])
-        for action_index, child in zip(self.cur_node.action_indices, self.cur_node.children):
-            if self.tau > 0:
-                pi[action_index] = child.N**(1./self.tau)
-            else:
-                pi[action_index] = 1 if child.N == max_N else 0
+        if self.tau > 0:
+            pi[self.cur_node.action_indices] = self.cur_node.children_total_N**(1./self.tau)
+            pi /= np.sum(pi)
+        else:
+            pi[self.cur_node.action_indices[np.argmax(self.cur_node.children_total_N)]] = 1
 
-        pi /= np.sum(pi)
-        action_index = np.random.choice(range(len(self.game.ALL_ACTIONS)), p = pi)
+        action_index = np.random.choice(range(len(self.game.ALL_ACTIONS)), p=pi)
         action = self.game.ALL_ACTIONS[action_index]
         child_index = self.cur_node.actions.index(action)
 
@@ -73,31 +74,39 @@ class AlphaAgent(SequentialAgent):
 
         for data in episode_history:
             if isinstance(data, RewardData):
-                cum_rewards[data.player_index] += data.reward_value
+                cum_rewards[data.player_index] = data.reward_value + self.discount_rate * cum_rewards[data.player_index]
             elif isinstance(data, TimestepData):
                 reward = cum_rewards[data.player_index]
-                reward = torch.tensor(reward, dtype = torch.float32)
                 cur_training_point = (data.state, data.pi, reward)
                 self.training_points.append(cur_training_point)
 
 
 class MCTSNode:
-    def __init__(self, game, state, parent_node, evaluator, c_puct):
+    def __init__(self, game, state, parent_node, evaluator, c_puct, N=None, total_N=None, Q=None):
         self.game = game
         self.state = state
         self.parent = parent_node
-        self.actions = None
+        self.actions = self.game.legal_actions(self.state)
+        self.next_states = [self.game.get_next_state(self.state, action) for action in self.actions]
+        self.action_indices = self.game.legal_action_indices(self.state)
+        self.n_children = len(self.actions)
         self.children = None
+        self.children_N = np.zeros((self.n_children, self.game.N_PLAYERS))
+        self.children_total_N = np.zeros(self.n_children)
+        self.children_Q = np.zeros((self.n_children, self.game.N_PLAYERS))
         self.evaluator = evaluator
         self.c_puct = c_puct
 
         self.player_index = self.game.get_player_index(self.state)
-        self.N = 0
-        self.W = 0
-        self.Q = 0
+        self.N = N if N is not None else np.zeros(self.game.N_PLAYERS)
+        self.total_N = total_N if total_N is not None else np.array([0])
+        self.Q = Q if Q is not None else np.zeros(self.game.N_PLAYERS)
+
+        self.rewards = self.game.all_rewards(self.state)
+        self.W = np.zeros(self.game.N_PLAYERS)
         self.P = None
         self.P_normalized = None
-        self.v_values = None
+        self.v = None  # v is from the perspective of the player whose turn it is
 
     def search(self):
         if self.children is None:
@@ -105,42 +114,46 @@ class MCTSNode:
             self.expand()
 
             # backup
-            self.backup(self.v_values)
+            if not self.game.is_terminal_state(self.state):
+                self.backup(self.v, self.player_index)
+            else:
+                self.backup_all(self.rewards)
         else:
             # choose the node according to max Q + U
-            U_values = [ self.c_puct * self.P_normalized[i] * np.sqrt(self.N) / (1 + child.N) for i, child in enumerate(self.children) ]
-            Q_plus_U_values = [ -node.Q + U_value for node, U_value in zip(self.children, U_values) ]  # -Q because next node is different player
+            U_values = self.c_puct * self.P_normalized * np.sqrt(self.total_N) / (1 + self.children_total_N)
+            Q_plus_U_values = self.children_Q[:,self.player_index] + U_values
             next_node = self.children[np.argmax(Q_plus_U_values)]
-
             next_node.search()
 
     def expand(self):
-        if self.game.is_terminal_state(self.state):
-            self.v_values = [self.game.reward(self.state, i) for i in range(self.game.N_PLAYERS)]
-        else:
+        if not self.game.is_terminal_state(self.state):
             # Evaluate the node with the evaluator
-            with torch.no_grad():
-                self.P, self.v = self.evaluator(self.state)
-
-            self.v_values = np.repeat(-1 * self.v.detach().numpy(), self.game.N_PLAYERS)
-            self.v_values[self.player_index] = self.v
+            self.P, self.v = self.evaluator(self.state)
 
             # Initialize the children
-            self.actions = self.game.legal_actions(self.state)
-            self.action_indices = sorted([self.game.ALL_ACTIONS.index(action) for action in self.actions])
             self.P_normalized = self.P[self.action_indices].detach().numpy()
             self.P_normalized /= self.P_normalized.sum()
 
-            next_states = [self.game.get_next_state(self.state, action) for action in self.actions]
-            self.children = [ MCTSNode(self.game, next_state, self, self.evaluator, self.c_puct) for next_state in next_states ]
+            self.children = [ MCTSNode(self.game, next_state, self, self.evaluator, self.c_puct,
+                                       self.children_N[i], self.children_total_N[i:(i+1)], self.children_Q[i])
+                              for i, next_state in enumerate(self.next_states) ]
 
-    def backup(self, v_values):
-        self.N += 1
-        self.W += v_values[self.player_index]
-        self.Q = self.W / self.N
+    def backup(self, value, player_index):
+        self.N[player_index] += 1
+        self.total_N += 1
+        self.W[player_index] += value
+        self.Q[player_index] = self.rewards[player_index] + self.W[player_index] / self.N[player_index]
 
         if self.parent is not None:
-            self.parent.backup(v_values)
+            self.parent.backup(value, player_index + self.rewards[player_index])
+
+    def backup_all(self, values):
+        self.N += 1
+        self.total_N += 1
+        self.W += values
+        self.Q[:] = self.rewards + self.W / self.N
+        if self.parent is not None:
+            self.parent.backup_all(values)
 
 
 class TimestepData:
@@ -160,8 +173,7 @@ class AlphaDataset(Dataset):
     """
     The dataset is special in that it is built up bit by bit as the self-play games are played
     """
-    def __init__(self, data = None, capacity = None,
-                 rotate = False, flip = False):
+    def __init__(self, data=None, capacity=None, rotate=False, flip=False):
         super().__init__()
         self.data = data if data is not None else data
 

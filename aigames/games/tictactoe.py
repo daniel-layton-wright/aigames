@@ -18,7 +18,8 @@ class TicTacToe(SequentialGame):
     ACTION_SIZE = 2
     ALL_ACTIONS = sorted(list(product(range(3), range(3))))
 
-    def __init__(self, players, verbose = False, pause_seconds = 0, monitor = None):
+    def __init__(self, players, verbose=False, pause_seconds=0, monitor=None):
+        super().__init__(players, verbose, pause_seconds, monitor)
         # Save input
         self.players = players
         self.verbose = verbose
