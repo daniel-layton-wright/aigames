@@ -1,4 +1,5 @@
 from .alpha_networks import *
+from .alpha_evaluator import *
 from .base import *
 from .games import *
 from .agents import *

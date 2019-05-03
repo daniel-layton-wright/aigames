@@ -21,7 +21,7 @@ class AlphaAgentNetwork1(nn.Module):
 
         self.policy_head = nn.Sequential(
             nn.Linear(in_features=self.base_out_features, out_features=len(game_class.ALL_ACTIONS)),
-            nn.Softmax()
+            nn.Softmax(dim=0)
         )
         self.value_head = nn.Sequential(
             nn.Linear(in_features=self.base_out_features, out_features=1),

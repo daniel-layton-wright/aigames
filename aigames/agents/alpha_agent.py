@@ -2,18 +2,19 @@ import numpy as np
 import torch
 from aigames.base.game import *
 from aigames.base.agent import *
+from aigames.alpha_evaluator import AlphaEvaluator
 from torch.utils.data import Dataset
 
 
 # TODO : add Dirichlet noise
 class AlphaAgent(SequentialAgent):
-    def __init__(self, game: Game, evaluator, training_points,
-                 tau: float, c_puct: float, n_mcts=1200,
+    def __init__(self, game: Game, evaluator: AlphaEvaluator,
+                 training_tau: float, c_puct: float, n_mcts=1200,
                  discount_rate: float=1):
         super().__init__(game)
         self.game = game
-        self.original_tau = tau
-        self.tau = tau
+        self.training_tau = training_tau
+        self.tau = training_tau
         self.c_puct = c_puct
         self.n_mcts = n_mcts
         self.discount_rate = discount_rate
@@ -21,7 +22,6 @@ class AlphaAgent(SequentialAgent):
         self.evaluator = evaluator
         self.cur_node = None
         self.training = True
-        self.training_points = training_points
 
     def choose_action(self, state, player_index, verbose = False):
         if self.cur_node is None:
@@ -53,14 +53,12 @@ class AlphaAgent(SequentialAgent):
         self.episode_history.append(RewardData(player_index, reward_value))
 
     def train(self):
-        self.tau = self.original_tau
+        self.tau = self.training_tau
         self.training = True
-        self.evaluator.train()
 
     def eval(self):
         self.tau = 0
         self.training = False
-        self.evaluator.eval()
 
     def start_episode(self):
         self.episode_history = []
@@ -72,13 +70,21 @@ class AlphaAgent(SequentialAgent):
         episode_history = reversed(self.episode_history)
         cum_rewards = [0 for _ in range(self.game.N_PLAYERS)]
 
+        states = []
+        pis = []
+        rewards = []
+
         for data in episode_history:
             if isinstance(data, RewardData):
                 cum_rewards[data.player_index] = data.reward_value + self.discount_rate * cum_rewards[data.player_index]
             elif isinstance(data, TimestepData):
                 reward = cum_rewards[data.player_index]
-                cur_training_point = (data.state, data.pi, reward)
-                self.training_points.append(cur_training_point)
+
+                states.append(data.state)
+                pis.append(data.pi)
+                rewards.append(torch.FloatTensor([reward]))
+
+        self.evaluator.train(states, pis, rewards)
 
 
 class MCTSNode:
@@ -128,7 +134,7 @@ class MCTSNode:
     def expand(self):
         if not self.game.is_terminal_state(self.state):
             # Evaluate the node with the evaluator
-            self.P, self.v = self.evaluator(self.state)
+            self.P, self.v = self.evaluator.evaluate(self.state)
 
             # Initialize the children
             self.P_normalized = self.P[self.action_indices].detach().numpy()
