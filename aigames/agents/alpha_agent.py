@@ -203,6 +203,14 @@ class AlphaMonitor:
         pass
 
 
+class MultiprocessingAlphaMonitor(AlphaMonitor):
+    def start(self, kill: mp.Value):
+        pass
+
+    def monitor_until_killed(self):
+        pass
+
+
 class MultiprocessingAlphaEvaluator(AlphaEvaluator):
     def __init__(self, id, model: AlphaModel, evaluation_queue: mp.Queue, results_queue: mp.Queue,
                  train_queue: mp.Queue):
@@ -242,20 +250,20 @@ class MultiprocessingAlphaEvaluationClient:
 class MultiprocessingAlphaEvaluationWorker:
     def __init__(self, model: AlphaModel, device: torch.device, evaluation_queue: mp.Queue,
                  results_queues: List[mp.Queue],
-                 kill_queue: mp.Queue):
+                 kill: mp.Value):
         self.model = model
         self.device = device
         self.evaluation_queue = evaluation_queue
         self.results_queues = results_queues
-        self.kill_queue = kill_queue
+        self.kill = kill
 
     def evaluate_until_killed(self):
         while True:
-            if not self.kill_queue.empty() and self.evaluation_queue.empty():
+            if self.kill.value and self.evaluation_queue.empty():
                 break
 
             try:
-                id, processed_state = self.evaluation_queue.get(timeout=1)
+                id, processed_state = self.evaluation_queue.get(block=False)
             except queue.Empty:
                 continue
 
@@ -274,31 +282,31 @@ class MultiprocessingAlphaTrainingClient:
 
 class MultiprocessingAlphaTrainingWorker:
     def __init__(self, model: AlphaModel, optimizer: torch.optim.Optimizer, device: torch.device, train_queue: mp.Queue,
-                 kill_queue: mp.Queue, monitor: AlphaMonitor = None):
+                 kill: mp.Value, monitor: AlphaMonitor = None):
         self.model = model
         self.optimizer = optimizer
         self.device = device
         self.train_queue = train_queue
-        self.kill_queue = kill_queue
+        self.kill = kill
         self.monitor = monitor
 
     def train_until_killed(self):
         while True:
-            if not self.kill_queue.empty() and self.train_queue.empty():
+            if self.kill.value and self.train_queue.empty():
                 break
 
             try:
-                processed_states, action_distns, values = self.train_queue.get(timeout=.001)
+                processed_states, action_distns, values = self.train_queue.get(block=False)
             except queue.Empty:
                 continue
 
             # Run through network and compute loss
-            loss = self.model.loss(processed_states, action_distns, values)
-            loss = torch.sum(loss)
+            losses = self.model.loss(processed_states, action_distns, values)
+            loss = torch.sum(losses)
 
             # Backprop
             loss.backward()
             self.optimizer.step()
 
             if self.monitor is not None:
-                self.monitor.on_optimizer_step(loss.item())
+                self.monitor.on_optimizer_step(losses.mean().item())
