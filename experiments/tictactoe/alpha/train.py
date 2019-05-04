@@ -94,6 +94,8 @@ class Monitor(MultiprocessingAlphaMonitor):
             wandb.log(cur_log_dict)
             with torch.no_grad():
                 p, v = self.model(self.processed_example_state)
+
+            p = p.cpu().numpy()
             fig, ax = plt.subplots()
             ax.bar(range(len(p)), p)
             ax.set_xticks(range(len(p)))
