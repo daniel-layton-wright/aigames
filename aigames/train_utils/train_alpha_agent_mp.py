@@ -28,12 +28,16 @@ def monitor_worker(monitor: MultiprocessingAlphaMonitor, kill: mp.Value):
     monitor.monitor_until_killed()
 
 
-def train_alpha_agent_mp(game_class, model, optimizer_class, lr=0.01, monitor=None, model_device='cpu', n_self_play_procs=1,
+def train_alpha_agent_mp(game_class, model: AlphaModel, optimizer_class, lr=0.01, monitor=None, model_device='cpu', n_self_play_procs=1,
                          n_games_per_proc=10000,
                          n_evaluation_workers=1, n_training_workers=1,
                          evaluation_queue_max_size=100, train_queue_max_size=100,
                          alpha_agent_kwargs=dict(),
                          ):
+    model_device = torch.device(model_device)
+    model.share_memory()
+    model.to(model_device)
+
     evaluation_queue = mp.Queue(maxsize=evaluation_queue_max_size)
     train_queue = mp.Queue(maxsize=train_queue_max_size)
     results_queues = [mp.Queue(maxsize=1) for _ in range(n_self_play_procs)]
