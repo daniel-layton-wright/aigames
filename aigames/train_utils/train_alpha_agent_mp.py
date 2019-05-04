@@ -34,7 +34,8 @@ def train_alpha_agent_mp(game_class, model: AlphaModel, optimizer_class, lr=0.01
                          evaluation_queue_max_size=100, train_queue_max_size=100,
                          alpha_agent_kwargs=dict(),
                          ):
-    model_device = torch.device(model_device)
+    if type(model_device) == str:
+        model_device = torch.device(model_device)
     model.share_memory()
     model.to(model_device)
 
