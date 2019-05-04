@@ -116,7 +116,7 @@ def get_parser():
 
 def run(args, model, monitor=None):
     optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
-    train_alpha_agent_mp(TicTacToe, model, optimizer_class=optimizer_class, lr=args.lr,
+    train_alpha_agent_mp(TicTacToe, model, optimizer_class=optimizer_class, lr=args.lr, model_device=args.device,
                          monitor=monitor, n_self_play_procs=args.n_self_play_procs,
                          n_games_per_proc=args.n_games_per_proc, n_training_workers=args.n_training_workers)
 
