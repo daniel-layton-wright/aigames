@@ -82,7 +82,7 @@ def train_alpha_agent_mp(game_class, model, optimizer_class, lr=0.01, monitor=No
     except KeyboardInterrupt:
         print('KEYBOARD INTERRUPT. SHUTTING DOWN...')
         for process in evaluation_processes + training_processes + self_play_processes:
-            print(' TERMINATING PROCESS...')
+            print('    TERMINATING PROCESS...')
             process.terminate()
 
     sys.stdout.flush()
