@@ -5,88 +5,75 @@ sys.path.insert(0, top_dir)
 from aigames import *
 import torch.multiprocessing as mp
 import logging
+import wandb
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 
-def self_play(game_class, agent, n_games: int):
-    logging.debug('Inside self-play worker.')
-    sys.stdout.flush()
-    for _ in range(n_games):
-        cur_game = game_class([agent, agent])
-        logging.debug('Playing game...')
-        cur_game.play()
+class TicTacToeAlphaModel(AlphaModel):
+    def __init__(self, game_class):
+        super().__init__()
+        self.game_class = game_class
+        self.base = nn.Sequential(
+            nn.Conv2d(in_channels = game_class.STATE_SHAPE[0], out_channels = 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            Flatten()
+        )
+
+        self.base_out_features = 32 * game_class.STATE_SHAPE[1] * game_class.STATE_SHAPE[2]
+
+        self.policy_head = nn.Sequential(
+            nn.Linear(in_features=self.base_out_features, out_features=len(game_class.ALL_ACTIONS)),
+            nn.Softmax(dim=0)
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(in_features=self.base_out_features, out_features=1),
+            nn.Tanh()
+        )
+
+    def forward(self, state):
+        state_processed = self.process_state(state)
+        base = self.base(state_processed)
+        policy = self.policy_head(base).squeeze()
+        value = self.value_head(base).squeeze()
+        return policy, value
+
+    @staticmethod
+    def process_state(state):
+        x = torch.FloatTensor(state)
+        while len(x.shape) < 4:
+            x = x.unsqueeze(0)
+
+        return x
 
 
-def evaluation_worker(model, device, evaluation_queue, results_queues, kill_queue):
-    logging.debug('Inside evaluation worker.')
-    worker = MultiprocessingAlphaEvaluationWorker(model, device, evaluation_queue, results_queues, kill_queue)
-    worker.evaluate_until_killed()
+class Monitor(AlphaMonitor):
+    def __init__(self):
+        self.train_iter_count = mp.Value('i', 0)
 
+    def before_training_start(self):
+        wandb.init(project='aigames', tags='tictactoe_alpha')
 
-def training_worker(model, optimizer, device, train_queue, kill_queue):
-    logging.debug('Inside training worker.')
-    sys.stdout.flush()
-    worker = MultiprocessingAlphaTrainingWorker(model, optimizer, device, train_queue, kill_queue)
-    worker.train_until_killed()
-
-
-def train(game_class, n_self_play_procs, n_games, device='cpu',
-          n_evaluation_workers=1, n_training_workers=1,
-          evaluation_queue_max_size=100, train_queue_max_size=100,
-          training_tau=1, c_puct=1):
-    mp.set_start_method('forkserver')
-    evaluation_queue = mp.Queue(maxsize=evaluation_queue_max_size)
-    train_queue = mp.Queue(maxsize=train_queue_max_size)
-    results_queues = [mp.Queue(maxsize=1) for _ in range(n_self_play_procs)]
-    kill_queue = mp.Queue(maxsize=1)
-
-    model = AlphaAgentNetwork1(game_class)
-    optimizer = torch.optim.Adam(model.parameters())
-
-    evaluation_processes = []
-    for i in range(n_evaluation_workers):
-        logging.debug('Starting evaluation worker...')
-        cur_evaluation_process = mp.Process(target=evaluation_worker, args=(model, device, evaluation_queue, results_queues, kill_queue))
-        cur_evaluation_process.start()
-        evaluation_processes.append(cur_evaluation_process)
-
-    training_processes = []
-    for i in range(n_training_workers):
-        logging.debug('Starting training worker...')
-        cur_training_process = mp.Process(target=training_worker, args=(model, optimizer, device, train_queue, kill_queue))
-        cur_training_process.start()
-        training_processes.append(cur_training_process)
-
-    self_play_processes = []
-    for i in range(n_self_play_procs):
-        logging.debug('Starting self-play worker...')
-        cur_evaluator = MultiprocessingAlphaEvaluator(i, model, evaluation_queue, results_queues[i], train_queue)
-        cur_agent = AlphaAgent(game_class, cur_evaluator, training_tau, c_puct)
-        cur_process = mp.Process(target=self_play, args=(game_class, cur_agent, n_games))
-        cur_process.start()
-        self_play_processes.append(cur_process)
-
-
-    sys.stdout.flush()
-
-    for sc in self_play_processes:
-        sc.join()
-
-    kill_queue.put(True)
-    for sc in evaluation_processes:
-        sc.join()
-    for sc in training_processes:
-        sc.join()
+    def on_optimizer_step(self, most_recent_loss):
+        with self.train_iter_count.get_lock():
+            self.train_iter_count.value += 1
+            wandb.log({'iter': self.train_iter_count.value, 'loss': most_recent_loss})
 
 
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--n_self_play_procs', type=int, help='Number of self-play processes')
-    parser.add_argument('-n', '--n_games', type=int, help='Number of self-play games per process')
+    parser.add_argument('-p', '--n_self_play_procs', type=int, default=1, help='Number of self-play processes')
+    parser.add_argument('-n', '--n_games_per_proc', type=int, required=True, help='Number of self-play games per process')
+    parser.add_argument('--n_training_workers', type=int, default=1, help='Number of self-play games per process')
     args = parser.parse_args()
 
-    train(TicTacToe, args.n_self_play_procs, args.n_games)
+    mp.set_start_method('forkserver')
+
+    model = TicTacToeAlphaModel(TicTacToe)
+    monitor = Monitor()
+    train_alpha_agent_mp(TicTacToe, model, monitor=monitor, n_self_play_procs=args.n_self_play_procs,
+                         n_games_per_proc=args.n_games_per_proc, n_training_workers=args.n_training_workers)
+
 
 if __name__ == '__main__':
     main()

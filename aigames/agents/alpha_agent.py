@@ -1,16 +1,24 @@
-import numpy as np
 import torch
+import torch.multiprocessing as mp
+import torch.nn as nn
+import queue
 from aigames.base.game import *
 from aigames.base.agent import *
-from aigames.alpha_evaluator import AlphaEvaluator
-from torch.utils.data import Dataset
+
+
+class AlphaEvaluator:
+    def evaluate(self, state):
+        raise NotImplementedError()
+
+    def train(self, states, action_distns, values):
+        raise NotImplementedError()
 
 
 # TODO : add Dirichlet noise
 class AlphaAgent(SequentialAgent):
     def __init__(self, game: Game, evaluator: AlphaEvaluator,
-                 training_tau: float, c_puct: float, n_mcts=1200,
-                 discount_rate: float=1):
+                 training_tau: float = 1., c_puct: float = 1., n_mcts: int = 1200,
+                 discount_rate: float = 1):
         super().__init__(game)
         self.game = game
         self.training_tau = training_tau
@@ -18,12 +26,12 @@ class AlphaAgent(SequentialAgent):
         self.c_puct = c_puct
         self.n_mcts = n_mcts
         self.discount_rate = discount_rate
-
         self.evaluator = evaluator
         self.cur_node = None
         self.training = True
+        self.episode_history = []
 
-    def choose_action(self, state, player_index, verbose = False):
+    def choose_action(self, state, player_index, verbose=False):
         if self.cur_node is None:
             self.cur_node = MCTSNode(self.game, state, None, self.evaluator, self.c_puct)
         elif (self.cur_node.state != state).any():
@@ -34,7 +42,7 @@ class AlphaAgent(SequentialAgent):
 
         pi = np.zeros(len(self.game.ALL_ACTIONS))
         if self.tau > 0:
-            pi[self.cur_node.action_indices] = self.cur_node.children_total_N**(1./self.tau)
+            pi[self.cur_node.action_indices] = self.cur_node.children_total_N ** (1. / self.tau)
             pi /= np.sum(pi)
         else:
             pi[self.cur_node.action_indices[np.argmax(self.cur_node.children_total_N)]] = 1
@@ -69,7 +77,6 @@ class AlphaAgent(SequentialAgent):
 
         episode_history = reversed(self.episode_history)
         cum_rewards = [0 for _ in range(self.game.N_PLAYERS)]
-
         states = []
         pis = []
         rewards = []
@@ -127,7 +134,7 @@ class MCTSNode:
         else:
             # choose the node according to max Q + U
             U_values = self.c_puct * self.P_normalized * np.sqrt(self.total_N) / (1 + self.children_total_N)
-            Q_plus_U_values = self.children_Q[:,self.player_index] + U_values
+            Q_plus_U_values = self.children_Q[:, self.player_index] + U_values
             next_node = self.children[np.argmax(Q_plus_U_values)]
             next_node.search()
 
@@ -140,9 +147,9 @@ class MCTSNode:
             self.P_normalized = self.P[self.action_indices].detach().numpy()
             self.P_normalized /= self.P_normalized.sum()
 
-            self.children = [ MCTSNode(self.game, next_state, self, self.evaluator, self.c_puct,
-                                       self.children_N[i], self.children_total_N[i:(i+1)], self.children_Q[i])
-                              for i, next_state in enumerate(self.next_states) ]
+            self.children = [MCTSNode(self.game, next_state, self, self.evaluator, self.c_puct,
+                                      self.children_N[i], self.children_total_N[i:(i + 1)], self.children_Q[i])
+                             for i, next_state in enumerate(self.next_states)]
 
     def backup(self, value, player_index):
         self.N[player_index] += 1
@@ -175,49 +182,123 @@ class RewardData:
         self.reward_value = reward_value
 
 
-class AlphaDataset(Dataset):
-    """
-    The dataset is special in that it is built up bit by bit as the self-play games are played
-    """
-    def __init__(self, data=None, capacity=None, rotate=False, flip=False):
-        super().__init__()
-        self.data = data if data is not None else data
+class AlphaModel(nn.Module):
+    @staticmethod
+    def process_state(state):
+        raise NotImplementedError()
 
-        self.rotate = rotate
-        self.flip = flip
-        self.capacity = capacity
+    def loss(self, processed_states, action_distns, values):
+        pred_distns, pred_values = self(processed_states)
+        return (values - pred_values) ** 2 - torch.sum(action_distns * torch.log(pred_distns), dim=1)
 
-    def append(self, tuple):
-        """
 
-        :param tuple: (state, distn, value)
-        :return: None
-        """
-        self.data.append(tuple)
+class AlphaMonitor:
+    def before_training_start(self):
+        pass
 
-        if self.capacity is not None and len(self.data) > self.capacity:
-            self.data.pop(0)
+    def on_game_end(self, alpha_agent: AlphaAgent):
+        pass
 
-    def __getitem__(self, i):
-        return self.preprocess(*self.data[i])
+    def on_optimizer_step(self, most_recent_loss):
+        pass
 
-    def __len__(self):
-        return len(self.data)
 
-    def preprocess(self, state, distn, value):
-        r = np.random.randint(8)
-        n_rots = r % 4
-        flip =  bool(r / 4)
+class MultiprocessingAlphaEvaluator(AlphaEvaluator):
+    def __init__(self, id, model: AlphaModel, evaluation_queue: mp.Queue, results_queue: mp.Queue,
+                 train_queue: mp.Queue):
+        self.model = model
+        self.evaluation_client = MultiprocessingAlphaEvaluationClient(id, model, evaluation_queue, results_queue)
+        self.training_client = MultiprocessingAlphaTrainingClient(train_queue)
 
-        new_state = state
-        new_distn = distn
+    def evaluate(self, state):
+        processed_state = self.model.process_state(state)
+        return self.evaluation_client.evaluate(processed_state)
 
-        if self.rotate:
-            new_state = new_state.rot90(k = n_rots, dims = (1,2))
-            new_distn = new_distn.reshape(-1, *state.shape[1:]).rot90(k = n_rots, dims = (1,2)).reshape(distn.shape)
+    def train(self, states, action_distns, values):
+        processed_states = tuple(self.model.process_state(state) for state in states)
+        processed_states = torch.cat(processed_states)
+        action_distns = torch.stack(tuple(action_distns))
+        values = torch.stack(tuple(values))
+        return self.training_client.train(processed_states, action_distns, values)
 
-        if self.flip and flip:
-            new_state = new_state.flip(dims = (2,))
-            new_distn = new_distn.reshape(-1, *state.shape[1:]).flip(dims = (2,)).reshape(distn.shape)
 
-        return new_state, new_distn, value
+class MultiprocessingAlphaEvaluationClient:
+    def __init__(self, id: int, model: AlphaModel, evaluation_queue: mp.Queue, results_queue: mp.Queue):
+        self.id = id
+        self.model = model
+        self.evaluation_queue = evaluation_queue
+        self.results_queue = results_queue
+
+    def evaluate(self, processed_state):
+        self.evaluation_queue.put((self.id, processed_state))
+        pi, v = self.results_queue.get()
+        pi_clone = pi.clone()
+        v_clone = v.clone()
+        del pi
+        del v
+        return pi_clone, v_clone
+
+
+class MultiprocessingAlphaEvaluationWorker:
+    def __init__(self, model: AlphaModel, device: torch.device, evaluation_queue: mp.Queue,
+                 results_queues: List[mp.Queue],
+                 kill_queue: mp.Queue):
+        self.model = model
+        self.device = device
+        self.evaluation_queue = evaluation_queue
+        self.results_queues = results_queues
+        self.kill_queue = kill_queue
+
+    def evaluate_until_killed(self):
+        while True:
+            if not self.kill_queue.empty() and self.evaluation_queue.empty():
+                break
+
+            try:
+                id, processed_state = self.evaluation_queue.get(timeout=1)
+            except queue.Empty:
+                continue
+
+            with torch.no_grad():
+                result = self.model(processed_state.to(self.device))
+                self.results_queues[id].put(result)
+
+
+class MultiprocessingAlphaTrainingClient:
+    def __init__(self, train_queue: mp.Queue):
+        self.train_queue = train_queue
+
+    def train(self, states, action_distns, values):
+        self.train_queue.put((states, action_distns, values))
+
+
+class MultiprocessingAlphaTrainingWorker:
+    def __init__(self, model: AlphaModel, optimizer: torch.optim.Optimizer, device: torch.device, train_queue: mp.Queue,
+                 kill_queue: mp.Queue, monitor: AlphaMonitor = None):
+        self.model = model
+        self.optimizer = optimizer
+        self.device = device
+        self.train_queue = train_queue
+        self.kill_queue = kill_queue
+        self.monitor = monitor
+
+    def train_until_killed(self):
+        while True:
+            if not self.kill_queue.empty() and self.train_queue.empty():
+                break
+
+            try:
+                processed_states, action_distns, values = self.train_queue.get(timeout=.001)
+            except queue.Empty:
+                continue
+
+            # Run through network and compute loss
+            loss = self.model.loss(processed_states, action_distns, values)
+            loss = torch.sum(loss)
+
+            # Backprop
+            loss.backward()
+            self.optimizer.step()
+
+            if self.monitor is not None:
+                self.monitor.on_optimizer_step(loss.item())

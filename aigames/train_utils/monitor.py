@@ -1,3 +1,4 @@
+from aigames import AlphaAgent
 from ..games import PartiallyObservableSequentialGame
 
 

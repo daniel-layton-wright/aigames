@@ -4,6 +4,7 @@ import numpy as np
 from aigames.base.agent import *
 from aigames.base.utils import *
 import torch
+import torch.utils.data
 
 
 class QLearningAgent(SequentialAgent):
