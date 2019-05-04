@@ -301,7 +301,8 @@ class MultiprocessingAlphaTrainingWorker:
                 continue
 
             # Run through network and compute loss
-            losses = self.model.loss(processed_states, action_distns, values)
+            losses = self.model.loss(processed_states.to(self.device), action_distns.to(self.device),
+                                     values.to(self.device))
             loss = torch.sum(losses)
 
             # Backprop
