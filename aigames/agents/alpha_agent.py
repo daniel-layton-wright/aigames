@@ -144,7 +144,7 @@ class MCTSNode:
             self.P, self.v = self.evaluator.evaluate(self.state)
 
             # Initialize the children
-            self.P_normalized = self.P[self.action_indices].detach().numpy()
+            self.P_normalized = self.P[self.action_indices].detach().cpu().numpy()
             self.P_normalized /= self.P_normalized.sum()
 
             self.children = [MCTSNode(self.game, next_state, self, self.evaluator, self.c_puct,
