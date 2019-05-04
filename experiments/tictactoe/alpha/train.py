@@ -55,18 +55,19 @@ class TicTacToeAlphaModel(AlphaModel):
 
 
 class Monitor(MultiprocessingAlphaMonitor):
-    def __init__(self, model, log_queue: mp.Queue, args):
+    def __init__(self, model, log_queue: mp.Queue, args, model_device):
         self.model = model
         self.train_iter_count = mp.Value('i', 0)
         self.log_queue = log_queue
         self.args = args
         self.kill = None
         self.logger = None
+        self.model_device = torch.device(model_device)
 
         example_state = np.zeros((3,3,3))
         example_state[0,1,1] = 1
         example_state[2,:,:] = 1
-        self.processed_example_state = self.model.process_state(example_state)
+        self.processed_example_state = self.model.process_state(example_state).to(self.model_device)
 
     def start(self, kill: mp.Value):
         wandb.init(project='aigames', tags=['tictactoe_alpha'], tensorboard=True)
@@ -128,7 +129,7 @@ def main():
     mp.set_start_method('forkserver')
     model = TicTacToeAlphaModel(TicTacToe)
     monitor_log_queue = mp.Queue(maxsize=1000)
-    monitor = Monitor(model, monitor_log_queue, args)
+    monitor = Monitor(model, monitor_log_queue, args, args.device)
 
     run(args, model, monitor)
 
