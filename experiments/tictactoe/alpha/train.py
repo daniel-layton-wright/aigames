@@ -69,6 +69,7 @@ class Monitor(MultiprocessingAlphaMonitor):
         self.model_device = torch.device(model_device)
         self.pause_training = pause_training
         self.evaluate_every_n_iters = evaluate_every_n_iters
+        self.best_pct_losses = None
 
         example_state = np.zeros((3, 3, 3))
         example_state[0, 1, 1] = 1
@@ -116,10 +117,7 @@ class Monitor(MultiprocessingAlphaMonitor):
                 ax.bar(range(len(p)), p)
                 ax.set_xticks(range(len(p)))
                 ax.set_xticklabels(self.model.game_class.ALL_ACTIONS)
-                self.logger.add_figure('test_state_actions', fig, self.train_iter_count.value)
-
-                wandb.log({'iter': cur_log_dict['iter'],
-                           'example_state_actions': fig})
+                self.logger.add_figure('example_state_actions', fig, self.train_iter_count.value)
                 plt.close(fig)
 
                 final_states = self.tournament.play()
@@ -128,6 +126,11 @@ class Monitor(MultiprocessingAlphaMonitor):
 
                 wandb.log({'iter': cur_log_dict['iter'],
                            'pct_loss_vs_minimax': pct_losses})
+
+                torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'most_recent_model.pt'))
+
+                if self.best_pct_losses is None or pct_losses < self.best_pct_losses:
+                    torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
 
                 self.pause_training.value = False
                 self.agent.train()
