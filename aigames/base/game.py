@@ -107,7 +107,6 @@ class Tournament:
     def play(self):
         final_states = []
         for i in range(self.n_games):
-            print(f'Tournament Game #{i}')
             cur_game = self.game_class(self.agents, **self.game_kwargs)
             cur_game.play()
             final_states.append(cur_game.state)
