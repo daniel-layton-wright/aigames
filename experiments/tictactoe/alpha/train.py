@@ -60,7 +60,7 @@ class Monitor(MultiprocessingAlphaMonitor):
         self.model = model
         self.agent = agent
         self.tournament = Tournament(self.model.game_class, [MinimaxAgent(self.model.game_class), self.agent],
-                                     n_games=10)
+                                     n_games=100)
         self.train_iter_count = mp.Value('i', 0)
         self.train_iter_queue = train_iter_queue
         self.args = args
