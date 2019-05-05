@@ -101,7 +101,6 @@ class AlphaAgent(SequentialAgent):
                 pis.append(data.pi)
                 rewards.append(torch.FloatTensor([reward]))
 
-        print('Take training step')
         self.evaluator.take_training_step(states, pis, rewards)
 
 

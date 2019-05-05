@@ -82,7 +82,6 @@ class Monitor(MultiprocessingAlphaMonitor):
         self.logger = SummaryWriter()
 
     def on_optimizer_step(self, most_recent_loss):
-        print('on_optimizer_step')
         with self.train_iter_count.get_lock():
             self.train_iter_count.value += 1
             self.train_iter_queue.put({'iter': self.train_iter_count.value, 'loss': most_recent_loss})
