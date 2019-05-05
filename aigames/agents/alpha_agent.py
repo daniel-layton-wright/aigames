@@ -10,8 +10,16 @@ class AlphaEvaluator:
     def evaluate(self, state):
         raise NotImplementedError()
 
-    def train(self, states, action_distns, values):
+    def take_training_step(self, states, action_distns, values):
         raise NotImplementedError()
+
+    def eval(self):
+        # Switch to eval mode
+        pass
+
+    def train(self):
+        # Switch to train mode
+        pass
 
 
 # TODO : add Dirichlet noise
@@ -62,10 +70,12 @@ class AlphaAgent(SequentialAgent):
 
     def train(self):
         self.tau = self.training_tau
+        self.evaluator.train()
         self.training = True
 
     def eval(self):
         self.tau = 0
+        self.evaluator.eval()
         self.training = False
 
     def start_episode(self):
@@ -91,7 +101,8 @@ class AlphaAgent(SequentialAgent):
                 pis.append(data.pi)
                 rewards.append(torch.FloatTensor([reward]))
 
-        self.evaluator.train(states, pis, rewards)
+        print('Take training step')
+        self.evaluator.take_training_step(states, pis, rewards)
 
 
 class MCTSNode:
@@ -204,7 +215,7 @@ class AlphaMonitor:
 
 
 class MultiprocessingAlphaMonitor(AlphaMonitor):
-    def start(self, kill: mp.Value):
+    def start(self):
         pass
 
     def monitor_until_killed(self):
@@ -212,32 +223,17 @@ class MultiprocessingAlphaMonitor(AlphaMonitor):
 
 
 class MultiprocessingAlphaEvaluator(AlphaEvaluator):
-    def __init__(self, id, model: AlphaModel, evaluation_queue: mp.Queue, results_queue: mp.Queue,
+    def __init__(self, id, model: AlphaModel, model_device, evaluation_queue: mp.Queue, results_queue: mp.Queue,
                  train_queue: mp.Queue):
-        self.model = model
-        self.evaluation_client = MultiprocessingAlphaEvaluationClient(id, model, evaluation_queue, results_queue)
-        self.training_client = MultiprocessingAlphaTrainingClient(train_queue)
-
-    def evaluate(self, state):
-        processed_state = self.model.process_state(state)
-        return self.evaluation_client.evaluate(processed_state)
-
-    def train(self, states, action_distns, values):
-        processed_states = tuple(self.model.process_state(state) for state in states)
-        processed_states = torch.cat(processed_states)
-        action_distns = torch.stack(tuple(action_distns))
-        values = torch.stack(tuple(values))
-        return self.training_client.train(processed_states, action_distns, values)
-
-
-class MultiprocessingAlphaEvaluationClient:
-    def __init__(self, id: int, model: AlphaModel, evaluation_queue: mp.Queue, results_queue: mp.Queue):
         self.id = id
         self.model = model
+        self.model_device = model_device
         self.evaluation_queue = evaluation_queue
         self.results_queue = results_queue
+        self.train_queue = train_queue
 
-    def evaluate(self, processed_state):
+    def evaluate(self, state):
+        processed_state = self.model.process_state(state).to(self.model_device)
         self.evaluation_queue.put((self.id, processed_state))
         pi, v = self.results_queue.get()
         pi_clone = pi.clone()
@@ -245,6 +241,23 @@ class MultiprocessingAlphaEvaluationClient:
         del pi
         del v
         return pi_clone, v_clone
+
+    def take_training_step(self, states, action_distns, values):
+        processed_states = tuple(self.model.process_state(state) for state in states)
+        processed_states = torch.cat(processed_states)
+        action_distns = torch.stack(tuple(action_distns))
+        values = torch.stack(tuple(values))
+        self.train_queue.put(
+            (processed_states.to(self.model_device),
+             action_distns.to(self.model_device),
+             values.to(self.model_device))
+        )
+
+    def train(self):
+        self.model.train()
+
+    def eval(self):
+        self.model.eval()
 
 
 class MultiprocessingAlphaEvaluationWorker:
@@ -272,33 +285,29 @@ class MultiprocessingAlphaEvaluationWorker:
                 self.results_queues[id].put(result)
 
 
-class MultiprocessingAlphaTrainingClient:
-    def __init__(self, train_queue: mp.Queue):
-        self.train_queue = train_queue
-
-    def train(self, states, action_distns, values):
-        self.train_queue.put((states, action_distns, values))
-
-
 class MultiprocessingAlphaTrainingWorker:
     def __init__(self, model: AlphaModel, optimizer: torch.optim.Optimizer, device: torch.device, train_queue: mp.Queue,
-                 kill: mp.Value, monitor: AlphaMonitor = None):
+                 kill: mp.Value, monitor: AlphaMonitor = None, pause_training=None):
         self.model = model
         self.optimizer = optimizer
         self.device = device
         self.train_queue = train_queue
         self.kill = kill
         self.monitor = monitor
+        self.pause_training = pause_training
 
     def train_until_killed(self):
         while True:
-            if self.kill.value and self.train_queue.empty():
-                break
-
             try:
                 processed_states, action_distns, values = self.train_queue.get(block=False)
             except queue.Empty:
-                continue
+                if self.kill.value:
+                    break
+                else:
+                    continue
+
+            while self.pause_training is not None and self.pause_training.value:
+                pass
 
             # Run through network and compute loss
             losses = self.model.loss(processed_states.to(self.device), action_distns.to(self.device),

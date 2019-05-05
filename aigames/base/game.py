@@ -95,3 +95,21 @@ class SequentialGame(PartiallyObservableSequentialGame):
     def get_observable_state(state, i):
         # Fully observable
         return state
+
+
+class Tournament:
+    def __init__(self, game_class, agents, n_games=100, game_kwargs=dict()):
+        self.game_class = game_class
+        self.agents = agents
+        self.n_games = n_games
+        self.game_kwargs = game_kwargs
+
+    def play(self):
+        final_states = []
+        for i in range(self.n_games):
+            print(f'Tournament Game #{i}')
+            cur_game = self.game_class(self.agents, **self.game_kwargs)
+            cur_game.play()
+            final_states.append(cur_game.state)
+
+        return final_states
