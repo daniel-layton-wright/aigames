@@ -58,11 +58,11 @@ class TicTacToeAlphaModel(AlphaModel):
 
 class Monitor(MultiprocessingAlphaMonitor):
     def __init__(self, model, model_device, agent, args, train_iter_queue: mp.Queue = None, kill=None,
-                 pause_training=None, evaluate_every_n_iters: int = 1):
+                 pause_training=None, evaluate_every_n_iters: int = 1, n_games_in_evaluation: int=100):
         self.model = model
         self.agent = agent
         self.tournament = Tournament(self.model.game_class, [MinimaxAgent(self.model.game_class), self.agent],
-                                     n_games=100)
+                                     n_games=n_games_in_evaluation)
         self.train_iter_count = mp.Value('i', 0)
         self.train_iter_queue = train_iter_queue
         self.args = args
@@ -160,6 +160,7 @@ def get_parser():
     parser.add_argument('--optimizer_class', type=str, default='Adam', help='optimizer class in torch.optim')
     parser.add_argument('--evaluate_every_n_iters', type=int, default=1000,
                         help='how often to play tournament against minimax')
+    parser.add_argument('--n_games_in_evaluation', type=int, default=100)
     return parser
 
 
@@ -182,11 +183,14 @@ def main():
     model = TicTacToeAlphaModel(TicTacToe)
     monitor_log_queue = mp.Queue(maxsize=1000)
     if args.single_process:
-        monitor = lambda model, agent: Monitor(model, args.device, agent, args, evaluate_every_n_iters=args.evaluate_every_n_iters)
+        monitor = lambda model, agent: Monitor(model, args.device, agent, args,
+                                               evaluate_every_n_iters=args.evaluate_every_n_iters,
+                                               n_games_in_evaluation=args.n_games_in_evaluation)
     else:
         monitor = lambda model, agent, kill, pause_training: Monitor(model, args.device, agent, args, monitor_log_queue,
                                                                      kill, pause_training,
-                                                                     evaluate_every_n_iters=args.evaluate_every_n_iters)
+                                                                     evaluate_every_n_iters=args.evaluate_every_n_iters,
+                                                                     n_games_in_evaluation=args.n_games_in_evaluation)
 
     run(args, model, monitor)
 
