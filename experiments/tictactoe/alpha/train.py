@@ -116,7 +116,7 @@ class Monitor(MultiprocessingAlphaMonitor):
         print(cur_log_dict)
         wandb.log(cur_log_dict)
 
-        if self.train_iter_count.value % self.evaluate_every_n_iters == 0:
+        if cur_log_dict['iter'] % self.evaluate_every_n_iters == 0:
             if self.pause_training is not None:
                 self.pause_training.value = True
             self.agent.eval()
