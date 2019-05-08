@@ -5,8 +5,9 @@ from ctypes import c_bool
 
 
 def self_play(game_class, agent, n_games: int):
+    players = [agent for _ in range(game_class.N_PLAYERS)]
     for _ in range(n_games):
-        cur_game = game_class([agent, agent])
+        cur_game = game_class(players)
         cur_game.play()
 
 

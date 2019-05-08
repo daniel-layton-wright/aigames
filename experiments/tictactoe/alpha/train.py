@@ -4,6 +4,8 @@ import sys
 top_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../'))
 sys.path.insert(0, top_dir)
 from aigames import *
+from aigames.train_utils.train_alpha_agent import *
+from aigames.train_utils.train_alpha_agent_mp import *
 import torch.multiprocessing as mp
 import logging
 import wandb
@@ -55,8 +57,8 @@ class TicTacToeAlphaModel(AlphaModel):
 
 
 class Monitor(MultiprocessingAlphaMonitor):
-    def __init__(self, model, agent, kill, pause_training, train_iter_queue: mp.Queue, args, model_device,
-                 evaluate_every_n_iters: int = 1):
+    def __init__(self, model, model_device, agent, args, train_iter_queue: mp.Queue = None, kill=None,
+                 pause_training=None, evaluate_every_n_iters: int = 1):
         self.model = model
         self.agent = agent
         self.tournament = Tournament(self.model.game_class, [MinimaxAgent(self.model.game_class), self.agent],
@@ -85,7 +87,12 @@ class Monitor(MultiprocessingAlphaMonitor):
     def on_optimizer_step(self, most_recent_loss):
         with self.train_iter_count.get_lock():
             self.train_iter_count.value += 1
-            self.train_iter_queue.put({'iter': self.train_iter_count.value, 'loss': most_recent_loss})
+
+            cur_log_item = {'iter': self.train_iter_count.value, 'loss': most_recent_loss}
+            if self.train_iter_queue is not None:
+                self.train_iter_queue.put(cur_log_item)
+            else:
+                self.log(cur_log_item)
 
     def monitor_until_killed(self):
         do_one_last_check = True
@@ -103,42 +110,47 @@ class Monitor(MultiprocessingAlphaMonitor):
                 else:
                     continue
 
-            wandb.log(cur_log_dict)
+            self.log(cur_log_dict)
 
-            if self.train_iter_count.value % self.evaluate_every_n_iters == 0:
-                self.pause_training.value = True
-                self.agent.eval()
+    def log(self, cur_log_dict):
+        print(cur_log_dict)
+        wandb.log(cur_log_dict)
 
-                with torch.no_grad():
-                    p, v = self.model(self.processed_example_state)
+        if self.train_iter_count.value % self.evaluate_every_n_iters == 0:
+            self.pause_training.value = True
+            self.agent.eval()
 
-                p = p.cpu().numpy()
-                fig, ax = plt.subplots()
-                ax.bar(range(len(p)), p)
-                ax.set_xticks(range(len(p)))
-                ax.set_xticklabels(self.model.game_class.ALL_ACTIONS)
-                self.logger.add_figure('example_state_actions', fig, self.train_iter_count.value)
-                plt.close(fig)
+            with torch.no_grad():
+                p, v = self.model(self.processed_example_state)
 
-                final_states = self.tournament.play()
-                num_losses = sum(self.model.game_class.reward(state, 1) == -1 for state in final_states)
-                pct_losses = num_losses / float(self.tournament.n_games)
+            p = p.cpu().numpy()
+            fig, ax = plt.subplots()
+            ax.bar(range(len(p)), p)
+            ax.set_xticks(range(len(p)))
+            ax.set_xticklabels(self.model.game_class.ALL_ACTIONS)
+            self.logger.add_figure('example_state_actions', fig, self.train_iter_count.value)
+            plt.close(fig)
 
-                wandb.log({'iter': cur_log_dict['iter'],
-                           'pct_loss_vs_minimax': pct_losses})
+            final_states = self.tournament.play()
+            num_losses = sum(self.model.game_class.reward(state, 1) == -1 for state in final_states)
+            pct_losses = num_losses / float(self.tournament.n_games)
 
-                torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'most_recent_model.pt'))
+            wandb.log({'iter': cur_log_dict['iter'],
+                       'pct_loss_vs_minimax': pct_losses})
 
-                if self.best_pct_losses is None or pct_losses < self.best_pct_losses:
-                    torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+            torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'most_recent_model.pt'))
 
-                self.pause_training.value = False
-                self.agent.train()
+            if self.best_pct_losses is None or pct_losses < self.best_pct_losses:
+                torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+
+            self.pause_training.value = False
+            self.agent.train()
 
 
 def get_parser():
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument('--single_process', action='store_true', default=False)
     parser.add_argument('-l', '--lr', type=float, default=0.005)
     parser.add_argument('-p', '--n_self_play_procs', type=int, default=1, help='Number of self-play processes')
     parser.add_argument('-n', '--n_games_per_proc', type=int, required=True,
@@ -153,9 +165,13 @@ def get_parser():
 
 def run(args, model, monitor=None):
     optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
-    train_alpha_agent_mp(TicTacToe, model, optimizer_class=optimizer_class, lr=args.lr, model_device=args.device,
-                         monitor=monitor, n_self_play_workers=args.n_self_play_procs,
-                         n_games_per_worker=args.n_games_per_proc, n_training_workers=args.n_training_workers)
+    if args.single_process:
+        train_alpha_agent(TicTacToe, model, optimizer_class, lr=args.lr, monitor=monitor,
+                          model_device=args.device, n_games=args.n_games_per_proc)
+    else:
+        train_alpha_agent_mp(TicTacToe, model, optimizer_class=optimizer_class, lr=args.lr,
+                             model_device=args.device, monitor=monitor, n_self_play_workers=args.n_self_play_procs,
+                             n_games_per_worker=args.n_games_per_proc, n_training_workers=args.n_training_workers)
 
 
 def main():
@@ -165,9 +181,12 @@ def main():
     mp.set_start_method('forkserver')
     model = TicTacToeAlphaModel(TicTacToe)
     monitor_log_queue = mp.Queue(maxsize=1000)
-    monitor = lambda model, agent, kill, pause_training: Monitor(model, agent, kill, pause_training,
-                                                                 monitor_log_queue, args, args.device,
-                                                                 evaluate_every_n_iters=args.evaluate_every_n_iters)
+    if args.single_process:
+        monitor = lambda model, agent: Monitor(model, args.device, agent, args, evaluate_every_n_iters=args.evaluate_every_n_iters)
+    else:
+        monitor = lambda model, agent, kill, pause_training: Monitor(model, args.device, agent, args, monitor_log_queue,
+                                                                     kill, pause_training,
+                                                                     evaluate_every_n_iters=args.evaluate_every_n_iters)
 
     run(args, model, monitor)
 

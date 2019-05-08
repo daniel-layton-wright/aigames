@@ -6,7 +6,7 @@ from aigames.base.game import *
 from aigames.base.agent import *
 
 
-class AlphaEvaluator:
+class BaseAlphaEvaluator:
     def evaluate(self, state):
         raise NotImplementedError()
 
@@ -24,7 +24,7 @@ class AlphaEvaluator:
 
 # TODO : add Dirichlet noise
 class AlphaAgent(SequentialAgent):
-    def __init__(self, game: Game, evaluator: AlphaEvaluator,
+    def __init__(self, game: Game, evaluator: BaseAlphaEvaluator,
                  training_tau: float = 1., c_puct: float = 1., n_mcts: int = 1200,
                  discount_rate: float = 1):
         super().__init__(game)
@@ -221,7 +221,35 @@ class MultiprocessingAlphaMonitor(AlphaMonitor):
         pass
 
 
-class MultiprocessingAlphaEvaluator(AlphaEvaluator):
+class AlphaEvaluator(BaseAlphaEvaluator):
+    def __init__(self, model, model_device, optimizer, monitor=None):
+        self.model = model
+        self.model_device = model_device
+        self.optimizer = optimizer
+        self.monitor = monitor
+
+    def evaluate(self, state):
+        processed_state = self.model.process_state(state).to(self.model_device)
+        return self.model(processed_state)
+
+    def take_training_step(self, states, action_distns, values):
+        # Process states and move tensors to correct device
+        processed_states = tuple(self.model.process_state(state) for state in states)
+        processed_states = torch.cat(processed_states).to(self.model_device)
+        action_distns = torch.stack(action_distns).to(self.model_device)
+        values = torch.cat(tuple(values)).to(self.model_device)
+
+        # Run through network and compute loss
+        losses = self.model.loss(processed_states, action_distns, values)
+        loss = torch.sum(losses)
+
+        # Backprop
+        loss.backward()
+        self.optimizer.step()
+        if self.monitor is not None:
+            self.monitor.on_optimizer_step(losses.mean().item())
+
+class MultiprocessingAlphaEvaluator(BaseAlphaEvaluator):
     def __init__(self, id, model: AlphaModel, model_device, evaluation_queue: mp.Queue, results_queue: mp.Queue,
                  train_queue: mp.Queue):
         self.id = id
@@ -245,7 +273,7 @@ class MultiprocessingAlphaEvaluator(AlphaEvaluator):
         processed_states = tuple(self.model.process_state(state) for state in states)
         processed_states = torch.cat(processed_states)
         action_distns = torch.stack(tuple(action_distns))
-        values = torch.stack(tuple(values))
+        values = torch.cat(tuple(values))
         self.train_queue.put(
             (processed_states.to(self.model_device),
              action_distns.to(self.model_device),
