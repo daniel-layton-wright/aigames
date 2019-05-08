@@ -117,7 +117,8 @@ class Monitor(MultiprocessingAlphaMonitor):
         wandb.log(cur_log_dict)
 
         if self.train_iter_count.value % self.evaluate_every_n_iters == 0:
-            self.pause_training.value = True
+            if self.pause_training is not None:
+                self.pause_training.value = True
             self.agent.eval()
 
             with torch.no_grad():
@@ -143,7 +144,8 @@ class Monitor(MultiprocessingAlphaMonitor):
             if self.best_pct_losses is None or pct_losses < self.best_pct_losses:
                 torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
 
-            self.pause_training.value = False
+            if self.pause_training is not None:
+                self.pause_training.value = False
             self.agent.train()
 
 
