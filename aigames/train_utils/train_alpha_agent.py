@@ -3,6 +3,8 @@ from aigames.agents import *
 
 def train_alpha_agent(game_class, model: AlphaModel, optimizer_class, lr=0.01, monitor=None, model_device='cpu',
                       n_games=10000, alpha_agent_kwargs=dict()):
+    model_device = torch.device(model_device)
+    model.to(model_device)
     optimizer = optimizer_class(model.parameters(), lr=lr)
     evaluator = AlphaEvaluator(model, model_device, optimizer)
     alpha_agent = AlphaAgent(game_class, evaluator, **alpha_agent_kwargs)
