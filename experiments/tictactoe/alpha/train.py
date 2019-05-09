@@ -58,7 +58,7 @@ class TicTacToeAlphaModel(AlphaModel):
 
 class Monitor(MultiprocessingAlphaMonitor):
     def __init__(self, model, model_device, agent, args, train_iter_queue: mp.Queue = None, kill=None,
-                 pause_training=None, evaluate_every_n_iters: int = 1, n_games_in_evaluation: int=100):
+                 pause_training=None, evaluate_every_n_iters: int = 1, n_games_in_evaluation: int = 100):
         self.model = model
         self.agent = agent
         self.tournament = Tournament(self.model.game_class, [MinimaxAgent(self.model.game_class), self.agent],
@@ -78,6 +78,17 @@ class Monitor(MultiprocessingAlphaMonitor):
         example_state[1, 0, 1] = 1
         example_state[2, :, :] = 0
         self.processed_example_state = self.model.process_state(example_state).to(self.model_device)
+
+        example_state2 = np.array([[[0, 0, 0],
+                           [1, 0, 0],
+                           [1, 0, 1]],
+                          [[1, 0, 0],
+                           [0, 1, 0],
+                           [0, 0, 0]],
+                          [[1, 1, 1],
+                           [1, 1, 1],
+                           [1, 1, 1]]]).astype(int)
+        self.processed_example_state2 = self.model.process_state(example_state2).to(self.model_device)
 
     def start(self):
         wandb.init(project='aigames', tags=['tictactoe_alpha'], tensorboard=True)
@@ -116,28 +127,21 @@ class Monitor(MultiprocessingAlphaMonitor):
         print(cur_log_dict)
         wandb.log(cur_log_dict)
 
+        self.log_action_prob_plot(self.processed_example_state, 'example_state_actions')
+        self.log_action_prob_plot(self.processed_example_state2, 'example_state_actions2')
+
         if cur_log_dict['iter'] % self.evaluate_every_n_iters == 0:
             if self.pause_training is not None:
                 self.pause_training.value = True
             self.agent.eval()
 
-            with torch.no_grad():
-                p, v = self.model(self.processed_example_state)
-
-            p = p.cpu().numpy()
-            fig, ax = plt.subplots()
-            ax.bar(range(len(p)), p)
-            ax.set_xticks(range(len(p)))
-            ax.set_xticklabels(self.model.game_class.ALL_ACTIONS)
-            self.logger.add_figure('example_state_actions', fig, self.train_iter_count.value)
-            plt.close(fig)
-
             final_states = self.tournament.play()
             num_losses = sum(self.model.game_class.reward(state, 1) == -1 for state in final_states)
             pct_losses = num_losses / float(self.tournament.n_games)
 
-            wandb.log({'iter': cur_log_dict['iter'],
+            wandb.log({'iter': self.train_iter_count.value,
                        'pct_loss_vs_minimax': pct_losses})
+            print(f'PCT LOSS VS MINIMAX {pct_losses}%')
 
             torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'most_recent_model.pt'))
 
@@ -148,10 +152,22 @@ class Monitor(MultiprocessingAlphaMonitor):
                 self.pause_training.value = False
             self.agent.train()
 
+    def log_action_prob_plot(self, processed_state, name):
+        with torch.no_grad():
+            p, v = self.model(processed_state)
+
+        p = p.cpu().numpy()
+        fig, ax = plt.subplots()
+        ax.bar(range(len(p)), p)
+        ax.set_xticks(range(len(p)))
+        ax.set_xticklabels(self.model.game_class.ALL_ACTIONS)
+        self.logger.add_figure(name, fig, self.train_iter_count.value)
+        plt.close(fig)
+
 
 def get_parser():
     import argparse
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--single_process', action='store_true', default=False)
     parser.add_argument('-l', '--lr', type=float, default=0.005)
     parser.add_argument('-p', '--n_self_play_procs', type=int, default=1, help='Number of self-play processes')

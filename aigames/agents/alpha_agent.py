@@ -258,16 +258,19 @@ class AlphaEvaluator(BaseAlphaEvaluator):
 
 class MultiprocessingAlphaEvaluator(BaseAlphaEvaluator):
     def __init__(self, id, model: AlphaModel, model_device, evaluation_queue: mp.Queue, results_queue: mp.Queue,
-                 train_queue: mp.Queue):
+                 train_queue: mp.Queue, pause_training=None):
         self.id = id
         self.model = model
         self.model_device = model_device
         self.evaluation_queue = evaluation_queue
         self.results_queue = results_queue
         self.train_queue = train_queue
+        self.pause_training = pause_training
 
     def evaluate(self, state):
         processed_state = self.model.process_state(state).to(self.model_device)
+        while self.pause_training is not None and self.pause_training.value:
+            pass
         self.evaluation_queue.put((self.id, processed_state))
         pi, v = self.results_queue.get()
         pi_clone = pi.clone()
@@ -306,13 +309,13 @@ class MultiprocessingAlphaEvaluationWorker:
 
     def evaluate_until_killed(self):
         while True:
-            if self.kill.value and self.evaluation_queue.empty():
-                break
-
             try:
                 id, processed_state = self.evaluation_queue.get(block=False)
             except queue.Empty:
-                continue
+                if self.kill.value:
+                    break
+                else:
+                    continue
 
             with torch.no_grad():
                 result = self.model(processed_state.to(self.device))

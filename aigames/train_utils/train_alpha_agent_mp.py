@@ -108,7 +108,7 @@ class MultiprocessingManager:
     def start_self_play_workers(self):
         for i in range(self.n_self_play_workers):
             cur_evaluator = MultiprocessingAlphaEvaluator(i, self.model, self.model_device, self.evaluation_queue,
-                                                          self.results_queues[i], self.train_queue)
+                                                          self.results_queues[i], self.train_queue, self.pause_training)
             cur_agent = AlphaAgent(self.game_class, cur_evaluator, **self.alpha_agent_kwargs)
             cur_worker = mp.Process(target=self_play, args=(self.game_class, cur_agent, self.n_games_per_worker))
             cur_worker.start()
