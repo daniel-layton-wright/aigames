@@ -1,5 +1,8 @@
 import os
 import sys
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 top_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../'))
 sys.path.insert(0, top_dir)
@@ -7,9 +10,12 @@ from aigames import *
 from aigames.train_utils.train_alpha_agent import *
 from aigames.train_utils.train_alpha_agent_mp import *
 import torch.multiprocessing as mp
+from multiprocessing.pool import ThreadPool
+import multiprocessing
 import logging
 import wandb
 from tensorboardX import SummaryWriter
+from threading import Thread
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
@@ -57,16 +63,28 @@ class TicTacToeAlphaModel(AlphaModel):
         return x.to(self.device)
 
 
+def play_minimax_tournament_with_current_model(agent, iter, n_games_in_evaluation):
+    tournament = Tournament(agent.evaluator.game_class, [MinimaxAgent(agent.evaluator.game_class), agent],
+                            n_games=n_games_in_evaluation)
+    final_states = tournament.play()
+    num_losses = sum(agent.evaluator.game_class.reward(state, 1) == -1 for state in final_states)
+    frac_losses = num_losses / float(tournament.n_games)
+    results = {}
+    results['frac_losses'] = frac_losses
+    results['iter'] = iter
+    results['model'] = agent.evaluator
+    return results
+
+
 class Monitor(MultiprocessingAlphaMonitor):
     def __init__(self, model, agent, args, train_iter_queue: mp.Queue = None, kill=None,
                  pause_training=None, evaluate_every_n_iters: int = 1, n_games_in_evaluation: int = 100,
-                 wandb: bool=True):
+                 wandb: bool = True):
         self.model = model
         self.agent = agent
-        self.tournament = Tournament(self.model.game_class, [MinimaxAgent(self.model.game_class), self.agent],
-                                     n_games=n_games_in_evaluation)
         self.train_iter_count = mp.Value('i', 0)
         self.train_iter_queue = train_iter_queue
+        self.n_games_in_evaluation = n_games_in_evaluation
         self.args = args
         self.kill = kill
         self.logger = None
@@ -74,6 +92,10 @@ class Monitor(MultiprocessingAlphaMonitor):
         self.evaluate_every_n_iters = evaluate_every_n_iters
         self.best_frac_losses = None
         self.wandb = wandb
+        self.thread_pool = None
+        self.cur_model = None
+        self.currently_evaluating = False
+        self.evaluation_results = None
 
         example_state = np.zeros((3, 3, 3))
         example_state[0, 1, 1] = 1
@@ -110,11 +132,15 @@ class Monitor(MultiprocessingAlphaMonitor):
 
     def monitor_until_killed(self):
         do_one_last_check = True
+
+        self.log_evaluation_results_if_available()
+
         while True:
             try:
                 cur_log_dict = self.train_iter_queue.get(block=False)
             except queue.Empty:
                 if self.kill.value:
+                    self.wait_for_and_log_evaluation_results()
                     if do_one_last_check:
                         time.sleep(1)
                         do_one_last_check = False
@@ -125,7 +151,6 @@ class Monitor(MultiprocessingAlphaMonitor):
                     continue
 
             self.log(cur_log_dict)
-
     def log(self, cur_log_dict):
         self._log(cur_log_dict)
 
@@ -135,33 +160,58 @@ class Monitor(MultiprocessingAlphaMonitor):
         if cur_log_dict['iter'] % self.evaluate_every_n_iters == 0:
             if self.pause_training is not None:
                 self.pause_training.value = True
-            self.agent.eval()
 
-            frac_losses = self.play_minimax_tournament_with_current_model()
-            self._log({'iter': self.train_iter_count.value,
-                       'frac_loss_vs_minimax': frac_losses})
+            # Make a copy of the agent to evaluate with
+            self.cur_model = copy.copy(self.model)
+            self.cur_model.load_state_dict(self.model.state_dict())
+            cur_agent: AlphaAgent = copy.copy(self.agent)
+            cur_agent.evaluator = self.cur_model  # Don't do multiprocessing here, just use the model
+            cur_agent.eval()
 
-            if self.wandb:
-                torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'most_recent_model.pt'))
+            self.wait_for_and_log_evaluation_results()
 
-                if self.best_frac_losses is None or frac_losses < self.best_frac_losses:
-                    torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+            if self.thread_pool is None:
+                self.thread_pool = ThreadPool(processes=1)
+
+            self.currently_evaluating = True
+            self.evaluation_results = self.thread_pool.apply_async(play_minimax_tournament_with_current_model,
+                                                                   (cur_agent, self.train_iter_count.value,
+                                                                    self.n_games_in_evaluation))
 
             if self.pause_training is not None:
                 self.pause_training.value = False
-            self.agent.train()
 
     def _log(self, cur_log_dict):
         print(cur_log_dict)
         if self.wandb:
             wandb.log(cur_log_dict)
 
+    def log_evaluation_results_if_available(self):
+        if self.currently_evaluating:
+            try:
+                results = self.evaluation_results.get(timeout=0.1)
+                self.currently_evaluating = False
+                self.log_evaluation_results(results)
+            except multiprocessing.context.TimeoutError:
+                pass
 
-    def play_minimax_tournament_with_current_model(self):
-        final_states = self.tournament.play()
-        num_losses = sum(self.model.game_class.reward(state, 1) == -1 for state in final_states)
-        frac_losses = num_losses / float(self.tournament.n_games)
-        return frac_losses
+    def wait_for_and_log_evaluation_results(self):
+        if self.currently_evaluating:
+            results = self.evaluation_results.get()
+            self.currently_evaluating = False
+            self.log_evaluation_results(results)
+
+    def log_evaluation_results(self, results):
+        frac_losses = results['frac_losses']
+        self._log({'iter': results['iter'],
+                   'frac_loss_vs_minimax': frac_losses})
+
+        if self.wandb:
+            torch.save(results['model'].state_dict(), os.path.join(wandb.run.dir, 'most_recent_model.pt'))
+
+            if self.best_frac_losses is None or frac_losses < self.best_frac_losses:
+                self.best_frac_losses = frac_losses
+                torch.save(results['model'].state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
 
     def log_action_prob_plot(self, processed_state, name):
         with torch.no_grad():
@@ -209,7 +259,7 @@ def main():
     optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
 
     def optimizer(parameters):
-        return optimizer_class(parameters, lr = args.lr)
+        return optimizer_class(parameters, lr=args.lr)
 
     device = torch.device(args.device)
     model = TicTacToeAlphaModel(TicTacToe, optimizer, device=device)
