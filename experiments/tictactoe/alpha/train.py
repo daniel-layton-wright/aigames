@@ -15,8 +15,8 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 
 class TicTacToeAlphaModel(AlphaModel):
-    def __init__(self, game_class):
-        super().__init__()
+    def __init__(self, game_class, optimizer_creator, device=torch.device('cpu'), monitor=None):
+        super().__init__(device, monitor)
         self.game_class = game_class
         self.base = nn.Sequential(
             nn.Conv2d(in_channels=2, out_channels=32, kernel_size=3, stride=1, padding=1),
@@ -35,14 +35,15 @@ class TicTacToeAlphaModel(AlphaModel):
             nn.Tanh()
         )
 
+        self.setup(optimizer_creator)
+
     def forward(self, processed_state):
         base = self.base(processed_state)
         policy = self.policy_head(base).squeeze()
         value = self.value_head(base).squeeze()
         return policy, value
 
-    @staticmethod
-    def process_state(state):
+    def process_state(self, state):
         # Make the state from the perspective of the player whose turn it is
         if state[2, 0, 0] == 0:
             x = torch.FloatTensor(state[[0, 1]])
@@ -53,12 +54,13 @@ class TicTacToeAlphaModel(AlphaModel):
         while len(x.shape) < 4:
             x = x.unsqueeze(0)
 
-        return x
+        return x.to(self.device)
 
 
 class Monitor(MultiprocessingAlphaMonitor):
-    def __init__(self, model, model_device, agent, args, train_iter_queue: mp.Queue = None, kill=None,
-                 pause_training=None, evaluate_every_n_iters: int = 1, n_games_in_evaluation: int = 100):
+    def __init__(self, model, agent, args, train_iter_queue: mp.Queue = None, kill=None,
+                 pause_training=None, evaluate_every_n_iters: int = 1, n_games_in_evaluation: int = 100,
+                 wandb: bool=True):
         self.model = model
         self.agent = agent
         self.tournament = Tournament(self.model.game_class, [MinimaxAgent(self.model.game_class), self.agent],
@@ -68,31 +70,32 @@ class Monitor(MultiprocessingAlphaMonitor):
         self.args = args
         self.kill = kill
         self.logger = None
-        self.model_device = torch.device(model_device)
         self.pause_training = pause_training
         self.evaluate_every_n_iters = evaluate_every_n_iters
-        self.best_pct_losses = None
+        self.best_frac_losses = None
+        self.wandb = wandb
 
         example_state = np.zeros((3, 3, 3))
         example_state[0, 1, 1] = 1
         example_state[1, 0, 1] = 1
         example_state[2, :, :] = 0
-        self.processed_example_state = self.model.process_state(example_state).to(self.model_device)
+        self.processed_example_state = self.model.process_state(example_state)
 
         example_state2 = np.array([[[0, 0, 0],
-                           [1, 0, 0],
-                           [1, 0, 1]],
-                          [[1, 0, 0],
-                           [0, 1, 0],
-                           [0, 0, 0]],
-                          [[1, 1, 1],
-                           [1, 1, 1],
-                           [1, 1, 1]]]).astype(int)
-        self.processed_example_state2 = self.model.process_state(example_state2).to(self.model_device)
+                                    [1, 0, 0],
+                                    [1, 0, 1]],
+                                   [[1, 0, 0],
+                                    [0, 1, 0],
+                                    [0, 0, 0]],
+                                   [[1, 1, 1],
+                                    [1, 1, 1],
+                                    [1, 1, 1]]]).astype(int)
+        self.processed_example_state2 = self.model.process_state(example_state2)
 
     def start(self):
-        wandb.init(project='aigames', tags=['tictactoe_alpha'], tensorboard=True)
-        wandb.config.update(self.args)
+        if self.wandb:
+            wandb.init(project='aigames', tags=['tictactoe_alpha'], tensorboard=True)
+            wandb.config.update(self.args)
         self.logger = SummaryWriter()
 
     def on_optimizer_step(self, most_recent_loss):
@@ -124,8 +127,7 @@ class Monitor(MultiprocessingAlphaMonitor):
             self.log(cur_log_dict)
 
     def log(self, cur_log_dict):
-        print(cur_log_dict)
-        wandb.log(cur_log_dict)
+        self._log(cur_log_dict)
 
         self.log_action_prob_plot(self.processed_example_state, 'example_state_actions')
         self.log_action_prob_plot(self.processed_example_state2, 'example_state_actions2')
@@ -135,22 +137,31 @@ class Monitor(MultiprocessingAlphaMonitor):
                 self.pause_training.value = True
             self.agent.eval()
 
-            final_states = self.tournament.play()
-            num_losses = sum(self.model.game_class.reward(state, 1) == -1 for state in final_states)
-            pct_losses = num_losses / float(self.tournament.n_games)
+            frac_losses = self.play_minimax_tournament_with_current_model()
+            self._log({'iter': self.train_iter_count.value,
+                       'frac_loss_vs_minimax': frac_losses})
 
-            wandb.log({'iter': self.train_iter_count.value,
-                       'pct_loss_vs_minimax': pct_losses})
-            print(f'PCT LOSS VS MINIMAX {pct_losses}%')
+            if self.wandb:
+                torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'most_recent_model.pt'))
 
-            torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'most_recent_model.pt'))
-
-            if self.best_pct_losses is None or pct_losses < self.best_pct_losses:
-                torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+                if self.best_frac_losses is None or frac_losses < self.best_frac_losses:
+                    torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
 
             if self.pause_training is not None:
                 self.pause_training.value = False
             self.agent.train()
+
+    def _log(self, cur_log_dict):
+        print(cur_log_dict)
+        if self.wandb:
+            wandb.log(cur_log_dict)
+
+
+    def play_minimax_tournament_with_current_model(self):
+        final_states = self.tournament.play()
+        num_losses = sum(self.model.game_class.reward(state, 1) == -1 for state in final_states)
+        frac_losses = num_losses / float(self.tournament.n_games)
+        return frac_losses
 
     def log_action_prob_plot(self, processed_state, name):
         with torch.no_grad():
@@ -179,34 +190,37 @@ def get_parser():
     parser.add_argument('--evaluate_every_n_iters', type=int, default=1000,
                         help='how often to play tournament against minimax')
     parser.add_argument('--n_games_in_evaluation', type=int, default=100)
+    parser.add_argument('--wandboff', action='store_true', default=False)
     return parser
 
 
 def run(args, model, monitor=None):
-    optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
     if args.single_process:
-        train_alpha_agent(TicTacToe, model, optimizer_class, lr=args.lr, monitor=monitor,
-                          model_device=args.device, n_games=args.n_games_per_proc)
+        train_alpha_agent(TicTacToe, model, lr=args.lr, monitor=monitor, n_games=args.n_games_per_proc)
     else:
-        train_alpha_agent_mp(TicTacToe, model, optimizer_class=optimizer_class, lr=args.lr,
-                             model_device=args.device, monitor=monitor, n_self_play_workers=args.n_self_play_procs,
+        train_alpha_agent_mp(TicTacToe, model, monitor=monitor, n_self_play_workers=args.n_self_play_procs,
                              n_games_per_worker=args.n_games_per_proc, n_training_workers=args.n_training_workers)
 
 
 def main():
     parser = get_parser()
     args = parser.parse_args()
-
     mp.set_start_method('forkserver')
-    model = TicTacToeAlphaModel(TicTacToe)
+    optimizer_class = eval(f'torch.optim.{args.optimizer_class}')
+
+    def optimizer(parameters):
+        return optimizer_class(parameters, lr = args.lr)
+
+    device = torch.device(args.device)
+    model = TicTacToeAlphaModel(TicTacToe, optimizer, device=device)
     monitor_log_queue = mp.Queue(maxsize=1000)
     if args.single_process:
-        monitor = lambda model, agent: Monitor(model, args.device, agent, args,
+        monitor = lambda model, agent: Monitor(model, agent, args, wandb=(not args.wandboff),
                                                evaluate_every_n_iters=args.evaluate_every_n_iters,
                                                n_games_in_evaluation=args.n_games_in_evaluation)
     else:
-        monitor = lambda model, agent, kill, pause_training: Monitor(model, args.device, agent, args, monitor_log_queue,
-                                                                     kill, pause_training,
+        monitor = lambda model, agent, kill, pause_training: Monitor(model, agent, args, monitor_log_queue,
+                                                                     kill, pause_training, wandb=(not args.wandboff),
                                                                      evaluate_every_n_iters=args.evaluate_every_n_iters,
                                                                      n_games_in_evaluation=args.n_games_in_evaluation)
 

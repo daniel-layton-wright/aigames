@@ -11,16 +11,16 @@ def self_play(game_class, agent, n_games: int):
         cur_game.play()
 
 
-def evaluation_worker(model, device, evaluation_queue, results_queues, kill):
-    worker = MultiprocessingAlphaEvaluationWorker(model, device, evaluation_queue, results_queues, kill)
+def evaluation_worker(model, evaluation_queue, results_queues, kill):
+    worker = MultiprocessingAlphaEvaluationWorker(model, evaluation_queue, results_queues, kill)
     worker.evaluate_until_killed()
 
 
-def training_worker(model, optimizer, device, train_queue, kill, monitor=None, pause_training=None):
+def training_worker(model, train_queue, kill, monitor=None, pause_training=None):
     if monitor is not None:
         monitor.before_training_start()
 
-    worker = MultiprocessingAlphaTrainingWorker(model, optimizer, device, train_queue, kill, monitor, pause_training)
+    worker = MultiprocessingAlphaTrainingWorker(model, train_queue, kill, pause_training)
     worker.train_until_killed()
 
 
@@ -30,14 +30,12 @@ def monitor_worker(monitor: MultiprocessingAlphaMonitor):
 
 
 class MultiprocessingManager:
-    def __init__(self, game_class, model, model_device, optimizer, monitor,
+    def __init__(self, game_class, model, monitor,
                  n_self_play_workers: int, n_evaluation_workers: int, n_training_workers: int,
                  n_games_per_worker: int, evaluation_queue_max_size, train_queue_max_size,
                  alpha_agent_kwargs=dict()):
         self.game_class = game_class
         self.model = model
-        self.model_device = model_device
-        self.optimizer = optimizer
         self.monitor = monitor
         self.n_self_play_workers = n_self_play_workers
         self.n_evaluation_workers = n_evaluation_workers
@@ -60,10 +58,11 @@ class MultiprocessingManager:
 
         if self.monitor is not None:
             monitor_evaluator = MultiprocessingAlphaEvaluator(len(self.results_queues) - 1, self.model,
-                                                              self.model_device, self.evaluation_queue,
-                                                              self.results_queues[-1], self.train_queue)
+                                                              self.evaluation_queue, self.results_queues[-1],
+                                                              self.train_queue)
             monitor_agent = AlphaAgent(self.game_class, monitor_evaluator, **self.alpha_agent_kwargs)
             self.monitor = monitor(self.model, monitor_agent, self.kill_monitor, self.pause_training)
+            self.model.monitor = self.monitor
 
     def start(self):
         self.start_evaluation_workers()
@@ -91,23 +90,22 @@ class MultiprocessingManager:
     def start_evaluation_workers(self):
         for i in range(self.n_evaluation_workers):
             cur_evaluation_worker = mp.Process(target=evaluation_worker,
-                                                args=(
-                                                    self.model, self.model_device, self.evaluation_queue,
-                                                    self.results_queues, self.kill_eval_train))
+                                               args=(self.model, self.evaluation_queue, self.results_queues,
+                                                     self.kill_eval_train))
             cur_evaluation_worker.start()
             self.evaluation_workers.append(cur_evaluation_worker)
 
     def start_training_workers(self):
         for i in range(self.n_training_workers):
             cur_training_worker = mp.Process(target=training_worker,
-                                              args=(self.model, self.optimizer, self.model_device, self.train_queue,
-                                                    self.kill_eval_train, self.monitor, self.pause_training))
+                                             args=(self.model, self.train_queue, self.kill_eval_train, self.monitor,
+                                                   self.pause_training))
             cur_training_worker.start()
             self.training_workers.append(cur_training_worker)
 
     def start_self_play_workers(self):
         for i in range(self.n_self_play_workers):
-            cur_evaluator = MultiprocessingAlphaEvaluator(i, self.model, self.model_device, self.evaluation_queue,
+            cur_evaluator = MultiprocessingAlphaEvaluator(i, self.model, self.evaluation_queue,
                                                           self.results_queues[i], self.train_queue, self.pause_training)
             cur_agent = AlphaAgent(self.game_class, cur_evaluator, **self.alpha_agent_kwargs)
             cur_worker = mp.Process(target=self_play, args=(self.game_class, cur_agent, self.n_games_per_worker))
@@ -121,20 +119,12 @@ class MultiprocessingManager:
             self.monitor_workers.append(cur_monitor_worker)
 
 
-def train_alpha_agent_mp(game_class, model: AlphaModel, optimizer_class, lr=0.01, monitor=None, model_device='cpu',
-                         n_self_play_workers=1,
-                         n_games_per_worker=10000,
-                         n_evaluation_workers=1, n_training_workers=1,
-                         evaluation_queue_max_size=100, train_queue_max_size=100,
-                         alpha_agent_kwargs=dict(),
+def train_alpha_agent_mp(game_class, model: AlphaModel, monitor=None, n_self_play_workers=1, n_games_per_worker=10000,
+                         n_evaluation_workers=1, n_training_workers=1, evaluation_queue_max_size=100,
+                         train_queue_max_size=100, alpha_agent_kwargs=dict(),
                          ):
-    if type(model_device) == str:
-        model_device = torch.device(model_device)
     model.share_memory()
-    model.to(model_device)
-
-    optimizer = optimizer_class(model.parameters(), lr=lr)
-    mp_manager = MultiprocessingManager(game_class, model, model_device, optimizer, monitor, n_self_play_workers,
+    mp_manager = MultiprocessingManager(game_class, model, monitor, n_self_play_workers,
                                         n_evaluation_workers, n_training_workers, n_games_per_worker,
                                         evaluation_queue_max_size, train_queue_max_size, alpha_agent_kwargs)
 

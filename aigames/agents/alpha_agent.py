@@ -22,11 +22,9 @@ class BaseAlphaEvaluator:
         pass
 
 
-# TODO : add Dirichlet noise
 class AlphaAgent(SequentialAgent):
-    def __init__(self, game: Game, evaluator: BaseAlphaEvaluator,
-                 training_tau: float = 1., c_puct: float = 1., dirichlet_alpha: float = 0.3, n_mcts: int = 1200,
-                 discount_rate: float = 1):
+    def __init__(self, game: Game, evaluator, training_tau: float = 1., c_puct: float = 1.,
+                 dirichlet_alpha: float = 0.3, n_mcts: int = 1200, discount_rate: float = 1):
         super().__init__(game)
         self.game = game
         self.training_tau = training_tau
@@ -153,7 +151,7 @@ class MCTSNode:
     def expand(self):
         if not self.game.is_terminal_state(self.state):
             # Evaluate the node with the evaluator
-            self.P, self.v = self.evaluator.evaluate(self.state)
+            self.P, self.v = self.evaluator(self.evaluator.process_state(self.state))
 
             # Filter the distribution to allowed actions
             self.P_normalized = self.P[self.action_indices].detach().cpu().numpy()
@@ -199,13 +197,58 @@ class RewardData:
 
 
 class AlphaModel(nn.Module):
-    @staticmethod
-    def process_state(state):
+    def __init__(self, device=torch.device('cpu'), monitor=None):
+        super().__init__()
+        self.device = device
+        self.monitor = monitor
+        self._optimizer = None
+
+    def setup(self, optimizer_creator):
+        self.set_optimizer(optimizer_creator)
+        self.to(self.device)
+
+    @property
+    def optimizer(self):
+        if self._optimizer is not None:
+            return self._optimizer
+        else:
+            raise ValueError("You need to set the optimizer on the model, via set_optimizer()")
+
+    def set_optimizer(self, optimizer_creator):
+        self._optimizer = optimizer_creator(self.parameters())
+
+    def process_state(self, state):
         raise NotImplementedError()
 
     def loss(self, processed_states, action_distns, values):
         pred_distns, pred_values = self(processed_states)
         return (values - pred_values) ** 2 - torch.sum(action_distns * torch.log(pred_distns), dim=1)
+
+    def process_states_distns_values(self, states, action_distns, values):
+        # Process states and move tensors to correct device
+        processed_states = tuple(self.process_state(state) for state in states)
+        processed_states = torch.cat(processed_states).to(self.device)
+        action_distns = torch.stack(action_distns).to(self.device)
+        values = torch.cat(tuple(values)).to(self.device)
+        return processed_states, action_distns, values
+
+    def take_training_step(self, states, action_distns, values):
+        # Process states and move tensors to correct device
+        processed_states, action_distns, values = self.process_states_distns_values(states, action_distns, values)
+        self.take_training_step_processed(processed_states, action_distns, values)
+
+    def take_training_step_processed(self, processed_states, action_distns, values):
+        # Run through network and compute loss
+        losses = self.loss(processed_states, action_distns, values)
+        loss = torch.sum(losses)
+
+        # Backprop
+        self.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        if self.monitor is not None:
+            self.monitor.on_optimizer_step(losses.mean().item())
 
 
 class AlphaMonitor:
@@ -227,48 +270,19 @@ class MultiprocessingAlphaMonitor(AlphaMonitor):
         pass
 
 
-class AlphaEvaluator(BaseAlphaEvaluator):
-    def __init__(self, model, model_device, optimizer, monitor=None):
-        self.model = model
-        self.model_device = model_device
-        self.optimizer = optimizer
-        self.monitor = monitor
-
-    def evaluate(self, state):
-        processed_state = self.model.process_state(state).to(self.model_device)
-        return self.model(processed_state)
-
-    def take_training_step(self, states, action_distns, values):
-        # Process states and move tensors to correct device
-        processed_states = tuple(self.model.process_state(state) for state in states)
-        processed_states = torch.cat(processed_states).to(self.model_device)
-        action_distns = torch.stack(action_distns).to(self.model_device)
-        values = torch.cat(tuple(values)).to(self.model_device)
-
-        # Run through network and compute loss
-        losses = self.model.loss(processed_states, action_distns, values)
-        loss = torch.sum(losses)
-
-        # Backprop
-        loss.backward()
-        self.optimizer.step()
-        if self.monitor is not None:
-            self.monitor.on_optimizer_step(losses.mean().item())
-
-
-class MultiprocessingAlphaEvaluator(BaseAlphaEvaluator):
-    def __init__(self, id, model: AlphaModel, model_device, evaluation_queue: mp.Queue, results_queue: mp.Queue,
-                 train_queue: mp.Queue, pause_training=None):
+class MultiprocessingAlphaEvaluator(AlphaModel):
+    def __init__(self, id, model: AlphaModel, evaluation_queue: mp.Queue, results_queue: mp.Queue,
+                 train_queue: mp.Queue,
+                 pause_training=None):
+        super().__init__(model.device)
         self.id = id
         self.model = model
-        self.model_device = model_device
         self.evaluation_queue = evaluation_queue
         self.results_queue = results_queue
         self.train_queue = train_queue
         self.pause_training = pause_training
 
-    def evaluate(self, state):
-        processed_state = self.model.process_state(state).to(self.model_device)
+    def forward(self, processed_state):
         while self.pause_training is not None and self.pause_training.value:
             pass
         self.evaluation_queue.put((self.id, processed_state))
@@ -279,16 +293,12 @@ class MultiprocessingAlphaEvaluator(BaseAlphaEvaluator):
         del v
         return pi_clone, v_clone
 
+    def process_state(self, state):
+        return self.model.process_state(state)
+
     def take_training_step(self, states, action_distns, values):
-        processed_states = tuple(self.model.process_state(state) for state in states)
-        processed_states = torch.cat(processed_states)
-        action_distns = torch.stack(tuple(action_distns))
-        values = torch.cat(tuple(values))
-        self.train_queue.put(
-            (processed_states.to(self.model_device),
-             action_distns.to(self.model_device),
-             values.to(self.model_device))
-        )
+        processed_states, action_distns, values = self.model.process_states_distns_values(states, action_distns, values)
+        self.train_queue.put((processed_states, action_distns, values))
 
     def train(self):
         self.model.train()
@@ -298,11 +308,8 @@ class MultiprocessingAlphaEvaluator(BaseAlphaEvaluator):
 
 
 class MultiprocessingAlphaEvaluationWorker:
-    def __init__(self, model: AlphaModel, device: torch.device, evaluation_queue: mp.Queue,
-                 results_queues: List[mp.Queue],
-                 kill: mp.Value):
+    def __init__(self, model: AlphaModel, evaluation_queue: mp.Queue, results_queues: List[mp.Queue], kill: mp.Value):
         self.model = model
-        self.device = device
         self.evaluation_queue = evaluation_queue
         self.results_queues = results_queues
         self.kill = kill
@@ -318,19 +325,15 @@ class MultiprocessingAlphaEvaluationWorker:
                     continue
 
             with torch.no_grad():
-                result = self.model(processed_state.to(self.device))
+                result = self.model(processed_state)
                 self.results_queues[id].put(result)
 
 
 class MultiprocessingAlphaTrainingWorker:
-    def __init__(self, model: AlphaModel, optimizer: torch.optim.Optimizer, device: torch.device, train_queue: mp.Queue,
-                 kill: mp.Value, monitor: AlphaMonitor = None, pause_training=None):
+    def __init__(self, model: AlphaModel, train_queue: mp.Queue, kill: mp.Value, pause_training=None):
         self.model = model
-        self.optimizer = optimizer
-        self.device = device
         self.train_queue = train_queue
         self.kill = kill
-        self.monitor = monitor
         self.pause_training = pause_training
 
     def train_until_killed(self):
@@ -346,14 +349,4 @@ class MultiprocessingAlphaTrainingWorker:
             while self.pause_training is not None and self.pause_training.value:
                 pass
 
-            # Run through network and compute loss
-            losses = self.model.loss(processed_states.to(self.device), action_distns.to(self.device),
-                                     values.to(self.device))
-            loss = torch.sum(losses)
-
-            # Backprop
-            loss.backward()
-            self.optimizer.step()
-
-            if self.monitor is not None:
-                self.monitor.on_optimizer_step(losses.mean().item())
+            self.model.take_training_step_processed(processed_states, action_distns, values)
