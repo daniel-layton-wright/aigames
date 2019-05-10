@@ -1,6 +1,7 @@
 import os
 import sys
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -63,19 +64,6 @@ class TicTacToeAlphaModel(AlphaModel):
         return x.to(self.device)
 
 
-def play_minimax_tournament_with_current_model(agent, iter, n_games_in_evaluation):
-    tournament = Tournament(agent.evaluator.game_class, [MinimaxAgent(agent.evaluator.game_class), agent],
-                            n_games=n_games_in_evaluation)
-    final_states = tournament.play()
-    num_losses = sum(agent.evaluator.game_class.reward(state, 1) == -1 for state in final_states)
-    frac_losses = num_losses / float(tournament.n_games)
-    results = {}
-    results['frac_losses'] = frac_losses
-    results['iter'] = iter
-    results['model'] = agent.evaluator
-    return results
-
-
 class Monitor(MultiprocessingAlphaMonitor):
     def __init__(self, model, agent, args, train_iter_queue: mp.Queue = None, kill=None,
                  pause_training=None, evaluate_every_n_iters: int = 1, n_games_in_evaluation: int = 100,
@@ -96,6 +84,7 @@ class Monitor(MultiprocessingAlphaMonitor):
         self.cur_model = None
         self.currently_evaluating = False
         self.evaluation_results = None
+        self.evaluation_results_ready = False
 
         example_state = np.zeros((3, 3, 3))
         example_state[0, 1, 1] = 1
@@ -133,9 +122,9 @@ class Monitor(MultiprocessingAlphaMonitor):
     def monitor_until_killed(self):
         do_one_last_check = True
 
-        self.log_evaluation_results_if_available()
 
         while True:
+            self.log_evaluation_results_if_available()
             try:
                 cur_log_dict = self.train_iter_queue.get(block=False)
             except queue.Empty:
@@ -151,6 +140,7 @@ class Monitor(MultiprocessingAlphaMonitor):
                     continue
 
             self.log(cur_log_dict)
+
     def log(self, cur_log_dict):
         self._log(cur_log_dict)
 
@@ -158,6 +148,7 @@ class Monitor(MultiprocessingAlphaMonitor):
         self.log_action_prob_plot(self.processed_example_state2, 'example_state_actions2')
 
         if cur_log_dict['iter'] % self.evaluate_every_n_iters == 0:
+            # Pause while we make a copy
             if self.pause_training is not None:
                 self.pause_training.value = True
 
@@ -168,18 +159,32 @@ class Monitor(MultiprocessingAlphaMonitor):
             cur_agent.evaluator = self.cur_model  # Don't do multiprocessing here, just use the model
             cur_agent.eval()
 
-            self.wait_for_and_log_evaluation_results()
-
-            if self.thread_pool is None:
-                self.thread_pool = ThreadPool(processes=1)
-
-            self.currently_evaluating = True
-            self.evaluation_results = self.thread_pool.apply_async(play_minimax_tournament_with_current_model,
-                                                                   (cur_agent, self.train_iter_count.value,
-                                                                    self.n_games_in_evaluation))
-
+            # Unpause
             if self.pause_training is not None:
                 self.pause_training.value = False
+
+            self.wait_for_and_log_evaluation_results()
+
+            self.currently_evaluating = True
+            self.evaluation_results_ready = False
+            self.evaluation_thread = Thread(target=self.play_minimax_tournament_with_current_model,
+                                            args=(cur_agent, self.train_iter_count.value,
+                                                  self.n_games_in_evaluation))
+            self.evaluation_thread.start()
+
+    def play_minimax_tournament_with_current_model(self, agent, iter, n_games_in_evaluation):
+        tournament = Tournament(agent.evaluator.game_class, [MinimaxAgent(agent.evaluator.game_class), agent],
+                                n_games=n_games_in_evaluation)
+        final_states = tournament.play()
+        num_losses = sum(agent.evaluator.game_class.reward(state, 1) == -1 for state in final_states)
+        frac_losses = num_losses / float(tournament.n_games)
+        results = {}
+        results['frac_losses'] = frac_losses
+        results['iter'] = iter
+        results['model'] = agent.evaluator
+        self.evaluation_results_ready = True
+        self.evaluation_results = results
+        return results
 
     def _log(self, cur_log_dict):
         print(cur_log_dict)
@@ -187,18 +192,18 @@ class Monitor(MultiprocessingAlphaMonitor):
             wandb.log(cur_log_dict)
 
     def log_evaluation_results_if_available(self):
-        if self.currently_evaluating:
-            try:
-                results = self.evaluation_results.get(timeout=0.1)
-                self.currently_evaluating = False
-                self.log_evaluation_results(results)
-            except multiprocessing.context.TimeoutError:
-                pass
+        if self.currently_evaluating and self.evaluation_results_ready:
+            results = self.evaluation_results
+            self.currently_evaluating = False
+            self.evaluation_results_ready = False
+            self.log_evaluation_results(results)
 
     def wait_for_and_log_evaluation_results(self):
         if self.currently_evaluating:
-            results = self.evaluation_results.get()
+            self.evaluation_thread.join()
+            results = self.evaluation_results
             self.currently_evaluating = False
+            self.evaluation_results_ready = False
             self.log_evaluation_results(results)
 
     def log_evaluation_results(self, results):
