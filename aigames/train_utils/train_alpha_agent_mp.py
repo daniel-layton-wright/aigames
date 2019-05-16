@@ -2,6 +2,7 @@ import sys
 from aigames.agents.alpha_agent import *
 import torch.multiprocessing as mp
 from ctypes import c_bool
+import signal
 
 
 def self_play(game_class, agent, n_games: int):
@@ -119,6 +120,11 @@ class MultiprocessingManager:
             self.monitor_workers.append(cur_monitor_worker)
 
 
+def sigterm_handler(_signo, _stack_frame):
+    # Raises SystemExit(0):
+    sys.exit(0)
+
+
 def train_alpha_agent_mp(game_class, model: AlphaModel, monitor=None, n_self_play_workers=1, n_games_per_worker=10000,
                          n_evaluation_workers=1, n_training_workers=1, evaluation_queue_max_size=100,
                          train_queue_max_size=100, alpha_agent_kwargs=dict(),
@@ -128,9 +134,12 @@ def train_alpha_agent_mp(game_class, model: AlphaModel, monitor=None, n_self_pla
                                         n_evaluation_workers, n_training_workers, n_games_per_worker,
                                         evaluation_queue_max_size, train_queue_max_size, alpha_agent_kwargs)
 
+    signal.signal(signal.SIGTERM, sigterm_handler)
     try:
         mp_manager.start()
         mp_manager.wait_for_self_play_workers()
         mp_manager.kill_auxiliary_workers()
     except KeyboardInterrupt:
+        mp_manager.terminate_all()
+    finally:
         mp_manager.terminate_all()
