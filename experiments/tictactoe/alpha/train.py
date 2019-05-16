@@ -82,6 +82,7 @@ class Monitor(MultiprocessingAlphaMonitor):
         self.wandb = wandb
         self.thread_pool = None
         self.cur_model = None
+        self.evaluation_thread = None
         self.currently_evaluating = False
         self.evaluation_results = None
         self.evaluation_results_ready = False
@@ -163,14 +164,17 @@ class Monitor(MultiprocessingAlphaMonitor):
             if self.pause_training is not None:
                 self.pause_training.value = False
 
-            self.wait_for_and_log_evaluation_results()
-
-            self.currently_evaluating = True
-            self.evaluation_results_ready = False
-            self.evaluation_thread = Thread(target=self.play_minimax_tournament_with_current_model,
-                                            args=(cur_agent, self.train_iter_count.value,
-                                                  self.n_games_in_evaluation))
-            self.evaluation_thread.start()
+            if not self.args.single_process:
+                self.wait_for_and_log_evaluation_results()
+                self.currently_evaluating = True
+                self.evaluation_results_ready = False
+                self.evaluation_thread = Thread(target=self.play_minimax_tournament_with_current_model,
+                                                args=(cur_agent, self.train_iter_count.value,
+                                                      self.n_games_in_evaluation))
+                self.evaluation_thread.start()
+            else:
+                results = self.play_minimax_tournament_with_current_model(cur_agent, self.train_iter_count.value, self.n_games_in_evaluation)
+                self.log_evaluation_results(results)
 
     def play_minimax_tournament_with_current_model(self, agent, iter, n_games_in_evaluation):
         tournament = Tournament(agent.evaluator.game_class, [MinimaxAgent(agent.evaluator.game_class), agent],
@@ -178,7 +182,7 @@ class Monitor(MultiprocessingAlphaMonitor):
         final_states = tournament.play()
         num_losses = sum(agent.evaluator.game_class.reward(state, 1) == -1 for state in final_states)
         frac_losses = num_losses / float(tournament.n_games)
-        results = {}
+        results = dict()
         results['frac_losses'] = frac_losses
         results['iter'] = iter
         results['model'] = agent.evaluator
@@ -251,7 +255,7 @@ def get_parser():
 
 def run(args, model, monitor=None):
     if args.single_process:
-        train_alpha_agent(TicTacToe, model, lr=args.lr, monitor=monitor, n_games=args.n_games_per_proc)
+        train_alpha_agent(TicTacToe, model, monitor=monitor, n_games=args.n_games_per_proc)
     else:
         train_alpha_agent_mp(TicTacToe, model, monitor=monitor, n_self_play_workers=args.n_self_play_procs,
                              n_games_per_worker=args.n_games_per_proc, n_training_workers=args.n_training_workers)
