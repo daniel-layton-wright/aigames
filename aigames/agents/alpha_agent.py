@@ -53,7 +53,7 @@ class AlphaAgent(SequentialAgent):
             self.cur_node.search()
 
         if self.training:
-            self.tau = self.training_tau_schedule[self.move_number_in_current_game]
+            self.tau = self.training_tau_schedule[min(len(self.training_tau_schedule)-1, self.move_number_in_current_game)]
 
         pi = np.zeros(len(self.game.ALL_ACTIONS))
         if self.tau > 0:

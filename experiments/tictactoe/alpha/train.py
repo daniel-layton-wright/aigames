@@ -123,7 +123,6 @@ class Monitor(MultiprocessingAlphaMonitor):
     def monitor_until_killed(self):
         do_one_last_check = True
 
-
         while True:
             self.log_evaluation_results_if_available()
             try:
@@ -173,7 +172,8 @@ class Monitor(MultiprocessingAlphaMonitor):
                                                       self.n_games_in_evaluation))
                 self.evaluation_thread.start()
             else:
-                results = self.play_minimax_tournament_with_current_model(cur_agent, self.train_iter_count.value, self.n_games_in_evaluation)
+                results = self.play_minimax_tournament_with_current_model(cur_agent, self.train_iter_count.value,
+                                                                          self.n_games_in_evaluation)
                 self.log_evaluation_results(results)
 
     def play_minimax_tournament_with_current_model(self, agent, iter, n_games_in_evaluation):
@@ -240,6 +240,7 @@ def get_parser():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--single_process', action='store_true', default=False)
     parser.add_argument('-l', '--lr', type=float, default=0.005)
+    parser.add_argument('--tau', type=(lambda x: [float(val) for val in x.split(',')]), default=1.)
     parser.add_argument('-p', '--n_self_play_procs', type=int, default=1, help='Number of self-play processes')
     parser.add_argument('-n', '--n_games_per_proc', type=int, required=True,
                         help='Number of self-play games per process')
@@ -255,9 +256,11 @@ def get_parser():
 
 def run(args, model, monitor=None):
     if args.single_process:
-        train_alpha_agent(TicTacToe, model, monitor=monitor, n_games=args.n_games_per_proc)
+        train_alpha_agent(TicTacToe, model, monitor=monitor, n_games=args.n_games_per_proc,
+                          alpha_agent_kwargs={'training_tau': args.tau})
     else:
         train_alpha_agent_mp(TicTacToe, model, monitor=monitor, n_self_play_workers=args.n_self_play_procs,
+                             alpha_agent_kwargs={'training_tau': args.tau},
                              n_games_per_worker=args.n_games_per_proc, n_training_workers=args.n_training_workers)
 
 
