@@ -28,8 +28,8 @@ class AlphaAgent(SequentialAgent):
                  discount_rate: float = 1):
         super().__init__(game)
         self.game = game
-        self.training_tau = training_tau
-        self.tau = training_tau
+        self.training_tau_schedule = training_tau if isinstance(training_tau, list) else [training_tau]
+        self.tau = self.training_tau_schedule[0]
         self.c_puct = c_puct
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_epsilon = dirichlet_epsilon
@@ -39,6 +39,7 @@ class AlphaAgent(SequentialAgent):
         self.cur_node = None
         self.training = True
         self.episode_history = []
+        self.move_number_in_current_game = 0
 
     def choose_action(self, state, player_index, verbose=False):
         if self.cur_node is None:
@@ -50,6 +51,9 @@ class AlphaAgent(SequentialAgent):
 
         for i in range(self.n_mcts):
             self.cur_node.search()
+
+        if self.training:
+            self.tau = self.training_tau_schedule[self.move_number_in_current_game]
 
         pi = np.zeros(len(self.game.ALL_ACTIONS))
         if self.tau > 0:
@@ -65,14 +69,14 @@ class AlphaAgent(SequentialAgent):
         self.episode_history.append(TimestepData(state, pi, player_index))
         self.cur_node = self.cur_node.children[child_index]
         self.cur_node.parent = None
-
+        self.move_number_in_current_game += 1
         return action
 
     def reward(self, reward_value, state, player_index):
         self.episode_history.append(RewardData(player_index, reward_value))
 
     def train(self):
-        self.tau = self.training_tau
+        self.tau = self.training_tau_schedule[0]
         self.evaluator.train()
         self.training = True
 
@@ -83,6 +87,7 @@ class AlphaAgent(SequentialAgent):
 
     def start_episode(self):
         self.episode_history = []
+        self.move_number_in_current_game = 0
 
     def end_episode(self):
         if not self.training:
