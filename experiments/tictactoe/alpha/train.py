@@ -11,8 +11,6 @@ from aigames import *
 from aigames.train_utils.train_alpha_agent import *
 from aigames.train_utils.train_alpha_agent_mp import *
 import torch.multiprocessing as mp
-from multiprocessing.pool import ThreadPool
-import multiprocessing
 import logging
 import wandb
 from tensorboardX import SummaryWriter
@@ -22,12 +20,16 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 
 class TicTacToeAlphaModel(AlphaModel):
-    def __init__(self, game_class, optimizer_creator, device=torch.device('cpu'), monitor=None):
+    def __init__(self, game_class, optimizer_creator=None, device=torch.device('cpu'), monitor=None):
         super().__init__(device, monitor)
         self.game_class = game_class
         self.base = nn.Sequential(
             nn.Conv2d(in_channels=2, out_channels=32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
+            nn.Dropout(p=0.5),
+            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Dropout(p=0.5),
             Flatten()
         )
 
@@ -153,6 +155,7 @@ class Monitor(MultiprocessingAlphaMonitor):
                 self.pause_training.value = True
 
             # Make a copy of the agent to evaluate with
+            iter = self.train_iter_count.value  # note the actual iteration step that is being evaluated
             self.cur_model = copy.copy(self.model)
             self.cur_model.load_state_dict(self.model.state_dict())
             cur_agent: AlphaAgent = copy.copy(self.agent)
@@ -168,11 +171,11 @@ class Monitor(MultiprocessingAlphaMonitor):
                 self.currently_evaluating = True
                 self.evaluation_results_ready = False
                 self.evaluation_thread = Thread(target=self.play_minimax_tournament_with_current_model,
-                                                args=(cur_agent, self.train_iter_count.value,
+                                                args=(cur_agent, iter,
                                                       self.n_games_in_evaluation))
                 self.evaluation_thread.start()
             else:
-                results = self.play_minimax_tournament_with_current_model(cur_agent, self.train_iter_count.value,
+                results = self.play_minimax_tournament_with_current_model(cur_agent, iter,
                                                                           self.n_games_in_evaluation)
                 self.log_evaluation_results(results)
 
@@ -241,6 +244,7 @@ def get_parser():
     parser.add_argument('--single_process', action='store_true', default=False)
     parser.add_argument('-l', '--lr', type=float, default=0.005)
     parser.add_argument('--tau', type=(lambda x: [float(val) for val in x.split(',')]), default=1.)
+    parser.add_argument('--c_puct', type=float, default=1., help='c_puct controls exploration level in MCTS search')
     parser.add_argument('-p', '--n_self_play_procs', type=int, default=1, help='Number of self-play processes')
     parser.add_argument('-n', '--n_games_per_proc', type=int, required=True,
                         help='Number of self-play games per process')
@@ -257,10 +261,10 @@ def get_parser():
 def run(args, model, monitor=None):
     if args.single_process:
         train_alpha_agent(TicTacToe, model, monitor=monitor, n_games=args.n_games_per_proc,
-                          alpha_agent_kwargs={'training_tau': args.tau})
+                          alpha_agent_kwargs={'training_tau': args.tau, 'c_puct': args.c_puct})
     else:
         train_alpha_agent_mp(TicTacToe, model, monitor=monitor, n_self_play_workers=args.n_self_play_procs,
-                             alpha_agent_kwargs={'training_tau': args.tau},
+                             alpha_agent_kwargs={'training_tau': args.tau, 'c_puct': args.c_puct},
                              n_games_per_worker=args.n_games_per_proc, n_training_workers=args.n_training_workers)
 
 

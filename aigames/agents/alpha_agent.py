@@ -23,7 +23,7 @@ class BaseAlphaEvaluator:
 
 
 class AlphaAgent(SequentialAgent):
-    def __init__(self, game: Game, evaluator, training_tau: float = 1., c_puct: float = 1.,
+    def __init__(self, game: Game, evaluator, monitor=None, training_tau: float = 1., c_puct: float = 1.,
                  dirichlet_alpha: float = 0.3, dirichlet_epsilon: float = 0.25, n_mcts: int = 1200,
                  discount_rate: float = 1):
         super().__init__(game)
@@ -36,6 +36,7 @@ class AlphaAgent(SequentialAgent):
         self.n_mcts = n_mcts
         self.discount_rate = discount_rate
         self.evaluator = evaluator
+        self.monitor = monitor
         self.cur_node = None
         self.training = True
         self.episode_history = []
@@ -49,12 +50,17 @@ class AlphaAgent(SequentialAgent):
             self.cur_node = MCTSNode(self.game, state, None, self.evaluator, self.c_puct, self.dirichlet_alpha,
                                      self.dirichlet_epsilon)
 
+        # Add Dirichlet noise to the root node
+        self.cur_node.add_dirichlet_noise()
+
+        # Do MCTS search
         for i in range(self.n_mcts):
             self.cur_node.search()
 
         if self.training:
-            self.tau = self.training_tau_schedule[min(len(self.training_tau_schedule)-1, self.move_number_in_current_game)]
+            self.tau = self.training_tau_schedule[min(len(self.training_tau_schedule) - 1, self.move_number_in_current_game)]
 
+        # Compute the distribution to choose from
         pi = np.zeros(len(self.game.ALL_ACTIONS))
         if self.tau > 0:
             pi[self.cur_node.action_indices] = self.cur_node.children_total_N ** (1. / self.tau)
@@ -62,14 +68,20 @@ class AlphaAgent(SequentialAgent):
         else:
             pi[self.cur_node.action_indices[np.argmax(self.cur_node.children_total_N)]] = 1
 
+        # Choose the action according to the distribution pi
         action_index = np.random.choice(range(len(self.game.ALL_ACTIONS)), p=pi)
         action = self.game.ALL_ACTIONS[action_index]
         child_index = self.cur_node.actions.index(action)
 
+        if self.monitor is not None:
+            self.monitor.on_choose_action(self, state, action)
+
+        # Record this for training, set the root node to the next node now and forget the parent
         self.episode_history.append(TimestepData(state, pi, player_index))
         self.cur_node = self.cur_node.children[child_index]
         self.cur_node.parent = None
         self.move_number_in_current_game += 1
+
         return action
 
     def reward(self, reward_value, state, player_index):
@@ -113,7 +125,8 @@ class AlphaAgent(SequentialAgent):
 
 
 class MCTSNode:
-    def __init__(self, game, state, parent_node, evaluator, c_puct, dirichlet_alpha, epsilon: float = 0., N=None,
+    def __init__(self, game, state, parent_node, evaluator, c_puct, dirichlet_alpha, dirichlet_noise_weight: float = 0.,
+                 N=None,
                  total_N=None, Q=None):
         self.game = game
         self.state = state
@@ -129,7 +142,7 @@ class MCTSNode:
         self.evaluator = evaluator
         self.c_puct = c_puct
         self.dirichlet_alpha = dirichlet_alpha
-        self.epsilon = epsilon
+        self.dirichlet_noise_weight = dirichlet_noise_weight
 
         self.player_index = self.game.get_player_index(self.state)
         self.N = N if N is not None else np.zeros(self.game.N_PLAYERS)
@@ -140,6 +153,7 @@ class MCTSNode:
         self.W = np.zeros(self.game.N_PLAYERS)
         self.P = None
         self.P_normalized = None
+        self._need_to_add_dirichlet_noise = False
         self.v = None  # v is from the perspective of the player whose turn it is
 
     def search(self):
@@ -167,16 +181,27 @@ class MCTSNode:
             # Filter the distribution to allowed actions
             self.P_normalized = self.P[self.action_indices].detach().cpu().numpy()
             self.P_normalized /= self.P_normalized.sum()
-            # Add Dirichlet noise
-            self.P_normalized = ((1 - self.epsilon) * self.P_normalized +
-                                 self.epsilon * np.random.dirichlet([self.dirichlet_alpha] * self.n_children))
+            if self._need_to_add_dirichlet_noise:
+                self._add_dirichlet_noise()
 
             # Initialize the children
             self.children = [
-                MCTSNode(self.game, next_state, self, self.evaluator, self.c_puct, self.dirichlet_alpha, 0,
-                         self.children_N[i], self.children_total_N[i:(i + 1)], self.children_Q[i])
+                MCTSNode(self.game, next_state, self, self.evaluator, self.c_puct, self.dirichlet_alpha,
+                         self.dirichlet_noise_weight, self.children_N[i], self.children_total_N[i:(i + 1)],
+                         self.children_Q[i])
                 for i, next_state in enumerate(self.next_states)
-            ]
+                ]
+
+    def add_dirichlet_noise(self):
+        if self.P_normalized is not None:
+            self._add_dirichlet_noise()
+        else:
+            self._need_to_add_dirichlet_noise = True
+
+    def _add_dirichlet_noise(self):
+        self.P_normalized = ((1 - self.dirichlet_noise_weight) * self.P_normalized +
+                             self.dirichlet_noise_weight * np.random.dirichlet(
+                                 [self.dirichlet_alpha] * self.n_children))
 
     def backup(self, value, player_index):
         self.N[player_index] += 1
@@ -228,6 +253,8 @@ class AlphaModel(nn.Module):
             raise ValueError("You need to set the optimizer on the model, via set_optimizer()")
 
     def set_optimizer(self, optimizer_creator):
+        if optimizer_creator is None:
+            return
         self._optimizer = optimizer_creator(self.parameters())
 
     def process_state(self, state):
