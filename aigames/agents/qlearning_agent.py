@@ -8,7 +8,7 @@ import torch.utils.data
 
 
 class QLearningAgent(SequentialAgent):
-    def __init__(self, game, Q, update_target_Q_every_n_iters=10000,
+    def __init__(self, game_class, Q, update_target_Q_every_n_iters=10000,
                  exploration_probability=0.1, exploration_probability_decay=1,
                  decay_exploration_probability_every_n_iters=100,
                  optimizer_class = torch.optim.RMSprop, batch_size=16, lr=0.01, weight_decay=0,
@@ -19,9 +19,7 @@ class QLearningAgent(SequentialAgent):
         :param Q: the Q predictor to be used
         NOTE: iters refers to one step of the optimizer
         """
-        super().__init__(game)
-
-        self.game = game
+        super().__init__(game_class)
         self.exploration_probability = exploration_probability
         self.exploration_probability_decay = exploration_probability_decay
         self.decay_exploration_probability_every_n_iters = decay_exploration_probability_every_n_iters
@@ -56,8 +54,8 @@ class QLearningAgent(SequentialAgent):
         self._all_processed_state_actions = {}
 
     def choose_action(self, state, player_index, verbose = False):
-        legal_actions = self.game.legal_actions(state)
-        legal_action_indices = [self.game.ALL_ACTIONS.index(a) for a in legal_actions]
+        legal_actions = self.game_class.legal_actions(state)
+        legal_action_indices = [self.game_class.ALL_ACTIONS.index(a) for a in legal_actions]
 
         # epsilon-Greedy
         if (self.training
@@ -75,12 +73,12 @@ class QLearningAgent(SequentialAgent):
 
             idx = legal_action_indices[scores.max(0)[1]]  # max returns maxvalue, argmax
 
-        action = self.game.ALL_ACTIONS[idx]
+        action = self.game_class.ALL_ACTIONS[idx]
         self.prev_processed_state[player_index] = self.Q.process_state_action(state, action,player_index)
         return action
 
     def get_all_processed_state_actions(self, state, player_index):
-        return self._get_all_processed_state_actions(self.game, state, player_index, self.Q)
+        return self._get_all_processed_state_actions(self.game_class, state, player_index, self.Q)
 
     def _get_all_processed_state_actions(self, game, state, player_index, Q):
         key = None
@@ -105,13 +103,13 @@ class QLearningAgent(SequentialAgent):
         if player_index not in self.prev_processed_state or not self.training:
             return
 
-        if player_index != self.game.get_player_index(next_state) and not self.game.is_terminal_state(next_state):
+        if player_index != self.game_class.get_player_index(next_state) and not self.game_class.is_terminal_state(next_state):
             # just add this reward to be included when we get back to this player
             self.prev_rewards[player_index] += reward_value
             return
 
         # Add to the replay memory
-        terminal = self.game.is_terminal_state(next_state)
+        terminal = self.game_class.is_terminal_state(next_state)
         all_processed_next_state_actions = None
         if not terminal:
             all_processed_next_state_actions = self.get_all_processed_state_actions(next_state, player_index)

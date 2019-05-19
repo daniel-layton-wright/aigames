@@ -23,11 +23,11 @@ class BaseAlphaEvaluator:
 
 
 class AlphaAgent(SequentialAgent):
-    def __init__(self, game: Game, evaluator, monitor=None, training_tau: float = 1., c_puct: float = 1.,
+    def __init__(self, game_class: Game, evaluator, monitor=None, training_tau: float = 1., c_puct: float = 1.,
                  dirichlet_alpha: float = 0.3, dirichlet_epsilon: float = 0.25, n_mcts: int = 1200,
                  discount_rate: float = 1):
-        super().__init__(game)
-        self.game = game
+        super().__init__(game_class)
+        self.game_class = game_class
         self.training_tau_schedule = training_tau if isinstance(training_tau, list) else [training_tau]
         self.tau = self.training_tau_schedule[0]
         self.c_puct = c_puct
@@ -44,10 +44,10 @@ class AlphaAgent(SequentialAgent):
 
     def choose_action(self, state, player_index, verbose=False):
         if self.cur_node is None:
-            self.cur_node = MCTSNode(self.game, state, None, self.evaluator, self.c_puct, self.dirichlet_alpha,
+            self.cur_node = MCTSNode(self.game_class, state, None, self.evaluator, self.c_puct, self.dirichlet_alpha,
                                      self.dirichlet_epsilon)
         elif (self.cur_node.state != state).any():
-            self.cur_node = MCTSNode(self.game, state, None, self.evaluator, self.c_puct, self.dirichlet_alpha,
+            self.cur_node = MCTSNode(self.game_class, state, None, self.evaluator, self.c_puct, self.dirichlet_alpha,
                                      self.dirichlet_epsilon)
 
         # Add Dirichlet noise to the root node
@@ -61,7 +61,7 @@ class AlphaAgent(SequentialAgent):
             self.tau = self.training_tau_schedule[min(len(self.training_tau_schedule) - 1, self.move_number_in_current_game)]
 
         # Compute the distribution to choose from
-        pi = np.zeros(len(self.game.ALL_ACTIONS))
+        pi = np.zeros(len(self.game_class.ALL_ACTIONS))
         if self.tau > 0:
             pi[self.cur_node.action_indices] = self.cur_node.children_total_N ** (1. / self.tau)
             pi /= np.sum(pi)
@@ -69,8 +69,8 @@ class AlphaAgent(SequentialAgent):
             pi[self.cur_node.action_indices[np.argmax(self.cur_node.children_total_N)]] = 1
 
         # Choose the action according to the distribution pi
-        action_index = np.random.choice(range(len(self.game.ALL_ACTIONS)), p=pi)
-        action = self.game.ALL_ACTIONS[action_index]
+        action_index = np.random.choice(range(len(self.game_class.ALL_ACTIONS)), p=pi)
+        action = self.game_class.ALL_ACTIONS[action_index]
         child_index = self.cur_node.actions.index(action)
 
         if self.monitor is not None:
@@ -106,7 +106,7 @@ class AlphaAgent(SequentialAgent):
             return
 
         episode_history = reversed(self.episode_history)
-        cum_rewards = [0 for _ in range(self.game.N_PLAYERS)]
+        cum_rewards = [0 for _ in range(self.game_class.N_PLAYERS)]
         states = []
         pis = []
         rewards = []
@@ -125,31 +125,31 @@ class AlphaAgent(SequentialAgent):
 
 
 class MCTSNode:
-    def __init__(self, game, state, parent_node, evaluator, c_puct, dirichlet_alpha, dirichlet_noise_weight: float = 0.,
+    def __init__(self, game_class, state, parent_node, evaluator, c_puct, dirichlet_alpha, dirichlet_noise_weight: float = 0.,
                  N=None, total_N=None, Q=None):
-        self.game = game
+        self.game_class = game_class
         self.state = state
         self.parent = parent_node
-        self.actions = self.game.legal_actions(self.state)
-        self.next_states = [self.game.get_next_state(self.state, action) for action in self.actions]
-        self.action_indices = self.game.legal_action_indices(self.state)
+        self.actions = self.game_class.legal_actions(self.state)
+        self.next_states = [self.game_class.get_next_state(self.state, action) for action in self.actions]
+        self.action_indices = self.game_class.legal_action_indices(self.state)
         self.n_children = len(self.actions)
         self.children = None
-        self.children_N = np.zeros((self.n_children, self.game.N_PLAYERS))
+        self.children_N = np.zeros((self.n_children, self.game_class.N_PLAYERS))
         self.children_total_N = np.zeros(self.n_children)
-        self.children_Q = np.zeros((self.n_children, self.game.N_PLAYERS))
+        self.children_Q = np.zeros((self.n_children, self.game_class.N_PLAYERS))
         self.evaluator = evaluator
         self.c_puct = c_puct
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_noise_weight = dirichlet_noise_weight
 
-        self.player_index = self.game.get_player_index(self.state)
-        self.N = N if N is not None else np.zeros(self.game.N_PLAYERS)
+        self.player_index = self.game_class.get_player_index(self.state)
+        self.N = N if N is not None else np.zeros(self.game_class.N_PLAYERS)
         self.total_N = total_N if total_N is not None else np.array([0])
-        self.Q = Q if Q is not None else np.zeros(self.game.N_PLAYERS)
+        self.Q = Q if Q is not None else np.zeros(self.game_class.N_PLAYERS)
 
-        self.rewards = self.game.all_rewards(self.state)
-        self.W = np.zeros(self.game.N_PLAYERS)
+        self.rewards = self.game_class.all_rewards(self.state)
+        self.W = np.zeros(self.game_class.N_PLAYERS)
         self.P = None
         self.P_normalized = None
         self._need_to_add_dirichlet_noise = False
@@ -161,7 +161,7 @@ class MCTSNode:
             self.expand()
 
             # backup
-            if not self.game.is_terminal_state(self.state):
+            if not self.game_class.is_terminal_state(self.state):
                 self.backup(self.v, self.player_index)
             else:
                 self.backup_all(self.rewards)
@@ -173,7 +173,7 @@ class MCTSNode:
             next_node.search()
 
     def expand(self):
-        if not self.game.is_terminal_state(self.state):
+        if not self.game_class.is_terminal_state(self.state):
             # Evaluate the node with the evaluator
             self.P, self.v = self.evaluator(self.evaluator.process_state(self.state))
 
@@ -185,7 +185,7 @@ class MCTSNode:
 
             # Initialize the children
             self.children = [
-                MCTSNode(self.game, next_state, self, self.evaluator, self.c_puct, self.dirichlet_alpha,
+                MCTSNode(self.game_class, next_state, self, self.evaluator, self.c_puct, self.dirichlet_alpha,
                          self.dirichlet_noise_weight, self.children_N[i], self.children_total_N[i:(i + 1)],
                          self.children_Q[i])
                 for i, next_state in enumerate(self.next_states)

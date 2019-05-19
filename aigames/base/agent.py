@@ -2,8 +2,8 @@ class Agent:
     pass
 
 class SequentialAgent(Agent):
-    def __init__(self, game):
-        self.game = game
+    def __init__(self, game_class):
+        self.game_class = game_class
 
     def choose_action(self, state, player_index, verbose = False):
         raise NotImplementedError()

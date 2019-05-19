@@ -20,23 +20,22 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 
 class TicTacToeAlphaModel(AlphaModel):
-    def __init__(self, game_class, optimizer_creator=None, device=torch.device('cpu'), monitor=None):
+    def __init__(self, optimizer_creator=None, device=torch.device('cpu'), monitor=None):
         super().__init__(device, monitor)
-        self.game_class = game_class
         self.base = nn.Sequential(
-            nn.Conv2d(in_channels=2, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=2, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.Dropout(p=0.5),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=64, out_channels=16, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.Dropout(p=0.5),
             Flatten()
         )
 
-        self.base_out_features = 32 * game_class.STATE_SHAPE[1] * game_class.STATE_SHAPE[2]
+        self.base_out_features = 16 * 3 * 3
 
         self.policy_head = nn.Sequential(
-            nn.Linear(in_features=self.base_out_features, out_features=len(game_class.ALL_ACTIONS)),
+            nn.Linear(in_features=self.base_out_features, out_features=9),
             nn.Softmax(dim=1)
         )
         self.value_head = nn.Sequential(
@@ -180,10 +179,10 @@ class Monitor(MultiprocessingAlphaMonitor):
                 self.log_evaluation_results(results)
 
     def play_minimax_tournament_with_current_model(self, agent, iter, n_games_in_evaluation):
-        tournament = Tournament(agent.evaluator.game_class, [MinimaxAgent(agent.evaluator.game_class), agent],
+        tournament = Tournament(agent.game_class, [MinimaxAgent(agent.game_class), agent],
                                 n_games=n_games_in_evaluation)
         final_states = tournament.play()
-        num_losses = sum(agent.evaluator.game_class.reward(state, 1) == -1 for state in final_states)
+        num_losses = sum(agent.game_class.reward(state, 1) == -1 for state in final_states)
         frac_losses = num_losses / float(tournament.n_games)
         results = dict()
         results['frac_losses'] = frac_losses
@@ -233,7 +232,7 @@ class Monitor(MultiprocessingAlphaMonitor):
         fig, ax = plt.subplots()
         ax.bar(range(len(p)), p)
         ax.set_xticks(range(len(p)))
-        ax.set_xticklabels(self.model.game_class.ALL_ACTIONS)
+        ax.set_xticklabels(self.agent.game_class.ALL_ACTIONS)
         self.logger.add_figure(name, fig, self.train_iter_count.value)
         plt.close(fig)
 
@@ -280,7 +279,7 @@ def main():
         return optimizer_class(parameters, lr=args.lr)
 
     device = torch.device(args.device)
-    model = TicTacToeAlphaModel(TicTacToe, optimizer, device=device)
+    model = TicTacToeAlphaModel(optimizer, device=device)
     monitor_log_queue = mp.Queue(maxsize=1000)
     if args.single_process:
         monitor = lambda model, agent: Monitor(model, agent, args, wandb=(not args.wandboff),

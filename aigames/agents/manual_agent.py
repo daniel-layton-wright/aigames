@@ -2,8 +2,8 @@ from aigames.base.agent import *
 
 
 class ManualAgent(SequentialAgent):
-    def __init__(self, game = None, mode = 'eval'):
-        super().__init__(game)
+    def __init__(self, game_class = None, mode ='eval'):
+        super().__init__(game_class)
         self.mode = mode
 
     def choose_action(self, state, player_index, verbose = False):
@@ -11,7 +11,7 @@ class ManualAgent(SequentialAgent):
         if self.mode == 'eval':
             choice = eval(choice)
         elif self.mode == 'index':
-            choice = self.game.legal_actions(state)[int(choice)]
+            choice = self.game_class.legal_actions(state)[int(choice)]
 
         return choice
 

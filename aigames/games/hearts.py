@@ -250,11 +250,11 @@ class Hearts(PartiallyObservableSequentialGame):
 
 class SimpleHeartsAgent(SequentialAgent):
     def __init__(self):
-        super().__init__(game=Hearts)
+        super().__init__(game_class=Hearts)
 
     def choose_action(self, state : PartiallyObservedHeartsState, player_index, verbose = False):
         # Play the highest card that won't win the trick, otherwise play the lowest card
-        legal_actions = self.game.legal_actions(state)
+        legal_actions = self.game_class.legal_actions(state)
 
         current_winning_card = Hearts.get_current_winning_card(state)
         if current_winning_card is None:

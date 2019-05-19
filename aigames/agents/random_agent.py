@@ -3,11 +3,11 @@ from aigames.base.agent import *
 
 
 class RandomAgent(SequentialAgent):
-    def __init__(self, game):
-        super().__init__(game)
+    def __init__(self, game_class):
+        super().__init__(game_class)
 
     def choose_action(self, state, player_index, verbose = False):
-        legal_actions = self.game.legal_actions(state)
+        legal_actions = self.game_class.legal_actions(state)
         random_idx = np.random.choice(len(legal_actions))
         return legal_actions[random_idx]
 

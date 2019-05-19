@@ -4,9 +4,9 @@ from aigames.base.agent import *
 
 
 class MinimaxAgent(SequentialAgent):
-    def __init__(self, game):
+    def __init__(self, game_class):
+        super().__init__(game_class)
         self.cache = {}
-        self.game = game
 
     def reward(self, reward_value, state, i):
         pass
@@ -23,15 +23,15 @@ class MinimaxAgent(SequentialAgent):
             if verbose:
                 print(' ' * level + 'Did not find {} {} in cache'.format(state_key, s))
 
-            if self.game.is_terminal_state(s):
+            if self.game_class.is_terminal_state(s):
                 if verbose:
-                    print(' ' * level + 'This state is an end state. Utility {}'.format(self.game.reward(s, agent_num)))
-                return (self.game.reward(s, agent_num), None, s)
-            elif self.game.get_player_index(s) == agent_num:
+                    print(' ' * level + 'This state is an end state. Utility {}'.format(self.game_class.reward(s, agent_num)))
+                return (self.game_class.reward(s, agent_num), None, s)
+            elif self.game_class.get_player_index(s) == agent_num:
                 cur_opt = -1 * float('inf')
                 cur_opt_actions = []
-                for action in self.game.legal_actions(s):
-                    new_state = self.game.get_next_state(s, action)
+                for action in self.game_class.legal_actions(s):
+                    new_state = self.game_class.get_next_state(s, action)
                     new_r = (max(r[0], cur_opt), r[1])
                     val, _, _ = V(new_state, new_r, level + 1, verbose)
                     if val > cur_opt:
@@ -49,8 +49,8 @@ class MinimaxAgent(SequentialAgent):
             else:
                 cur_opt = 1 * float('inf')
                 cur_opt_actions = []
-                for action in self.game.legal_actions(s):
-                    new_state = self.game.get_next_state(s, action)
+                for action in self.game_class.legal_actions(s):
+                    new_state = self.game_class.get_next_state(s, action)
                     new_r = (r[0], min(cur_opt, r[1]))
                     val, _, _ = V(new_state, new_r, level + 1, verbose)
                     if val < cur_opt:
