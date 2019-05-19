@@ -10,7 +10,6 @@ from experiments.tictactoe.alpha.train import TicTacToeAlphaModel
 class DebuggingMonitor:
     def on_choose_action(self, agent, state, action):
         print(agent.cur_node.state)
-
         print(agent.cur_node.children_N)
         print(agent.cur_node.children_Q)
         print(agent.cur_node.v)

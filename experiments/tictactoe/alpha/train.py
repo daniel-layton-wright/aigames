@@ -245,6 +245,7 @@ def get_parser():
     parser.add_argument('-l', '--lr', type=float, default=0.005)
     parser.add_argument('--tau', type=(lambda x: [float(val) for val in x.split(',')]), default=1.)
     parser.add_argument('--c_puct', type=float, default=1., help='c_puct controls exploration level in MCTS search')
+    parser.add_argument('--dirichlet_alpha', type=float, default=0.3, help='Parameter for Dirichlet noise')
     parser.add_argument('-p', '--n_self_play_procs', type=int, default=1, help='Number of self-play processes')
     parser.add_argument('-n', '--n_games_per_proc', type=int, required=True,
                         help='Number of self-play games per process')
@@ -259,12 +260,13 @@ def get_parser():
 
 
 def run(args, model, monitor=None):
+    alpha_agent_kwargs = {'training_tau': args.tau, 'c_puct': args.c_puct, 'dirichlet_alpha': args.dirichlet_alpha}
     if args.single_process:
         train_alpha_agent(TicTacToe, model, monitor=monitor, n_games=args.n_games_per_proc,
-                          alpha_agent_kwargs={'training_tau': args.tau, 'c_puct': args.c_puct})
+                          alpha_agent_kwargs=alpha_agent_kwargs)
     else:
         train_alpha_agent_mp(TicTacToe, model, monitor=monitor, n_self_play_workers=args.n_self_play_procs,
-                             alpha_agent_kwargs={'training_tau': args.tau, 'c_puct': args.c_puct},
+                             alpha_agent_kwargs=alpha_agent_kwargs,
                              n_games_per_worker=args.n_games_per_proc, n_training_workers=args.n_training_workers)
 
 

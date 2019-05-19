@@ -126,8 +126,7 @@ class AlphaAgent(SequentialAgent):
 
 class MCTSNode:
     def __init__(self, game, state, parent_node, evaluator, c_puct, dirichlet_alpha, dirichlet_noise_weight: float = 0.,
-                 N=None,
-                 total_N=None, Q=None):
+                 N=None, total_N=None, Q=None):
         self.game = game
         self.state = state
         self.parent = parent_node
@@ -210,7 +209,7 @@ class MCTSNode:
         self.Q[player_index] = self.rewards[player_index] + self.W[player_index] / self.N[player_index]
 
         if self.parent is not None:
-            self.parent.backup(value, player_index + self.rewards[player_index])
+            self.parent.backup(value + self.rewards[player_index], player_index)
 
     def backup_all(self, values):
         self.N += 1
