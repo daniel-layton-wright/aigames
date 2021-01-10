@@ -7,6 +7,7 @@ from typing import Type
 import torch.nn as nn
 import time
 from tqdm.auto import tqdm
+import multiprocessing as mp
 
 
 def is_json_serializable(x):
@@ -22,7 +23,7 @@ class TrainingListener(GameListener):
     def before_begin_training(self, training_manager):
         pass
 
-    def on_training_step(self, iter: int, loss: float, training_manager):
+    def on_training_step(self, iter: int, loss: float, training_manager, **kwargs):
         pass
 
 
@@ -60,7 +61,6 @@ class QLearningTrainingRun(GameListener):
         self.exploration_probability = exploration_probability
         self.discount_rate = discount_rate
         self.min_data_size = min_data_size
-        self.max_data_size = max_data_size
         self.batch_size = batch_size
         self.discount_rate = discount_rate
 
@@ -71,7 +71,7 @@ class QLearningTrainingRun(GameListener):
             if i == 0 or (not share_among_players):
                 self.networks.append( network() )
                 self.optimizers.append( optimizer(self.networks[-1]) )
-                self.datasets.append( BasicQLearningDataset(self.game, self.state_shape) )
+                self.datasets.append( BasicQLearningDataset(self.game, self.state_shape, max_size=max_data_size) )
                 self.target_networks.append( copy.deepcopy(self.networks[-1]) )
                 self.q_optimizers.append(
                     QLearningOptimizer(self.datasets[-1], self.optimizers[-1], self.networks[-1],
@@ -83,7 +83,7 @@ class QLearningTrainingRun(GameListener):
                 self.q_functions.append( BasicQLearningFunction(self.networks[-1], self.state_shape) )
 
             cur_agent = QLearningAgent(self.game, i, self.q_functions[-1], data_listener=self.datasets[-1],
-                                       exploration_probability=self.exploration_probability,
+                                       exploration_probability_scheduler=ConstantExplorationProbabilityScheduler(self.exploration_probability),
                                        discount_rate=self.discount_rate)
             self.agents.append(cur_agent)
 
@@ -103,9 +103,6 @@ class QLearningTrainingRun(GameListener):
             if len(dataset) < self.min_data_size:
                 return
 
-            while len(dataset) > self.max_data_size:
-                dataset.pop()
-
             loss = q_optimizer.take_training_step()
 
             if (self.n_iters % self.update_target_network_ever_n_iters) == 0:
@@ -122,7 +119,7 @@ class QLearningTrainingRun(GameListener):
             self.take_training_step()
 
     def play_debug_game(self):
-        cli = CommandLineGame()
+        cli = CommandLineGame(clear_screen=False)
         debugger = DebugGameListener()
 
         for agent in self.agents:
@@ -133,12 +130,82 @@ class QLearningTrainingRun(GameListener):
 
 
 class DebugGameListener(GameListener):
-    def before_action(self, game, legal_actions):
+    def before_action(self, game: SequentialGame, legal_actions):
         all_actions = game.get_all_actions()
         legal_action_indices = [all_actions.index(legal_action) for legal_action in legal_actions]
+        cur_player_index = game.get_cur_player_index(game.state)
         with torch.no_grad():
-            print(game.players[0].Q.evaluate(game.state)[legal_action_indices])
-            time.sleep(1)
+            if 'Q' in game.players[cur_player_index].__dict__:
+                print(game.players[cur_player_index].Q.evaluate(game.state)[legal_action_indices])
+
+
+def take_training_step(terminal_minibatch, nonterminal_minibatch, target_network, network, optimizer,
+                       discount_rate, device):
+    terminal_states, terminal_action_indices, terminal_rewards = terminal_minibatch
+    nonterminal_states, nonterminal_action_indices, nonterminal_rewards, nonterminal_next_states, nonterminal_next_state_legal_action_maps = nonterminal_minibatch
+
+    # Compute loss
+    if len(nonterminal_next_states) > 0:
+        with torch.no_grad():
+            network_result = (target_network(nonterminal_next_states.to(device)) + nonterminal_next_state_legal_action_maps).max(dim=1)[0]
+
+        nonterminal_y = nonterminal_rewards.squeeze(1) + discount_rate * network_result
+    else:
+        nonterminal_y = torch.Tensor([])
+
+    optimizer.zero_grad()
+    # print(terminal_states)
+    # print(terminal_action_indices)
+    # print(terminal_rewards)
+
+    action_indices = torch.cat((nonterminal_action_indices.squeeze(1), terminal_action_indices.squeeze(1)))
+    y_pred = network(torch.cat((nonterminal_states, terminal_states)).to(device))[range(len(action_indices)), action_indices]
+    y = torch.cat((nonterminal_y, terminal_rewards.squeeze(1)))
+
+    per_point_nonterminal_loss = ((y_pred[:len(nonterminal_states)] - y[:len(nonterminal_states)]) ** 2)
+    nonterminal_loss = per_point_nonterminal_loss.mean()
+    per_point_terminal_loss = ((y_pred[len(nonterminal_states):] - y[len(nonterminal_states):]) ** 2)
+    terminal_loss = per_point_terminal_loss.mean()
+    per_point_loss = ((y_pred - y) ** 2)
+    loss = per_point_loss.mean()
+
+    # really_wrong = (per_point_terminal_loss > 0.5)
+    # if sum(really_wrong) > 0:
+    #     print(terminal_states[really_wrong])
+    #     print(terminal_action_indices[really_wrong])
+    #     print(terminal_rewards[really_wrong])
+    #     print(y_pred[len(nonterminal_states):][really_wrong])
+    #     print('\n\n\n')
+    #
+    # really_wrong = (per_point_nonterminal_loss > 0.5)
+    # if sum(really_wrong) > 0:
+    #     print(nonterminal_states[really_wrong])
+    #     print(nonterminal_next_states[really_wrong])
+    #     print(network_result[really_wrong])
+    #     print(nonterminal_rewards[really_wrong])
+    #     print(nonterminal_y[really_wrong])
+    #     print(y_pred[:len(nonterminal_states)][really_wrong])
+    #     print('\n\n\n')
+    #
+    # if len(nonterminal_states) > 0:
+    #     print(nonterminal_states[0])
+    #     print(nonterminal_action_indices[0])
+    #     print(nonterminal_rewards[0])
+    #     print(network_result[0])
+    #     print(y[0])
+    #     print(y_pred[0])
+    #     print(y)
+    #     print(y_pred)
+    #     print(nonterminal_loss)
+    #     print('\n\n\n')
+
+    # Back-prop
+    loss.backward()
+
+    # Optimization step
+    optimizer.step()
+
+    return loss.item(), terminal_loss.item(), nonterminal_loss.item()
 
 
 class QLearningOptimizer:
@@ -161,35 +228,11 @@ class QLearningOptimizer:
                                                                                   frac_terminal=self.frac_terminal_to_sample,
                                                                                   sample_proportional_to_reward=self.sample_proportional_to_reward,
                                                                                   baseline_reward=self.sampling_baseline_reward)
-        terminal_states, terminal_action_indices, terminal_rewards = terminal_minibatch
-        nonterminal_states, nonterminal_action_indices, nonterminal_rewards, nonterminal_next_states, nonterminal_next_state_legal_action_maps = nonterminal_minibatch
 
-        # Compute loss
-        if len(nonterminal_next_states) > 0:
-            with torch.no_grad():
-                network_result = (self.target_network(nonterminal_next_states.to(self.device)) + nonterminal_next_state_legal_action_maps).max(dim=1)[0]
-
-            nonterminal_y = nonterminal_rewards.squeeze(1) + self.discount_rate * network_result
-        else:
-            nonterminal_y = torch.Tensor([])
-
-        self.optimizer.zero_grad()
-
-        action_indices = torch.cat((nonterminal_action_indices.squeeze(1), terminal_action_indices.squeeze(1)))
-        y_pred = self.network(torch.cat((nonterminal_states, terminal_states)).to(self.device))[range(self.batch_size), action_indices]
-        y = torch.cat((nonterminal_y, terminal_rewards.squeeze(1)))
-
-        # import pdb; pdb.set_trace()
-
-        loss = ((y_pred - y) ** 2).mean()
-
-        # Back-prop
-        loss.backward()
-
-        # Optimization step
-        self.optimizer.step()
-
-        return loss.item()
+        loss, terminal_loss, nonterminal_loss = take_training_step(terminal_minibatch, nonterminal_minibatch,
+                                                                   self.target_network, self.network,
+                                                                   self.optimizer, self.discount_rate, self.device)
+        return loss
 
     def reset_target_network(self):
         self.target_network = copy.deepcopy(self.network)
@@ -227,7 +270,8 @@ class ListDataset(torch.utils.data.Dataset):
 
 
 class BasicQLearningDataset(QLearningDataListener):
-    def __init__(self, game: Type[PartiallyObservableSequentialGame], state_shape):
+    def __init__(self, game: Type[PartiallyObservableSequentialGame], state_shape, max_size=np.inf,
+                 debug_mode=False):
         self.game = game
         self.state_shape = state_shape
         self.all_actions = self.game.get_all_actions()
@@ -245,7 +289,13 @@ class BasicQLearningDataset(QLearningDataListener):
 
         self.order_is_terminal = []  # Order that the data was inserted (for pop-ing)
 
+        self.max_size = max_size
+        self.debug_mode = debug_mode
+
     def on_SARS(self, state, action_index, reward, next_state):
+        if self.debug_mode and len(self) >= self.max_size:
+            return
+
         if self.game.is_terminal_state(next_state):
             self.terminal_states.append(torch.Tensor(state).reshape(self.state_shape))
             self.terminal_actions.append(torch.LongTensor([action_index]))
@@ -263,6 +313,9 @@ class BasicQLearningDataset(QLearningDataListener):
 
             self.nonterminal_next_state_legal_action_maps.append(mask)
             self.order_is_terminal.append(False)
+
+        while len(self) > self.max_size:
+            self.pop()
 
     def pop(self):
         pop_terminal = self.order_is_terminal.pop()
@@ -325,3 +378,12 @@ class BasicQLearningDataset(QLearningDataListener):
         min_reward = min(list_of_rewards)
         reward_weights = list(map(lambda x: x.item() + min_reward + baseline_reward, list_of_rewards))
         return reward_weights
+
+
+class ConstantExplorationProbabilityScheduler(ExplorationProbabilityScheduler):
+    def __init__(self, exploration_probability):
+        self.exploration_probability = exploration_probability
+
+    def get_exploration_probability(self, agent, state):
+        return self.exploration_probability
+

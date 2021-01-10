@@ -20,6 +20,10 @@ class GameListener:
         pass
 
 
+class AbortGameException(Exception):
+    pass
+
+
 class PartiallyObservableSequentialGame:
     def __init__(self, players: List[Agent], listeners: List[GameListener]):
         self.state = self.get_initial_state()
@@ -33,6 +37,9 @@ class PartiallyObservableSequentialGame:
         # Notify listeners game is starting:
         for listener in self.listeners:
             listener.before_game_start(self)
+
+        for player in self.players:
+            player.before_game_start()
 
         while not self.is_terminal_state(self.state):
 
@@ -49,7 +56,12 @@ class PartiallyObservableSequentialGame:
                 listener.before_action(self, legal_actions)
 
             observable_state = self.get_observable_state(self.state, cur_player_index)
-            cur_action_index = cur_player.get_action(observable_state, legal_actions)
+
+            try:
+                cur_action_index = cur_player.get_action(observable_state, legal_actions)
+            except AbortGameException:
+                return
+
             cur_action = legal_actions[cur_action_index]
 
             # Notify listeners of the move
