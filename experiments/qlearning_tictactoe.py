@@ -16,7 +16,7 @@ class TicTacToeTrainingListener(TrainingListener):
 
         self.training_manager = training_manager
 
-    def on_training_step(self, iter: int, loss: float, training_manager):
+    def on_training_step(self, iter: int, loss: float, training_manager, **kwargs):
 
         test_state = np.array([
             [1., 0., 0.],
@@ -47,6 +47,13 @@ class TicTacToeTrainingListener(TrainingListener):
         agent.train()
 
         return float(sum(rewards)) / len(rewards)
+
+    def play_minimax_debug_game(self):
+        cli = CommandLineGame(clear_screen=False)
+        debugger = DebugGameListener()
+        self.training_manager.agents[-1].eval()
+        game = TicTacToe([self.minimax_agent, self.training_manager.agents[-1]], listeners=[cli, debugger])
+        game.play()
 
 
 class RewardListener(GameListener):
@@ -105,14 +112,18 @@ def main():
         nn.Tanh()
     )
 
-    optimizer = lambda net: torch.optim.Adam(net.parameters(), lr=1e-3)
+    optimizer = lambda net: torch.optim.Adam(net.parameters(), lr=5e-3)
     training_listener = TicTacToeTrainingListener()
     training_manager = QLearningTrainingRun(TicTacToe, network4, optimizer, state_shape=(1, 3, 3), training_listeners=[training_listener],
-                                            update_target_network_ever_n_iters=2000,
+                                            update_target_network_ever_n_iters=500, batch_size=128,
                                             share_among_players=False,
-                                            frac_terminal_to_sample=0.75
+                                            frac_terminal_to_sample=0.8,
+                                            exploration_probability=0.2
                                             )
-    training_manager.train(n_games=5000)
+    training_manager.train(n_games=50000)
+
+    import pdb; pdb.set_trace()
+
 
 if __name__ == '__main__':
     main()
