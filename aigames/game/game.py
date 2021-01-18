@@ -39,7 +39,7 @@ class PartiallyObservableSequentialGame:
             listener.before_game_start(self)
 
         for player in self.players:
-            player.before_game_start()
+            player.before_game_start(n_players=len(self.players))
 
         while not self.is_terminal_state(self.state):
 
@@ -73,7 +73,7 @@ class PartiallyObservableSequentialGame:
 
             # Tell each player what his reward his in the next state
             for player_index, (player, reward) in enumerate(zip(self.players, rewards)):
-                player.on_reward(reward, self.get_observable_state(self.state, player_index))
+                player.on_reward(reward, self.get_observable_state(self.state, player_index), player_index)
 
             # Callback to listeners after the action
             for listener in self.listeners:
@@ -97,6 +97,10 @@ class PartiallyObservableSequentialGame:
 
     @classmethod
     def get_next_state_and_rewards(cls, state, action):
+        raise NotImplementedError()
+
+    @classmethod
+    def get_rewards(cls, state):
         raise NotImplementedError()
 
     @classmethod

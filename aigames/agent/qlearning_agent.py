@@ -60,7 +60,7 @@ class QLearningAgent(Agent):
         self.last_action_index = legal_action_indices[action_idx]
         return action_idx
 
-    def on_reward(self, reward, next_state):
+    def on_reward(self, reward, next_state, player_index):
         if self.game.get_cur_player_index(next_state) == self.player_index or self.game.is_terminal_state(next_state):
             # It's back to this player's turn (or it's the end of the game)
             self.cum_reward += reward
@@ -81,5 +81,5 @@ class QLearningAgent(Agent):
     def train(self):
         self.training = True
 
-    def before_game_start(self):
+    def before_game_start(self, n_players):
         self.last_state = None

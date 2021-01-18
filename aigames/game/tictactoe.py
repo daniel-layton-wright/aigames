@@ -18,7 +18,27 @@ class TicTacToe(SequentialGame):
 
     @classmethod
     def is_terminal_state(cls, state):
-        return any(abs((mask * state).sum()) == 3 for mask in cls.masks) or abs(state).sum() == 9
+        #return any(abs((mask * state).sum()) == 3 for mask in cls.masks) or abs(state).sum() == 9
+        # Brute force
+        return (
+            abs(state).sum() == 9 or
+            (state[0][0] == 1 and state[0][1] == 1 and state[0][2] == 1) or
+            (state[1][0] == 1 and state[1][1] == 1 and state[1][2] == 1) or
+            (state[2][0] == 1 and state[2][1] == 1 and state[2][2] == 1) or
+            (state[0][0] == 1 and state[1][0] == 1 and state[2][0] == 1) or
+            (state[0][1] == 1 and state[1][1] == 1 and state[2][1] == 1) or
+            (state[0][2] == 1 and state[1][2] == 1 and state[2][2] == 1) or
+            (state[0][0] == 1 and state[1][1] == 1 and state[2][2] == 1) or
+            (state[0][2] == 1 and state[1][1] == 1 and state[2][0] == 1) or
+            (state[0][0] == -1 and state[0][1] == -1 and state[0][2] == -1) or
+            (state[1][0] == -1 and state[1][1] == -1 and state[1][2] == -1) or
+            (state[2][0] == -1 and state[2][1] == -1 and state[2][2] == -1) or
+            (state[0][0] == -1 and state[1][0] == -1 and state[2][0] == -1) or
+            (state[0][1] == -1 and state[1][1] == -1 and state[2][1] == -1) or
+            (state[0][2] == -1 and state[1][2] == -1 and state[2][2] == -1) or
+            (state[0][0] == -1 and state[1][1] == -1 and state[2][2] == -1) or
+            (state[0][2] == -1 and state[1][1] == -1 and state[2][0] == -1)
+        )
 
     @classmethod
     def get_cur_player_index(cls, state) -> int:
@@ -36,17 +56,67 @@ class TicTacToe(SequentialGame):
         player_marker = 1 if player_index == 0 else -1
         state[action] = player_marker
 
-        rewards = np.zeros(2)
-        if cls.is_terminal_state(state):
-            rewards = cls.get_terminal_rewards(state)
-
+        rewards = cls.get_rewards(state)
         return state, rewards
 
     @classmethod
+    def get_rewards(cls, state):
+        rewards = np.zeros(2)
+        if abs(state).sum() == 9:
+            return rewards
+        elif (
+            (state[0][0] == 1 and state[0][1] == 1 and state[0][2] == 1) or
+            (state[1][0] == 1 and state[1][1] == 1 and state[1][2] == 1) or
+            (state[2][0] == 1 and state[2][1] == 1 and state[2][2] == 1) or
+            (state[0][0] == 1 and state[1][0] == 1 and state[2][0] == 1) or
+            (state[0][1] == 1 and state[1][1] == 1 and state[2][1] == 1) or
+            (state[0][2] == 1 and state[1][2] == 1 and state[2][2] == 1) or
+            (state[0][0] == 1 and state[1][1] == 1 and state[2][2] == 1) or
+            (state[0][2] == 1 and state[1][1] == 1 and state[2][0] == 1)
+        ):
+            rewards[0] = 1
+            rewards[1] = -1
+            return rewards
+        elif (
+            (state[0][0] == -1 and state[0][1] == -1 and state[0][2] == -1) or
+            (state[1][0] == -1 and state[1][1] == -1 and state[1][2] == -1) or
+            (state[2][0] == -1 and state[2][1] == -1 and state[2][2] == -1) or
+            (state[0][0] == -1 and state[1][0] == -1 and state[2][0] == -1) or
+            (state[0][1] == -1 and state[1][1] == -1 and state[2][1] == -1) or
+            (state[0][2] == -1 and state[1][2] == -1 and state[2][2] == -1) or
+            (state[0][0] == -1 and state[1][1] == -1 and state[2][2] == -1) or
+            (state[0][2] == -1 and state[1][1] == -1 and state[2][0] == -1)
+        ):
+
+            rewards[0] = -1
+            rewards[1] = 1
+            return rewards
+        else:
+            return rewards
+
+    @classmethod
     def get_winner(cls, state) -> Union[int, None]:
-        if any((mask * state).sum() == 3 for mask in cls.masks):
+        if (
+            (state[0][0] == 1 and state[0][1] == 1 and state[0][2] == 1) or
+            (state[1][0] == 1 and state[1][1] == 1 and state[1][2] == 1) or
+            (state[2][0] == 1 and state[2][1] == 1 and state[2][2] == 1) or
+            (state[0][0] == 1 and state[1][0] == 1 and state[2][0] == 1) or
+            (state[0][1] == 1 and state[1][1] == 1 and state[2][1] == 1) or
+            (state[0][2] == 1 and state[1][2] == 1 and state[2][2] == 1) or
+            (state[0][0] == 1 and state[1][1] == 1 and state[2][2] == 1) or
+            (state[0][2] == 1 and state[1][1] == 1 and state[2][0] == 1)
+        ):
             return 0
-        elif any((mask * state).sum() == -3 for mask in cls.masks):
+        elif (
+            (state[0][0] == -1 and state[0][1] == -1 and state[0][2] == -1) or
+            (state[1][0] == -1 and state[1][1] == -1 and state[1][2] == -1) or
+            (state[2][0] == -1 and state[2][1] == -1 and state[2][2] == -1) or
+            (state[0][0] == -1 and state[1][0] == -1 and state[2][0] == -1) or
+            (state[0][1] == -1 and state[1][1] == -1 and state[2][1] == -1) or
+            (state[0][2] == -1 and state[1][2] == -1 and state[2][2] == -1) or
+            (state[0][0] == -1 and state[1][1] == -1 and state[2][2] == -1) or
+            (state[0][2] == -1 and state[1][1] == -1 and state[2][0] == -1)
+        ):
             return 1
         else:
             return None
