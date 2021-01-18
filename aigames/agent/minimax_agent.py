@@ -16,7 +16,7 @@ class MinimaxAgent(Agent):
         if not hasattr(self.game, 'get_terminal_rewards'):
             raise ValueError('To use a MinimaxAgent, the game must have a get_terminal_rewards method')
 
-    def on_reward(self, reward, next_state):
+    def on_reward(self, reward, next_state, player_index):
         pass
 
     def get_action(self, state, legal_actions) -> int:
