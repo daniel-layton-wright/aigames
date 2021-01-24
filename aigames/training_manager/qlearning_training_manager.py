@@ -8,6 +8,7 @@ import torch.nn as nn
 import time
 from tqdm.auto import tqdm
 import multiprocessing as mp
+from .training_manager import TrainingListener, ListDataset
 
 
 def is_json_serializable(x):
@@ -17,14 +18,6 @@ def is_json_serializable(x):
         return True
     except:
         return False
-
-
-class TrainingListener(GameListener):
-    def before_begin_training(self, training_manager):
-        pass
-
-    def on_training_step(self, iter: int, loss: float, training_manager, **kwargs):
-        pass
 
 
 class QLearningTrainingRun(GameListener):
@@ -247,26 +240,6 @@ class BasicQLearningFunction(QLearningFunction):
     def evaluate(self, state):
         with torch.no_grad():
             return self.network(torch.Tensor(state).reshape(self.state_shape).unsqueeze(0).to(self.device)).squeeze()
-
-
-class ListDataset(torch.utils.data.Dataset):
-    """Dataset wrapping tensors.
-
-    Each sample will be retrieved by indexing tensors along the first dimension.
-
-    Arguments:
-        *tensors (Tensor): tensors that have the same size of the first dimension.
-    """
-
-    def __init__(self, *lists):
-        assert all(len(lists[0]) == len(l) for l in lists)
-        self.lists = lists
-
-    def __getitem__(self, index):
-        return tuple(lists[index] for lists in self.lists)
-
-    def __len__(self):
-        return len(self.lists[0])
 
 
 class BasicQLearningDataset(QLearningDataListener):

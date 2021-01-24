@@ -10,5 +10,8 @@ class Agent:
     def before_game_start(self, n_players):
         pass
 
+    def on_game_end(self):
+        pass
+
     def on_action(self, state, action, next_state):
         pass

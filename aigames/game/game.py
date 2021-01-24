@@ -79,7 +79,10 @@ class PartiallyObservableSequentialGame:
             for listener in self.listeners:
                 listener.after_action(self)
 
-        # Game over. Notify listeners:
+        # Game over. Notify agents and listeners:
+        for player in self.players:
+            player.on_game_end()
+
         for listener in self.listeners:
             listener.on_game_end(self)
 
@@ -117,6 +120,10 @@ class PartiallyObservableSequentialGame:
 
     @classmethod
     def get_n_players(cls):
+        raise NotImplementedError()
+
+    @classmethod
+    def states_equal(cls, state1, state2):
         raise NotImplementedError()
 
 

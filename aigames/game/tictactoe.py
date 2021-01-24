@@ -2,6 +2,7 @@ from aigames import *
 import numpy as np
 import itertools
 from typing import Union
+import torch
 
 
 class TicTacToe(SequentialGame):
@@ -9,7 +10,8 @@ class TicTacToe(SequentialGame):
     def get_n_players(cls):
         return 2
 
-    def get_initial_state(self):
+    @classmethod
+    def get_initial_state(cls):
         return np.zeros((3, 3))
 
     @classmethod
@@ -425,3 +427,107 @@ class TicTacToe3(SequentialGame):
             [1, 0, 0]
         ])
     ]
+
+
+class FastTicTacToeState:
+    def __init__(self, np_state):
+        self.tensor_state = torch.FloatTensor(np_state).unsqueeze(0)
+        self.legal_actions = TicTacToe.get_legal_actions(np_state)
+        self.cur_player_index = TicTacToe.get_cur_player_index(np_state)
+        self.is_terminal_state = TicTacToe.is_terminal_state(np_state)
+        self.rewards = np.zeros(2)
+
+    def __eq__(self, other):
+        return (self.tensor_state == other.tensor_state).all()
+
+    def hash(self):
+        return tuple(self.tensor_state[0].numpy().flatten())
+
+
+class FastTicTacToe(SequentialGame):
+    @classmethod
+    def get_initial_state(cls):
+        initial_np_state = TicTacToe.get_initial_state()
+        return FastTicTacToeState(initial_np_state)
+
+    @classmethod
+    def get_legal_actions(cls, state: FastTicTacToeState) -> List:
+        return state.legal_actions
+
+    @classmethod
+    def get_all_actions(cls) -> List:
+        return TicTacToe.get_all_actions()
+
+    @classmethod
+    def get_cur_player_index(cls, state: FastTicTacToeState) -> int:
+        return state.cur_player_index
+
+    @classmethod
+    def get_n_players(cls):
+        return TicTacToe.get_n_players()
+
+    @classmethod
+    def is_terminal_state(cls, state: FastTicTacToeState):
+        return state.is_terminal_state
+
+    @classmethod
+    def get_next_state_and_rewards(cls, state, action):
+        next_state = copy.deepcopy(state)
+        m = (1-2*next_state.cur_player_index)
+        c = state.cur_player_index
+        next_state.tensor_state[(0, *action)] = m
+        next_state.cur_player_index = 1 - next_state.cur_player_index
+        next_state.legal_actions.remove(action)
+
+        s = next_state.tensor_state[0]
+        if s.abs().sum() == 9:
+            next_state.is_terminal_state = True
+        elif (
+               (s[action[0], 0] == m and s[action[0], 1] == m and s[action[0], 2] == m)
+            or (s[0, action[1]] == m and s[1, action[1]] == m and s[2, action[1]] == m)
+            or (action[0] == action[1] and s[0, 0] == m and s[1, 1] == m and s[2, 2] == m)
+            or (action[0] + action[1] == 2 and s[0,2] == m and s[1, 1] == m and s[2, 0] == m)
+            ):
+                next_state.is_terminal_state = True
+                next_state.rewards[c] = 1
+                next_state.rewards[(1-c)] = -1
+
+        return next_state, next_state.rewards
+
+    @classmethod
+    def get_rewards(cls, state: FastTicTacToeState):
+        return state.rewards
+
+    @classmethod
+    def states_equal(cls, state1, state2):
+        return state1 == state2
+
+    @classmethod
+    def get_terminal_rewards(cls, state: FastTicTacToeState):
+        state = state.tensor_state[0].numpy()
+        rewards = np.zeros(2)
+        winner = TicTacToe.get_winner(state)
+        if winner is not None:
+            loser = 1 - winner
+            rewards[winner] = 1
+            rewards[loser] = -1
+
+        return rewards
+
+    def __str__(self):
+        def line_to_marks(line):
+            out = []
+            for i in line:
+                if i == 1:
+                    out.append('x')
+                elif i == -1:
+                    out.append('o')
+                else:
+                    out.append(' ')
+
+            return out
+        s = self.state.tensor_state[0].numpy()
+        out = '-----\n'.join(['{}|{}|{}\n'.format(*line_to_marks(s[i, :])) for i in
+                            range(s.shape[0])])
+        out += f'\n{self.state.rewards}'
+        return out

@@ -80,4 +80,9 @@ class MinimaxAgent(Agent):
 
     @staticmethod
     def state_to_key(state):
-        return tuple(state.flatten())
+        if isinstance(state, np.ndarray):
+            return tuple(state.flatten())
+        elif hasattr(state, 'hash'):
+            return state.hash()
+        else:
+            raise ValueError('No way to convert state to key')

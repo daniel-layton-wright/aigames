@@ -1,15 +1,16 @@
 import numpy as np
 from .agent import Agent
 from ..game.game import SequentialGame, PartiallyObservableSequentialGame
-from typing import Type
+from typing import Type, List
 import torch
+import copy
 
 
 class BaseAlphaEvaluator:
     def evaluate(self, state):
         raise NotImplementedError()
 
-    def take_training_step(self, states, action_distns, values):
+    def process_state(self, state):
         raise NotImplementedError()
 
     def eval(self):
@@ -21,14 +22,17 @@ class BaseAlphaEvaluator:
         pass
 
 
-class AlphaAgentDataListener:
+class AlphaAgentListener:
+    def after_mcts_search(self, root_node):
+        pass
+
     def on_data_point(self, state, pi, reward):
-        raise NotImplementedError()
+        pass
 
 
 class TrainingTau:
     def __init__(self, fixed_tau_value=None, tau_schedule_list=None, tau_schedule_function=None):
-        if sum(map(int, fixed_tau_value is not None, tau_schedule_list is not None, tau_schedule_function is not None)) != 1:
+        if sum(map(int, [fixed_tau_value is not None, tau_schedule_list is not None, tau_schedule_function is not None])) != 1:
             raise ValueError('Please pass exactly one of fixed_tau_value, tau_schedule_list, tau_schedule_function')
 
         self.fixed_tau_value = fixed_tau_value
@@ -46,8 +50,8 @@ class TrainingTau:
 
 class AlphaAgent(Agent):
     def __init__(self, game_class: Type[PartiallyObservableSequentialGame], evaluator: BaseAlphaEvaluator,
-                 data_listener: AlphaAgentDataListener,
-                 training_tau: TrainingTau, c_puct: float = 1.,
+                 listeners: List[AlphaAgentListener] = None,
+                 training_tau: TrainingTau = TrainingTau(1.0), c_puct: float = 1.,
                  dirichlet_alpha: float = 0.3, dirichlet_epsilon: float = 0.25, n_mcts: int = 1200,
                  discount_rate: float = 1):
         super().__init__()
@@ -65,12 +69,12 @@ class AlphaAgent(Agent):
         self.episode_history = []
         self.move_number_in_current_game = 0
         self.n_players = 0
-        self.data_listener = data_listener
+        self.listeners = listeners if listeners is not None else []
 
     def get_action(self, state, legal_actions):
         # Try to re-use the current node if possible but if it is None or does not match the current state, initialize
         # a new one from scratch
-        if self.cur_node is None or (self.cur_node.state != state).any():
+        if self.cur_node is None or (not self.game_class.states_equal(self.cur_node.state, state)):
             if self.cur_node is not None:
                 print('Having to re-init node...', state)
             self.cur_node = MCTSNode(self.game_class, state, None, self.evaluator, self.c_puct, self.dirichlet_alpha,
@@ -83,19 +87,30 @@ class AlphaAgent(Agent):
         for i in range(self.n_mcts):
             self.cur_node.search()
 
+        for listener in self.listeners:
+            listener.after_mcts_search(self.cur_node)
+
         if self.training:
-            self.tau = self.training_tau.get_tau(self.move_number_in_current_game)
-
-        # Compute the distribution to choose from
-        pi = np.zeros(len(self.all_actions))
-        if self.tau > 0:
-            pi[self.cur_node.action_indices] = self.cur_node.children_total_N ** (1. / self.tau)
-            pi /= np.sum(pi)
+            tau = self.training_tau.get_tau(self.move_number_in_current_game)
         else:
-            pi[self.cur_node.action_indices[np.argmax(self.cur_node.children_total_N)]] = 1
+            tau = 0.0
 
-        # Choose the action according to the distribution pi
-        action_index = np.random.choice(range(len(self.all_actions)), p=pi)
+        try:
+            # Compute the distribution to choose from
+            pi = np.zeros(len(self.all_actions))
+            if tau > 0:
+                pi[self.cur_node.action_indices] = self.cur_node.children_total_N ** (1. / tau)
+                pi /= np.sum(pi)
+            else:
+                pi[self.cur_node.action_indices[np.argmax(self.cur_node.children_total_N)]] = 1
+
+            # Choose the action according to the distribution pi
+            action_index = np.random.choice(range(len(self.all_actions)), p=pi)
+        except Exception as e:
+            print(e)
+            import pdb
+            pdb.set_trace()
+
         action = self.all_actions[action_index]
         legal_action_index = legal_actions.index(action)
         child_index = self.cur_node.actions.index(action)
@@ -111,7 +126,7 @@ class AlphaAgent(Agent):
 
     def on_reward(self, reward, next_state, player_index):
         self.episode_history.append(RewardData(player_index, reward))
-        if self.cur_node is not None and ((self.cur_node.state != next_state).any()):
+        if self.cur_node is not None and (not self.game_class.states_equal(self.cur_node.state, next_state)):
             try:
                 next_state_index = next(i for i, x in enumerate(self.cur_node.next_states) if np.array_equal(next_state, x))
             except StopIteration:
@@ -122,12 +137,10 @@ class AlphaAgent(Agent):
                 self.cur_node.parent = None
 
     def train(self):
-        self.tau = self.training_tau_schedule[0]
         self.evaluator.train()
         self.training = True
 
     def eval(self):
-        self.tau = 0
         self.evaluator.eval()
         self.training = False
 
@@ -137,22 +150,20 @@ class AlphaAgent(Agent):
         self.move_number_in_current_game = 0
         self.cur_node = None
 
-    def end_episode(self):
+    def on_game_end(self):
         if not self.training:
             return
 
         episode_history = reversed(self.episode_history)  # work backwards
         cum_rewards = [0 for _ in range(self.n_players)]
-        states = []
-        pis = []
-        rewards = []
 
         for data in episode_history:
             if isinstance(data, RewardData):
                 cum_rewards[data.player_index] = data.reward_value + self.discount_rate * cum_rewards[data.player_index]
             elif isinstance(data, TimestepData):
                 reward = cum_rewards[data.player_index]
-                self.data_listener.on_data_point(data.state, data.pi, reward)
+                for data_listener in self.listeners:
+                    data_listener.on_data_point(data.state, data.pi, reward)
 
 
 class MCTSNode:
