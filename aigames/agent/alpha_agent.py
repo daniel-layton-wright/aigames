@@ -2,6 +2,7 @@ import numpy as np
 from .agent import Agent
 from ..game.game import SequentialGame, PartiallyObservableSequentialGame
 from typing import Type, List
+from tqdm.auto import tqdm
 import torch
 import copy
 
@@ -53,7 +54,7 @@ class AlphaAgent(Agent):
                  listeners: List[AlphaAgentListener] = None,
                  training_tau: TrainingTau = TrainingTau(1.0), c_puct: float = 1.,
                  dirichlet_alpha: float = 0.3, dirichlet_epsilon: float = 0.25, n_mcts: int = 1200,
-                 discount_rate: float = 1):
+                 discount_rate: float = 1, use_tqdm: bool = False):
         super().__init__()
         self.game_class = game_class
         self.all_actions = self.game_class.get_all_actions()
@@ -70,6 +71,7 @@ class AlphaAgent(Agent):
         self.move_number_in_current_game = 0
         self.n_players = 0
         self.listeners = listeners if listeners is not None else []
+        self.use_tqdm = use_tqdm
 
     def get_action(self, state, legal_actions):
         # Try to re-use the current node if possible but if it is None or does not match the current state, initialize
@@ -83,8 +85,12 @@ class AlphaAgent(Agent):
         # Add Dirichlet noise to the root node
         self.cur_node.add_dirichlet_noise()
 
+        r = range(self.n_mcts)
+        if self.use_tqdm:
+            r = tqdm(r)
+
         # Do MCTS search
-        for i in range(self.n_mcts):
+        for i in r:
             self.cur_node.search()
 
         for listener in self.listeners:
@@ -287,8 +293,8 @@ class DummyAlphaEvaluator(BaseAlphaEvaluator):
     def evaluate(self, state):
         return self.P, 0
 
-    def take_training_step(self, states, action_distns, values):
-        pass
+    def process_state(self, state):
+        return state
 
     def eval(self):
         # Switch to eval mode

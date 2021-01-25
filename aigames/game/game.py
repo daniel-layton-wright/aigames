@@ -25,10 +25,10 @@ class AbortGameException(Exception):
 
 
 class PartiallyObservableSequentialGame:
-    def __init__(self, players: List[Agent], listeners: List[GameListener]):
+    def __init__(self, players: List[Agent], listeners: List[GameListener] = None):
         self.state = self.get_initial_state()
         self.players = players
-        self.listeners = listeners
+        self.listeners = listeners if listeners is not None else []
 
     def play(self):
         # Start the game from the initial state:

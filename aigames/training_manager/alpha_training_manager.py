@@ -8,18 +8,27 @@ import torch.utils.data
 from tqdm.auto import tqdm
 import copy
 import torch.nn as nn
+import multiprocessing as mp
+import queue
 
 
 class BasicAlphaDataset(AlphaAgentListener):
-    def __init__(self, evaluator: BaseAlphaEvaluator, max_size=50000):
+    def __init__(self, evaluator: BaseAlphaEvaluator=None, max_size=50000, process_state=True):
         self.evaluator = evaluator
         self.max_size = max_size
         self.states = []
         self.pis = []
         self.rewards = []
+        self.process_state = process_state
+
+        if process_state and (evaluator is None):
+            raise ValueError('If process_state==True, you must give an evaluator.')
 
     def on_data_point(self, state, pi, reward):
-        self.states.append(torch.FloatTensor(self.evaluator.process_state(state)))
+        if self.process_state:
+            state = self.evaluator.process_state(state)
+
+        self.states.append(torch.FloatTensor(state))
         self.pis.append(torch.FloatTensor(pi))
         self.rewards.append(torch.FloatTensor([reward]))
 
@@ -39,6 +48,33 @@ class BasicAlphaDataset(AlphaAgentListener):
         sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=batch_size)
         dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=batch_size)
         return next(iter(dataloader))
+
+
+class AlphaDataSender(AlphaAgentListener):
+    """
+    Used to send data between processes
+    """
+    def __init__(self, queue: mp.Queue, evaluator):
+        self.queue = queue
+        self.evaluator = evaluator
+
+    def on_data_point(self, state, pi, reward):
+        self.queue.put((self.evaluator.process_state(state), pi, reward))
+
+
+class AlphaDataRecipient:
+    def __init__(self, queue: mp.Queue, listeners: List[AlphaAgentListener]):
+        self.queue = queue
+        self.listeners = listeners
+
+    def check_queue_and_callback(self):
+        try:
+            state, pi, reward = self.queue.get_nowait()
+        except queue.Empty:
+            return
+        else:
+            for listener in self.listeners:
+                listener.on_data_point(state, pi, reward)
 
 
 class AlphaNetworkEvaluator(BaseAlphaEvaluator):
