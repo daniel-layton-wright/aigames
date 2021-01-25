@@ -1,10 +1,7 @@
-import time
-
 from .agent import Agent
 from ..game import SequentialGame
 import numpy as np
 from typing import Type
-import copy
 
 
 class MinimaxAgent(Agent):
