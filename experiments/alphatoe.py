@@ -92,7 +92,7 @@ class TicTacToeNetwork(nn.Module):
 
 class TicTacToeEvaluator(AlphaNetworkEvaluator):
     def process_state(self, state):
-        if abs(state).sum() % 1 == 1:
+        if abs(state).sum() % 2 == 1:
             state = copy.deepcopy(state)
             state *= -1
         return torch.FloatTensor(state).reshape(1, 3, 3)
@@ -101,7 +101,7 @@ class TicTacToeEvaluator(AlphaNetworkEvaluator):
 class FastTicTacToeEvaluator(AlphaNetworkEvaluator):
     def process_state(self, state: FastTicTacToeState):
         s = state.tensor_state
-        if abs(s).sum() % 1 == 1:
+        if abs(s).sum() % 2 == 1:
             s = copy.deepcopy(s)
             s *= -1
         return s

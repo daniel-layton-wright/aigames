@@ -3,6 +3,33 @@ from .game import SequentialGame
 import numpy as np
 import torch
 import copy
+from scipy import sparse
+
+
+class SparseDict:
+    class Sentinel:
+        pass
+
+    def __init__(self, default_value=None):
+        self.data = {}
+        self.default_value = default_value
+
+    def getcreate(self, item):
+        out = self.data.get(item, self.Sentinel)
+        if out == self.Sentinel:
+            out = self.get_default()
+            self.data[item] = out
+
+        return out
+
+    def get_default(self):
+        return self.default_value if not callable(self.default_value) else self.default_value()
+
+    def __getitem__(self, item):
+        return self.data.get(item, self.get_default())
+
+    def __setitem__(self, key, value):
+        self.data[key] = value
 
 
 class Connect4State:
@@ -11,7 +38,9 @@ class Connect4State:
 
     def __init__(self):
         self.grid = torch.FloatTensor(np.zeros((self.N_ROWS, self.N_COLS))).unsqueeze(0)
-        self.neighbors = np.zeros((self.N_ROWS, self.N_COLS, 3, 3)).astype(int)
+        # self.neighbors = np.zeros((self.N_ROWS, self.N_COLS, 3, 3)).astype(int)
+        # self.grid = sparse.coo_matrix(([], ([], [])), shape=(self.N_ROWS, self.N_COLS)).astype(np.int8)
+        self.neighbors = SparseDict(lambda: SparseDict(0))  # access like neighbors[(i,j)][(k,l)]
         self.legal_actions = list(range(self.N_COLS))
         self.is_terminal_state = False
         self.cur_player_index = 0
@@ -57,8 +86,8 @@ class Connect4(SequentialGame):
                     continue
 
                 if next_state.grid[0, (i+direction_y), (j+direction_x)] == marker:
-                    next_state.neighbors[i, j, k, l] = 1 + next_state.neighbors[(i+direction_y), (j+direction_x), k, l]
-                    N = next_state.neighbors[i, j, k, l]
+                    N = 1 + next_state.neighbors[((i+direction_y), (j+direction_x))][(k, l)]
+                    next_state.neighbors.getcreate((i, j))[(k, l)] = N
 
                     if N >= 3:
                         next_state.is_terminal_state = True
@@ -79,12 +108,12 @@ class Connect4(SequentialGame):
                     continue
 
                 if next_state.grid[0, (i+direction_y), (j+direction_x)] == marker:
-                    N = next_state.neighbors[i, j, k, l]
+                    N = next_state.neighbors[(i, j)][(k, l)]
                     if N == 0:
                         continue
 
-                    O = next_state.neighbors[i, j, (2-k), (2-l)]
-                    next_state.neighbors[(i+N*direction_y), (j+N*direction_x), 2-k, 2-l] = (N+O)
+                    O = next_state.neighbors[(i, j)][((2-k), (2-l))]
+                    next_state.neighbors.getcreate(((i+N*direction_y), (j+N*direction_x)))[(2-k, 2-l)] = (N+O)
 
                     if (N+O) >= 3:
                         next_state.is_terminal_state = True

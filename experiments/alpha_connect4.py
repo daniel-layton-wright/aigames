@@ -95,7 +95,7 @@ class Connect4Widget(QWidget):
             h = self.CELL_SIZE / 6.0
             w = self.CELL_SIZE / 3.0
             font_size = self.CELL_SIZE/6.0
-            _, _, K, L = self.state.neighbors.shape
+            K, L = 3, 3
             for k in range(K):
                 for l in range(L):
                     if k == 1 and l == 1:
@@ -103,7 +103,7 @@ class Connect4Widget(QWidget):
                     left = self.CELL_SIZE * (j + l/2.0) - int(l > 0) * font_size/1.6
                     top = self.CELL_SIZE * (i + k/2.) - int(k > 0) * font_size/1.3
                     painter.setFont(QFont('Terminus', pointSize=font_size))
-                    painter.drawText(QRect(left, top , w, h), Qt.AlignLeft, str(int(self.state.neighbors[i, j, k, l])))
+                    painter.drawText(QRect(left, top , w, h), Qt.AlignLeft, str(int(self.state.neighbors[(i, j)][(k, l)])))
 
     def mouseReleaseEvent(self, a0: QMouseEvent) -> None:
         col_index = (int(a0.localPos().x() / self.CELL_SIZE))
