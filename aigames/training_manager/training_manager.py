@@ -9,6 +9,9 @@ class TrainingListener(GameListener):
     def on_training_step(self, iter: int, loss: float, training_manager, **kwargs):
         pass
 
+    def on_training_end(self):
+        pass
+
 
 class ListDataset(torch.utils.data.Dataset):
     """Dataset wrapping tensors.

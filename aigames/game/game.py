@@ -31,60 +31,61 @@ class PartiallyObservableSequentialGame:
         self.listeners = listeners if listeners is not None else []
 
     def play(self):
-        # Start the game from the initial state:
-        self.state = self.get_initial_state()
+        try:
+            # Start the game from the initial state:
+            self.state = self.get_initial_state()
 
-        # Notify listeners game is starting:
-        for listener in self.listeners:
-            listener.before_game_start(self)
-
-        for player in self.players:
-            player.before_game_start(n_players=len(self.players))
-
-        while not self.is_terminal_state(self.state):
-
-            # Ask the player for his move:
-            cur_player_index = self.get_cur_player_index(self.state)
-            cur_player = self.players[cur_player_index]
-            legal_actions = self.get_legal_actions(self.state)
-
-            if len(legal_actions) == 0:
-                warnings.warn('There are no legal actions. This should not happen. Ending the game.')
-                break
-
+            # Notify listeners game is starting:
             for listener in self.listeners:
-                listener.before_action(self, legal_actions)
+                listener.before_game_start(self)
 
-            observable_state = self.get_observable_state(self.state, cur_player_index)
+            for player in self.players:
+                player.before_game_start(n_players=len(self.players))
 
-            try:
+            while not self.is_terminal_state(self.state):
+
+                # Ask the player for his move:
+                cur_player_index = self.get_cur_player_index(self.state)
+                cur_player = self.players[cur_player_index]
+                legal_actions = self.get_legal_actions(self.state)
+
+                if len(legal_actions) == 0:
+                    warnings.warn('There are no legal actions. This should not happen. Ending the game.')
+                    break
+
+                for listener in self.listeners:
+                    listener.before_action(self, legal_actions)
+
+                observable_state = self.get_observable_state(self.state, cur_player_index)
+
                 cur_action_index = cur_player.get_action(observable_state, legal_actions)
-            except AbortGameException:
-                return
 
-            cur_action = legal_actions[cur_action_index]
+                cur_action = legal_actions[cur_action_index]
 
-            # Notify listeners of the move
+                # Notify listeners of the move
+                for listener in self.listeners:
+                    listener.on_action(self, cur_action)
+
+                # Advance to the next state according to the move
+                self.state, rewards = self.get_next_state_and_rewards(self.state, cur_action)
+
+                # Tell each player what his reward his in the next state
+                for player_index, (player, reward) in enumerate(zip(self.players, rewards)):
+                    player.on_reward(reward, self.get_observable_state(self.state, player_index), player_index)
+
+                # Callback to listeners after the action
+                for listener in self.listeners:
+                    listener.after_action(self)
+
+            # Game over. Notify agents and listeners:
+            for player in self.players:
+                player.on_game_end()
+
             for listener in self.listeners:
-                listener.on_action(self, cur_action)
+                listener.on_game_end(self)
 
-            # Advance to the next state according to the move
-            self.state, rewards = self.get_next_state_and_rewards(self.state, cur_action)
-
-            # Tell each player what his reward his in the next state
-            for player_index, (player, reward) in enumerate(zip(self.players, rewards)):
-                player.on_reward(reward, self.get_observable_state(self.state, player_index), player_index)
-
-            # Callback to listeners after the action
-            for listener in self.listeners:
-                listener.after_action(self)
-
-        # Game over. Notify agents and listeners:
-        for player in self.players:
-            player.on_game_end()
-
-        for listener in self.listeners:
-            listener.on_game_end(self)
+        except AbortGameException:
+            return
 
     @classmethod
     def is_terminal_state(cls, state):

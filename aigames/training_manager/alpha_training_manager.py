@@ -12,10 +12,16 @@ import multiprocessing as mp
 import queue
 
 
-class BasicAlphaDataset(AlphaAgentListener):
-    def __init__(self, evaluator: BaseAlphaEvaluator=None, max_size=50000, process_state=True):
+class AlphaDataset(AlphaAgentListener):
+    def sample_minibatch(self, batch_size):
+        raise NotImplementedError()
+
+
+class BasicAlphaDataset(AlphaDataset):
+    def __init__(self, evaluator: BaseAlphaEvaluator=None, max_size=50000, process_state=True, min_size=100):
         self.evaluator = evaluator
         self.max_size = max_size
+        self.min_size = min_size
         self.states = []
         self.pis = []
         self.rewards = []
@@ -62,19 +68,31 @@ class AlphaDataSender(AlphaAgentListener):
         self.queue.put((self.evaluator.process_state(state), pi, reward))
 
 
-class AlphaDataRecipient:
-    def __init__(self, queue: mp.Queue, listeners: List[AlphaAgentListener]):
-        self.queue = queue
-        self.listeners = listeners
+class AlphaDataRelayer:
+    def __init__(self, in_queue: mp.Queue, out_queue: mp.Queue, dataset: BasicAlphaDataset, minibatch_size: int):
+        self.in_queue = in_queue
+        self.out_queue = out_queue
+        self.dataset = dataset
+        self.minibatch_size = minibatch_size
 
     def check_queue_and_callback(self):
         try:
-            state, pi, reward = self.queue.get_nowait()
+            state, pi, reward = self.in_queue.get_nowait()
         except queue.Empty:
             return
         else:
-            for listener in self.listeners:
-                listener.on_data_point(state, pi, reward)
+            self.dataset.on_data_point(state, pi, reward)
+
+    def sample_minibatch_and_add_to_queue(self):
+        if len(self.dataset) < self.dataset.min_size:
+            return
+
+        minibatch = self.dataset.sample_minibatch(self.minibatch_size)
+
+        try:
+            self.out_queue.put_nowait(minibatch)
+        except queue.Full:
+            pass
 
 
 class AlphaNetworkEvaluator(BaseAlphaEvaluator):
@@ -111,6 +129,10 @@ class AlphaNetworkOptimizer:
 
     def loss(self, processed_states, action_distns, values):
         pred_distns, pred_values = self.evaluator.network(processed_states)
+
+        if pred_distns.shape != action_distns.shape or values.shape != pred_values.shape:
+            raise ValueError('Shape mismatch between data and network predictions')
+
         return (values - pred_values) ** 2 - torch.sum(action_distns * torch.log(pred_distns), dim=1)
 
     def take_training_step_processed(self, processed_states, action_distns, values):

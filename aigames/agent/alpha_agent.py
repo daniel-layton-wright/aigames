@@ -173,41 +173,59 @@ class AlphaAgent(Agent):
 
 
 class MCTSNode:
-    def __init__(self, game_class, state, parent_node, evaluator: BaseAlphaEvaluator, c_puct, dirichlet_alpha,
-                 dirichlet_noise_weight: float = 0., n_players=2,
+    def __init__(self, game_class: SequentialGame, state, parent_node, evaluator: BaseAlphaEvaluator, c_puct, dirichlet_alpha,
+                 dirichlet_noise_weight: float = 0., n_players=2, action_index_from_parent_node=None,
                  N=None, total_N=None, Q=None):
         self.game_class = game_class
         self.state = state
         self.parent = parent_node
+        self.action_index_from_parent_node = action_index_from_parent_node
         self.all_actions = self.game_class.get_all_actions()
-        self.actions = self.game_class.get_legal_actions(self.state)
-        self.next_states_and_rewards = [self.game_class.get_next_state_and_rewards(self.state, action) for action in self.actions]
-        self.next_states = [state for state, action in self.next_states_and_rewards]
-        self.action_indices = [self.all_actions.index(action) for action in self.actions]
-        self.n_children = len(self.actions)
+        self.actions = None
+        self.action_indices = None
+        self.n_children = None
         self.n_players = n_players
         self.children = None
-        self.children_N = np.zeros((self.n_children, self.n_players))
-        self.children_total_N = np.zeros(self.n_children)
-        self.children_Q = np.zeros((self.n_children, self.n_players))
+        self.children_N = None
+        self.children_total_N = None
+        self.children_Q = None
         self.evaluator = evaluator
         self.c_puct = c_puct
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_noise_weight = dirichlet_noise_weight
+        self.player_index = None
 
-        self.player_index = self.game_class.get_cur_player_index(self.state)
+        if self.state is not None:
+            self.fill_info()
+
         self.N = N if N is not None else np.zeros(self.n_players)
         self.total_N = total_N if total_N is not None else np.array([0])
         self.Q = Q if Q is not None else np.zeros(self.n_players)
 
-        self.rewards = self.game_class.get_rewards(self.state)
+        if self.action_index_from_parent_node is None:
+            self.rewards = self.game_class.get_rewards(self.state)  # otherwise, we'll get the rewards when we figure out the state
+
         self.W = np.zeros(self.n_players)
         self.P = None
         self.P_normalized = None
         self._need_to_add_dirichlet_noise = False
         self.v = None  # v is from the perspective of the player whose turn it is
 
+    def fill_info(self):
+        # call this when self.state is not None
+        self.actions = self.game_class.get_legal_actions(self.state)
+        self.action_indices = [self.all_actions.index(action) for action in self.actions]
+        self.n_children = len(self.actions)
+        self.children_N = np.zeros((self.n_children, self.n_players))
+        self.children_total_N = np.zeros(self.n_children)
+        self.children_Q = np.zeros((self.n_children, self.n_players))
+        self.player_index = self.game_class.get_cur_player_index(self.state)
+
     def search(self):
+        if self.state is None:
+            self.state, self.rewards = self.game_class.get_next_state_and_rewards(self.parent.state, self.parent.actions[self.action_index_from_parent_node])
+            self.fill_info()
+
         if self.children is None:
             # We've reached a leaf node, expand
             self.expand()
@@ -237,10 +255,12 @@ class MCTSNode:
 
             # Initialize the children
             self.children = [
-                MCTSNode(self.game_class, next_state, self, self.evaluator, self.c_puct, self.dirichlet_alpha,
-                         self.dirichlet_noise_weight, self.n_players, self.children_N[i], self.children_total_N[i:(i + 1)],
-                         self.children_Q[i])
-                for i, next_state in enumerate(self.next_states)
+                MCTSNode(self.game_class, None, self, self.evaluator, self.c_puct, self.dirichlet_alpha,
+                         self.dirichlet_noise_weight, self.n_players,
+                         action_index_from_parent_node=i,
+                         N=self.children_N[i], total_N=self.children_total_N[i:(i + 1)],
+                         Q=self.children_Q[i])
+                for i in range(len(self.actions))
                 ]
 
     def add_dirichlet_noise(self):
