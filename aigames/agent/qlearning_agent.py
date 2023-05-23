@@ -15,23 +15,24 @@ class QLearningFunction:
         raise NotImplementedError()
 
 
-class ExplorationProbabilityScheduler:
-    def get_exploration_probability(self, agent, state):
-        raise NotImplementedError()
+class QLearningAgentHyperparameters:
+    __slots__ = ['exploration_probability']
+
+    def __init__(self):
+        self.exploration_probability = 0.5
 
 
 class QLearningAgent(Agent):
     def __init__(self, game: Type[PartiallyObservableSequentialGame], player_index,
                  Q: QLearningFunction, *,  # After this, everything must be passed as a keyword arg
                  data_listener: QLearningDataListener,
-                 exploration_probability_scheduler: ExplorationProbabilityScheduler, discount_rate):
+                 hyperparams: QLearningAgentHyperparameters):
         self.game = game
         self.all_actions = game.get_all_actions()
         self.player_index = player_index
         self.Q = Q
         self.data_listener = data_listener
-        self.exploration_probability_scheduler = exploration_probability_scheduler
-        self.discount_rate = discount_rate
+        self.hyperparams = hyperparams
         self.last_state = None
         self.last_action_index = None
         self.cum_reward = 0
@@ -43,7 +44,7 @@ class QLearningAgent(Agent):
         legal_action_indices = [self.all_actions.index(legal_action) for legal_action in legal_actions]
 
         if self.training:
-            exploration_probability = self.exploration_probability_scheduler.get_exploration_probability(self, state)
+            exploration_probability = self.hyperparams.exploration_probability
         else:
             exploration_probability = 0
 

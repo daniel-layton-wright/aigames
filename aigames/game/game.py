@@ -69,7 +69,7 @@ class PartiallyObservableSequentialGame:
                 # Advance to the next state according to the move
                 self.state, rewards = self.get_next_state_and_rewards(self.state, cur_action)
 
-                # Tell each player what his reward his in the next state
+                # Tell each player what his reward is in the next state
                 for player_index, (player, reward) in enumerate(zip(self.players, rewards)):
                     player.on_reward(reward, self.get_observable_state(self.state, player_index), player_index)
 
