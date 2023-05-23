@@ -6,6 +6,10 @@ import torch
 
 
 class TicTacToe(SequentialGame):
+    WIN_REWARD = 1
+    TIE_REWARD = 0
+    LOSE_REWARD = -1
+
     @classmethod
     def get_n_players(cls):
         return 2
@@ -63,38 +67,10 @@ class TicTacToe(SequentialGame):
 
     @classmethod
     def get_rewards(cls, state):
-        rewards = np.zeros(2)
-        if abs(state).sum() == 9:
-            return rewards
-        elif (
-            (state[0][0] == 1 and state[0][1] == 1 and state[0][2] == 1) or
-            (state[1][0] == 1 and state[1][1] == 1 and state[1][2] == 1) or
-            (state[2][0] == 1 and state[2][1] == 1 and state[2][2] == 1) or
-            (state[0][0] == 1 and state[1][0] == 1 and state[2][0] == 1) or
-            (state[0][1] == 1 and state[1][1] == 1 and state[2][1] == 1) or
-            (state[0][2] == 1 and state[1][2] == 1 and state[2][2] == 1) or
-            (state[0][0] == 1 and state[1][1] == 1 and state[2][2] == 1) or
-            (state[0][2] == 1 and state[1][1] == 1 and state[2][0] == 1)
-        ):
-            rewards[0] = 1
-            rewards[1] = -1
-            return rewards
-        elif (
-            (state[0][0] == -1 and state[0][1] == -1 and state[0][2] == -1) or
-            (state[1][0] == -1 and state[1][1] == -1 and state[1][2] == -1) or
-            (state[2][0] == -1 and state[2][1] == -1 and state[2][2] == -1) or
-            (state[0][0] == -1 and state[1][0] == -1 and state[2][0] == -1) or
-            (state[0][1] == -1 and state[1][1] == -1 and state[2][1] == -1) or
-            (state[0][2] == -1 and state[1][2] == -1 and state[2][2] == -1) or
-            (state[0][0] == -1 and state[1][1] == -1 and state[2][2] == -1) or
-            (state[0][2] == -1 and state[1][1] == -1 and state[2][0] == -1)
-        ):
-
-            rewards[0] = -1
-            rewards[1] = 1
-            return rewards
+        if cls.is_terminal_state(state):
+            return cls.get_terminal_rewards(state)
         else:
-            return rewards
+            return np.zeros(2)
 
     @classmethod
     def get_winner(cls, state) -> Union[int, None]:
@@ -125,12 +101,12 @@ class TicTacToe(SequentialGame):
 
     @classmethod
     def get_terminal_rewards(cls, state):
-        rewards = np.zeros(2)
+        rewards = np.ones(2) * cls.TIE_REWARD
         winner = cls.get_winner(state)
         if winner is not None:
             loser = 1 - winner
-            rewards[winner] = 1
-            rewards[loser] = -1
+            rewards[winner] = cls.WIN_REWARD
+            rewards[loser] = cls.LOSE_REWARD
 
         return rewards
 
@@ -194,6 +170,19 @@ class TicTacToe(SequentialGame):
             [1, 0, 0]
         ])
     ]
+
+    @classmethod
+    def states_equal(cls, state1, state2):
+        return np.all(state1 == state2)
+
+
+def custom_reward_tictactoe(win_reward, tie_reward, lose_reward):
+    class CustomRewardTicTacToe(TicTacToe):
+        WIN_REWARD = win_reward
+        TIE_REWARD = tie_reward
+        LOSE_REWARD = lose_reward
+
+    return CustomRewardTicTacToe
 
 
 class TicTacToe2(SequentialGame):
@@ -472,11 +461,13 @@ class FastTicTacToe(SequentialGame):
 
     @classmethod
     def get_next_state_and_rewards(cls, state, action):
-        next_state = copy.deepcopy(state)
-        m = (1-2*next_state.cur_player_index)
+        next_state = cls.get_initial_state()
+        m = (1-2*state.cur_player_index)
         c = state.cur_player_index
+        next_state.tensor_state = torch.clone(state.tensor_state)
         next_state.tensor_state[(0, *action)] = m
-        next_state.cur_player_index = 1 - next_state.cur_player_index
+        next_state.cur_player_index = 1 - c
+        next_state.legal_actions = state.legal_actions[:]
         next_state.legal_actions.remove(action)
 
         s = next_state.tensor_state[0]
