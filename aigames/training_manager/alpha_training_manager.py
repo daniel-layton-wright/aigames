@@ -1,7 +1,7 @@
 from ..game import SequentialGame, GameListener
 from typing import Type, List
 from .training_manager import TrainingListener, ListDataset
-from ..agent.alpha_agent import BaseAlphaEvaluator, AlphaAgent, TrainingTau, AlphaAgentListener
+from ..agent.alpha_agent import BaseAlphaEvaluator, AlphaAgent, AlphaAgentListener, AlphaAgentHyperparameters
 from typing import Callable
 import torch.optim
 import torch.utils.data
@@ -101,6 +101,7 @@ class AlphaNetworkEvaluator(BaseAlphaEvaluator):
 
     def evaluate(self, state):
         with torch.no_grad():
+            self.network.eval()  # just be aware
             pi, v = self.network(self.process_state(state).unsqueeze(0))
         return pi.numpy(), v.numpy()
 
@@ -154,26 +155,29 @@ class AlphaNetworkOptimizer:
         return loss_item
 
 
+class AlphaTrainingHyperparameters(AlphaAgentHyperparameters):
+    __slots__ = ['min_data_size', 'max_data_size', 'batch_size', 'share_among_players', 'lr', 'weight_decay']
+
+    def __init__(self):
+        super().__init__()
+        self.min_data_size = 1000
+        self.max_data_size = 50000
+        self.batch_size = 32
+        self.share_among_players = True
+        self.lr = 1e-3
+        self.weight_decay = 1e-4
+
+
 class AlphaTrainingRun(GameListener):
     def __init__(self, game: Type[SequentialGame], alpha_evaluator: AlphaNetworkEvaluator,
                  optimizer_constructor: Callable[[], torch.optim.Optimizer],
-                 training_tau: TrainingTau, c_puct=1.0, dirichlet_alpha=0.3, dirichlet_epsilon=0.25,
-                 discount_rate=0.99,
-                 min_data_size=1000, max_data_size=50000, batch_size=32, share_among_players=True,
+                 hyperparams: AlphaTrainingHyperparameters,
                  training_listeners: List[TrainingListener] = ()):
         """
 
         :param game:
         :param network: Pass in a callable that returns a network
         :param optimizer: Pass in a function that will do f( network ) -> optimizer
-        :param state_shape:
-        :param exploration_probability:
-        :param discount_rate:
-        :param update_target_network_ever_n_iters:
-        :param min_data_size:
-        :param max_data_size:
-        :param batch_size:
-        :param share_among_players:
         :param training_listeners:
         """
         self.game = game
@@ -181,33 +185,21 @@ class AlphaTrainingRun(GameListener):
         self.optimizers = []
         self.datasets = []
         self.listeners = training_listeners
-        self.discount_rate = discount_rate
-        self.min_data_size = min_data_size
-        self.max_data_size = max_data_size
-        self.batch_size = batch_size
-        self.discount_rate = discount_rate
-        self.training_tau = training_tau
-        self.c_puct = c_puct
-        self.dirichlet_alpha = dirichlet_alpha
-        self.dirichlet_epsilon = dirichlet_epsilon
+        self.hyperparams = hyperparams
         self.agents = []
         self.n_iters = 0
         self.training_listeners = training_listeners
 
         for i in range(self.game.get_n_players()):
-            if i == 0 or (not share_among_players):
+            if i == 0 or (not hyperparams.share_among_players):
                 self.alpha_evaluators.append(copy.deepcopy(alpha_evaluator))
                 self.optimizers.append( AlphaNetworkOptimizer(self.alpha_evaluators[-1], optimizer_constructor) )
-                self.datasets.append( BasicAlphaDataset( self.alpha_evaluators[-1], max_size=self.max_data_size) )
+                self.datasets.append( BasicAlphaDataset( self.alpha_evaluators[-1], max_size=self.hyperparams.max_data_size) )
 
-            cur_agent = AlphaAgent(self.game, self.alpha_evaluators[-1], listeners=[self.datasets[-1]],
-                                   training_tau=self.training_tau, discount_rate=self.discount_rate,
-                                   c_puct=self.c_puct, dirichlet_alpha=self.dirichlet_alpha,
-                                   dirichlet_epsilon=self.dirichlet_epsilon)
+            cur_agent = AlphaAgent(self.game, self.alpha_evaluators[-1], self.hyperparams, listeners=[self.datasets[-1]])
             self.agents.append(cur_agent)
 
         self.n_iters = 0
-
         for listener in self.listeners:
             listener.before_begin_training(self)
 
@@ -218,8 +210,8 @@ class AlphaTrainingRun(GameListener):
 
     def after_action(self, game):
         for i, optimizer in enumerate(self.optimizers):
-            if len(self.datasets[i]) > self.min_data_size:
-                minibatch = self.datasets[i].sample_minibatch(self.batch_size)
+            if len(self.datasets[i]) > self.hyperparams.min_data_size:
+                minibatch = self.datasets[i].sample_minibatch(self.hyperparams.batch_size)
                 loss = optimizer.take_training_step_processed(*minibatch)
 
                 self.n_iters += 1

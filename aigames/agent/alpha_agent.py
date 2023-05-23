@@ -119,11 +119,12 @@ class AlphaAgent(Agent):
                 pi[self.cur_node.action_indices] = action_distribution ** (1. / tau)
                 pi /= np.sum(pi)
             else:
-                pi[self.cur_node.action_indices[np.argmax(self.cur_node.children_total_N)]] = 1
+                pi[self.cur_node.action_indices[np.argmax(action_distribution)]] = 1
 
             # Choose the action according to the distribution pi
             action_index = np.random.choice(range(len(self.all_actions)), p=pi)
         except Exception as e:
+            # TODO : clean this up
             print(e)
             import pdb
             pdb.set_trace()

@@ -1,13 +1,12 @@
 from ..agent.qlearning_agent import *
+from ..agent.minimax_agent import MinimaxAgent
 from ..game import *
 import torch
 import torch.utils.data
 import copy
-from typing import Type
+from typing import Type, Callable
 import torch.nn as nn
-import time
 from tqdm.auto import tqdm
-import multiprocessing as mp
 from .training_manager import TrainingListener, ListDataset
 
 
@@ -20,12 +19,31 @@ def is_json_serializable(x):
         return False
 
 
+class QLearningTrainingHyperparameters(QLearningAgentHyperparameters):
+    __slots__ = ['state_shape', 'discount_rate', 'update_target_network_every_n_iters', 'min_data_size',
+                 'max_data_size', 'batch_size', 'share_among_players', 'frac_terminal_to_sample',
+                 'sample_proportional_to_reward', 'sampling_baseline_reward', 'device', 'use_minimax_agent0']
+
+    def __init__(self):
+        super().__init__()
+        self.state_shape = (1, 3, 3)
+        self.discount_rate = 0.99
+        self.update_target_network_every_n_iters = 1
+        self.min_data_size = 1000
+        self.max_data_size = 50000
+        self.batch_size = 32
+        self.share_among_players = True
+        self.frac_terminal_to_sample = None
+        self.sample_proportional_to_reward = False
+        self.sampling_baseline_reward = None
+        self.device = 'cpu'
+        self.use_minimax_agent0 = False
+
+
 class QLearningTrainingRun(GameListener):
-    def __init__(self, game: Type[PartiallyObservableSequentialGame], network, optimizer, state_shape,
-                 exploration_probability=0.1, discount_rate=0.99, update_target_network_ever_n_iters=1,
-                 min_data_size=1000, max_data_size=50000, batch_size=32, share_among_players=True,
-                 frac_terminal_to_sample=None, training_listeners: List[TrainingListener] = (),
-                 sample_proportional_to_reward=False, sampling_baseline_reward=None):
+    def __init__(self, game: Type[PartiallyObservableSequentialGame], network: Callable, optimizer: Callable,
+                 hyperparams: QLearningTrainingHyperparameters,
+                 training_listeners: List[TrainingListener] = ()):
         """
 
         :param game:
@@ -42,45 +60,40 @@ class QLearningTrainingRun(GameListener):
         :param training_listeners:
         """
         self.game = game
+        self.hyperparams = hyperparams
         self.networks = []
         self.optimizers = []
         self.q_optimizers = []
-        self.state_shape = state_shape
         self.q_functions = []
         self.target_networks = []
         self.datasets = []
         self.listeners = training_listeners
 
-        self.exploration_probability = exploration_probability
-        self.discount_rate = discount_rate
-        self.min_data_size = min_data_size
-        self.batch_size = batch_size
-        self.discount_rate = discount_rate
-
         self.q_optimizers = []
 
         self.agents = []
-        for i in range(self.game.get_n_players()):
-            if i == 0 or (not share_among_players):
+
+        start_i = 0
+
+        if self.hyperparams.use_minimax_agent0:
+            self.agents.append( MinimaxAgent(self.game) )
+            start_i += 1
+
+        for i in range(start_i, self.game.get_n_players()):
+            if i == start_i or (not self.hyperparams.share_among_players):
                 self.networks.append( network() )
                 self.optimizers.append( optimizer(self.networks[-1]) )
-                self.datasets.append( BasicQLearningDataset(self.game, self.state_shape, max_size=max_data_size) )
+                self.datasets.append( BasicQLearningDataset(self.game, self.hyperparams.state_shape, max_size=self.hyperparams.max_data_size) )
                 self.target_networks.append( copy.deepcopy(self.networks[-1]) )
                 self.q_optimizers.append(
                     QLearningOptimizer(self.datasets[-1], self.optimizers[-1], self.networks[-1],
-                                       self.target_networks[-1], batch_size=self.batch_size,
-                                       discount_rate=self.discount_rate, frac_terminal_to_sample=frac_terminal_to_sample,
-                                       sample_proportional_to_reward=sample_proportional_to_reward,
-                                       sampling_baseline_reward=sampling_baseline_reward)
+                                       self.target_networks[-1], self.hyperparams)
                 )
-                self.q_functions.append( BasicQLearningFunction(self.networks[-1], self.state_shape) )
+                self.q_functions.append( BasicQLearningFunction(self.networks[-1], self.hyperparams.state_shape) )
 
-            cur_agent = QLearningAgent(self.game, i, self.q_functions[-1], data_listener=self.datasets[-1],
-                                       exploration_probability_scheduler=ConstantExplorationProbabilityScheduler(self.exploration_probability),
-                                       discount_rate=self.discount_rate)
+            cur_agent = QLearningAgent(self.game, i, self.q_functions[-1], data_listener=self.datasets[-1], hyperparams=self.hyperparams)
             self.agents.append(cur_agent)
 
-        self.update_target_network_ever_n_iters = update_target_network_ever_n_iters
         self.n_iters = 0
 
         for listener in self.listeners:
@@ -89,16 +102,22 @@ class QLearningTrainingRun(GameListener):
     def train(self, n_games=10000):
         game = self.game(self.agents, [self, *self.listeners])
         for _ in tqdm(range(n_games)):
+            for listener in self.listeners:
+                listener.before_game_start(game)
+
             game.play()
+
+            for listener in self.listeners:
+                listener.on_game_end(game)
 
     def take_training_step(self):
         for i, (dataset, q_optimizer) in enumerate(zip(self.datasets, self.q_optimizers)):
-            if len(dataset) < self.min_data_size:
+            if len(dataset) < self.hyperparams.min_data_size:
                 return
 
             loss = q_optimizer.take_training_step()
 
-            if (self.n_iters % self.update_target_network_ever_n_iters) == 0:
+            if (self.n_iters % self.hyperparams.update_target_network_every_n_iters) == 0:
                 q_optimizer.reset_target_network()
 
             if i == 0:  # TODO : fix this hack (only calling back to listener for first network)
@@ -146,10 +165,8 @@ def take_training_step(terminal_minibatch, nonterminal_minibatch, target_network
     else:
         nonterminal_y = torch.Tensor([])
 
+    network.train()
     optimizer.zero_grad()
-    # print(terminal_states)
-    # print(terminal_action_indices)
-    # print(terminal_rewards)
 
     action_indices = torch.cat((nonterminal_action_indices.squeeze(1), terminal_action_indices.squeeze(1)))
     y_pred = network(torch.cat((nonterminal_states, terminal_states)).to(device))[range(len(action_indices)), action_indices]
@@ -162,36 +179,6 @@ def take_training_step(terminal_minibatch, nonterminal_minibatch, target_network
     per_point_loss = ((y_pred - y) ** 2)
     loss = per_point_loss.mean()
 
-    # really_wrong = (per_point_terminal_loss > 0.5)
-    # if sum(really_wrong) > 0:
-    #     print(terminal_states[really_wrong])
-    #     print(terminal_action_indices[really_wrong])
-    #     print(terminal_rewards[really_wrong])
-    #     print(y_pred[len(nonterminal_states):][really_wrong])
-    #     print('\n\n\n')
-    #
-    # really_wrong = (per_point_nonterminal_loss > 0.5)
-    # if sum(really_wrong) > 0:
-    #     print(nonterminal_states[really_wrong])
-    #     print(nonterminal_next_states[really_wrong])
-    #     print(network_result[really_wrong])
-    #     print(nonterminal_rewards[really_wrong])
-    #     print(nonterminal_y[really_wrong])
-    #     print(y_pred[:len(nonterminal_states)][really_wrong])
-    #     print('\n\n\n')
-    #
-    # if len(nonterminal_states) > 0:
-    #     print(nonterminal_states[0])
-    #     print(nonterminal_action_indices[0])
-    #     print(nonterminal_rewards[0])
-    #     print(network_result[0])
-    #     print(y[0])
-    #     print(y_pred[0])
-    #     print(y)
-    #     print(y_pred)
-    #     print(nonterminal_loss)
-    #     print('\n\n\n')
-
     # Back-prop
     loss.backward()
 
@@ -202,33 +189,30 @@ def take_training_step(terminal_minibatch, nonterminal_minibatch, target_network
 
 
 class QLearningOptimizer:
-    def __init__(self, dataset, optimizer, network: nn.Module, target_network, device=torch.device('cpu'),
-                 batch_size=32, discount_rate=0.99, frac_terminal_to_sample=None, sample_proportional_to_reward=False,
-                 sampling_baseline_reward=None):
+    def __init__(self, dataset, optimizer, network: nn.Module, target_network: nn.Module,
+                 hyperparams: QLearningTrainingHyperparameters):
         self.dataset = dataset
         self.optimizer = optimizer
         self.network = network
         self.target_network = target_network
-        self.device = device
-        self.batch_size = batch_size
-        self.discount_rate = discount_rate
-        self.frac_terminal_to_sample = frac_terminal_to_sample
-        self.sample_proportional_to_reward = sample_proportional_to_reward
-        self.sampling_baseline_reward = sampling_baseline_reward
+        self.hyperparams = hyperparams
 
     def take_training_step(self):
-        terminal_minibatch, nonterminal_minibatch = self.dataset.sample_minibatch(self.batch_size,
-                                                                                  frac_terminal=self.frac_terminal_to_sample,
-                                                                                  sample_proportional_to_reward=self.sample_proportional_to_reward,
-                                                                                  baseline_reward=self.sampling_baseline_reward)
+        terminal_minibatch, nonterminal_minibatch = self.dataset.sample_minibatch(
+            self.hyperparams.batch_size,
+            frac_terminal=self.hyperparams.frac_terminal_to_sample,
+            sample_proportional_to_reward=self.hyperparams.sample_proportional_to_reward,
+            baseline_reward=self.hyperparams.sampling_baseline_reward
+        )
 
         loss, terminal_loss, nonterminal_loss = take_training_step(terminal_minibatch, nonterminal_minibatch,
                                                                    self.target_network, self.network,
-                                                                   self.optimizer, self.discount_rate, self.device)
+                                                                   self.optimizer, self.hyperparams.discount_rate,
+                                                                   self.hyperparams.device)
         return loss
 
     def reset_target_network(self):
-        self.target_network = copy.deepcopy(self.network)
+        self.target_network.load_state_dict(self.network.state_dict())
 
 
 class BasicQLearningFunction(QLearningFunction):
@@ -239,6 +223,7 @@ class BasicQLearningFunction(QLearningFunction):
 
     def evaluate(self, state):
         with torch.no_grad():
+            self.network.eval()
             return self.network(torch.Tensor(state).reshape(self.state_shape).unsqueeze(0).to(self.device)).squeeze()
 
 
@@ -353,10 +338,24 @@ class BasicQLearningDataset(QLearningDataListener):
         return reward_weights
 
 
-class ConstantExplorationProbabilityScheduler(ExplorationProbabilityScheduler):
-    def __init__(self, exploration_probability):
-        self.exploration_probability = exploration_probability
+class TrainEvalAlternator(TrainingListener):
+    def __init__(self, alternate_every_n_games=100):
+        self.n_games = 0
+        self.alternate_every_n_games = alternate_every_n_games
 
-    def get_exploration_probability(self, agent, state):
-        return self.exploration_probability
+    def before_game_start(self, game):
+        regime = (self.n_games // self.alternate_every_n_games) % 2
+        if regime == 0:
+            game.players[0].train()
+            game.players[1].eval()
+        else:
+            game.players[0].eval()
+            game.players[1].train()
+
+        import wandb
+        if wandb.run:
+            wandb.log({'train_eval_agent_regime': regime})
+
+    def on_game_end(self, game):
+        self.n_games += 1
 
