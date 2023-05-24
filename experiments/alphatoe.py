@@ -75,7 +75,7 @@ class TicTacToeTrainingListenerAlpha(TicTacToeTrainingListener):
                     raise optuna.TrialPruned()
 
                 # minimum expectations
-                if iter >= 1000 and self.ema_reward_minimax < 0.2:
+                if iter >= 1000 and self.ema_reward_minimax < -0.2:
                     raise optuna.TrialPruned()
 
         wandb.log(log_dict)
