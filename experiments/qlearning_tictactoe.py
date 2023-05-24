@@ -1,7 +1,3 @@
-import sys
-sys.path.append('/Users/dlwright/Documents/Projects/aigames/')
-
-
 from aigames import *
 from aigames.game.tictactoe import *
 from aigames.utils.listeners import RewardListener

@@ -1,7 +1,3 @@
-import sys
-
-sys.path.append('/Users/dlwright/Documents/Projects/aigames/')
-
 from aigames.game.tictactoe import TicTacToe
 from aigames.agent.alpha_agent import *
 from aigames.agent.minimax_agent import MinimaxAgent

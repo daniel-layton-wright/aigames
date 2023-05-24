@@ -1,8 +1,3 @@
-# TODO : remove
-import sys
-sys.path.append('/Users/dlwright/Documents/Projects/aigames/')
-
-
 from aigames.agent.minimax_agent import MinimaxAgent
 from aigames.agent.qlearning_agent import QLearningDataListener
 from typing import Type
