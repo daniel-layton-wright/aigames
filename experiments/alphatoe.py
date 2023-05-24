@@ -4,6 +4,7 @@ from aigames.agent.minimax_agent import MinimaxAgent
 from aigames.game.command_line_game import CommandLineGame
 from aigames.utils.utils import play_tournament
 from aigames.training_manager.alpha_training_manager import *
+from aigames.training_manager.alpha_training_manager_lightning import *
 from aigames.utils.listeners import RewardListener
 from aigames.game.tictactoe import *
 from aigames import Flatten
@@ -13,8 +14,7 @@ import wandb
 import wandb.plot
 import optuna
 import typing
-from pytorch_lightning import Callback
-from pytorch_lightning.loggers import WandbLogger
+import pytorch_lightning as pl
 
 
 class TicTacToeTrainingListenerAlpha(TicTacToeTrainingListener):
@@ -38,7 +38,9 @@ class TicTacToeTrainingListenerAlpha(TicTacToeTrainingListener):
             wandb.run.finish()
 
         wandb.init(project='aigames2', tags=[self.get_game_name(training_manager), 'alpha'])
-        params = {key: val for key, val in training_manager.__dict__.items() if is_json_serializable(val)}
+        from itertools import chain
+        slots = chain.from_iterable(getattr(cls, '__slots__', []) for cls in type(training_manager.hyperparams).__mro__)
+        params = {s: getattr(training_manager.hyperparams, s) for s in slots if hasattr(training_manager.hyperparams, s)}
         wandb.config.update(params)
 
         self.ema_reward_minimax = None
@@ -202,7 +204,7 @@ def main():
     evaluator = FastTicTacToeEvaluator(network)
     training_listener = TicTacToeTrainingListenerAlphaLightning()
     callback = TicTacToeTrainingCallback(training_listener)
-    hyperparams = AlphaTrainingHyperparametersLightning()
+    hyperparams = AlphaTrainingHyperparameters()
     hyperparams.min_data_size     = 256
     hyperparams.n_mcts            = 100
     hyperparams.dirichlet_alpha   = 0.3
@@ -216,7 +218,7 @@ def main():
     # training_run = AlphaTrainingRunLightning(FastTicTacToe, evaluator, hyperparams,
     #                                          training_listeners=[training_listener])
     #
-    # trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=WandbLogger(), callbacks=[callback])
+    # trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(), callbacks=[callback])
     # trainer.fit(training_run)
 
     import pdb
