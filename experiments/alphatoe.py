@@ -9,7 +9,7 @@ from aigames.utils.listeners import RewardListener
 from aigames.game.tictactoe import *
 from aigames import Flatten
 import torch
-from qlearning_tictactoe import TicTacToeTrainingListener
+from .qlearning_tictactoe import TicTacToeTrainingListener
 import wandb
 import wandb.plot
 import optuna
