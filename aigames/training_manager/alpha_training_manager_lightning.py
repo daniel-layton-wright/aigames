@@ -1,5 +1,5 @@
 from .alpha_training_manager import *
-import lightning as pl
+import pytorch_lightning as pl
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDataset):
