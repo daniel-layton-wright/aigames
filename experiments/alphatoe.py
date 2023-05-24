@@ -74,6 +74,10 @@ class TicTacToeTrainingListenerAlpha(TicTacToeTrainingListener):
                 if self.optuna_trial.should_prune():
                     raise optuna.TrialPruned()
 
+                # minimum expectations
+                if iter >= 1000 and self.ema_reward_minimax < 0.2:
+                    raise optuna.TrialPruned()
+
         wandb.log(log_dict)
 
         if iter % 50 == 0:
@@ -178,6 +182,7 @@ def main():
         training_listener = TicTacToeTrainingListenerAlpha(trial)
         hyperparams = AlphaTrainingHyperparameters()
         hyperparams.min_data_size = 10
+        hyperparams.max_data_size = trial.suggest_int('max_data_size', 1000, 10000)
         hyperparams.n_mcts = 100
         hyperparams.dirichlet_alpha = trial.suggest_float('dirichlet_alpha', 0.01, 0.5, log=True)
         hyperparams.dirichlet_epsilon = trial.suggest_float('dirichlet_epsilon', 0.2, 0.8)
