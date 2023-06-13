@@ -61,7 +61,7 @@ class TicTacToeTrainingListenerAlpha(TicTacToeTrainingListener):
         table = wandb.Table(data=data, columns=["label", "value"])
         log_dict = {'iter': iter, 'loss': loss}
 
-        if iter % 50 == 0:
+        if iter > 950 and iter % 200 == 0:
             log_dict['avg_reward_against_minimax'] = self.play_tournament_against_minimax(100)
 
             if self.ema_reward_minimax is None:
@@ -186,7 +186,7 @@ def main():
         hyperparams.n_mcts = 100
         hyperparams.dirichlet_alpha = trial.suggest_float('dirichlet_alpha', 0.01, 0.5, log=True)
         hyperparams.dirichlet_epsilon = trial.suggest_float('dirichlet_epsilon', 0.2, 0.8)
-        hyperparams.lr = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
+        hyperparams.lr = trial.suggest_float('learning_rate', 1e-4, 1e-1, log=True)
         hyperparams.weight_decay = trial.suggest_float('weight_decay', 1e-7, 1e-2, log=True)
         hyperparams.training_tau = TrainingTau(trial.suggest_float('training_tau', 0.3, 3, log=True))
         hyperparams.c_puct = trial.suggest_float('c_puct', 0.1, 10, log=True)

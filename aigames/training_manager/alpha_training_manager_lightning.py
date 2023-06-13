@@ -1,5 +1,8 @@
 from .alpha_training_manager import *
 import pytorch_lightning as pl
+from aigames.utils.listeners import RewardListener
+from aigames.game.tictactoe import FastTicTacToe
+from aigames.agent.minimax_agent import MinimaxAgent
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDataset):
@@ -10,6 +13,7 @@ class BasicAlphaDatasetLightning(BasicAlphaDataset):
 
     def __iter__(self):
         dataset = ListDataset(self.states, self.pis, self.rewards)
+        # TODO : make this 100 configurable (controls number of steps per "epoch")
         sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=100*self.batch_size)
         dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=self.batch_size)
         return iter(dataloader)
@@ -37,6 +41,8 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         self.agents = []
         self.n_iters = 0
         self.training_listeners = training_listeners
+        self.minimax_agent = MinimaxAgent(FastTicTacToe) # for eval
+        self.avg_reward_against_minimax_ema = None
 
         for i in range(self.game_class.get_n_players()):
             cur_agent = AlphaAgent(self.game_class, self.alpha_evaluator, self.hyperparams,
@@ -74,3 +80,28 @@ class AlphaTrainingRunLightning(pl.LightningModule):
 
     def train_dataloader(self):
         return self.dataset
+
+    def on_train_epoch_end(self) -> None:
+        # Play tournament against minimax and log result
+        agent = self.agents[-1]
+        agent.eval()
+        discount_rate = agent.hyperparams.discount_rate
+        reward_listener = RewardListener(discount_rate, 1)
+
+        rewards = []
+        for _ in range(100):
+            game = FastTicTacToe([self.minimax_agent, agent], [reward_listener])
+            game.play()
+            rewards.append(reward_listener.reward)
+
+        agent.train()
+        avg_reward_against_minimax = float(sum(rewards)) / len(rewards)
+        self.log('avg_reward_against_minimax', avg_reward_against_minimax)
+
+        if self.avg_reward_against_minimax_ema is None:
+            self.avg_reward_against_minimax_ema = avg_reward_against_minimax
+        else:
+            self.avg_reward_against_minimax_ema = ((0.85 * self.avg_reward_against_minimax_ema)
+                                                   + (0.15 * avg_reward_against_minimax))
+
+        self.log('avg_reward_against_minimax_ema', self.avg_reward_against_minimax_ema)
