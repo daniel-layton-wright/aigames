@@ -50,9 +50,9 @@ def main():
     wandb.require("service")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--n_jobs', type=int)
-    parser.add_argument('--n_trials', type=int)
-    args = parser.parse_known_args()
+    parser.add_argument('--n_jobs', type=int, default=1)
+    parser.add_argument('--n_trials', type=int, default=10)
+    args, _ = parser.parse_known_args()
 
     from optuna.storages import JournalFileStorage, JournalStorage
     storage = JournalStorage(JournalFileStorage(f'{os.getcwd()}/optuna_experiment.log'))
