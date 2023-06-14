@@ -6,15 +6,15 @@ from aigames.agent.minimax_agent import MinimaxAgent
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDataset):
-    def __init__(self, evaluator: BaseAlphaEvaluator=None, max_size=50000, process_state=True, min_size=100,
-                 batch_size=32):
+    def __init__(self, evaluator: BaseAlphaEvaluator = None, max_size=50000, process_state=True, min_size=100,
+                 batch_size=32, num_samples=100):
         super().__init__(evaluator, max_size, process_state, min_size)
         self.batch_size = batch_size
+        self.num_samples = num_samples
 
     def __iter__(self):
         dataset = ListDataset(self.states, self.pis, self.rewards)
-        # TODO : make this 100 configurable (controls number of steps per "epoch")
-        sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=100*self.batch_size)
+        sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=(self.num_samples * self.batch_size))
         dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=self.batch_size)
         return iter(dataloader)
 
