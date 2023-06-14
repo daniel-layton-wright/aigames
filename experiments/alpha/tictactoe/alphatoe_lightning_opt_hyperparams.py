@@ -1,5 +1,6 @@
 import argparse
-
+import pytorch_lightning.loggers
+from pytorch_lightning.callbacks import ModelCheckpoint
 from .alphatoe_lightning import *
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
@@ -25,14 +26,19 @@ def objective(trial: optuna.Trial):
     wandb_kwargs = dict(
         project='aigames2',
         group='tictactoe_lightning',
-        reinit=True,
+        reinit=False,
         settings=wandb.Settings(start_method="fork")
     )
+
+    # So we can get the name for model checkpointing
+    wandb.init(**wandb_kwargs)
 
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(**wandb_kwargs),
                          max_epochs=50,
                          callbacks=[
-                             PyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema")
+                             PyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema"),
+                             ModelCheckpoint(dirpath=f'gs://aigames-1/{wandb.run.name}/', save_top_k=1,
+                                             monitor='avg_reward_against_minimax_ema')
                          ])
 
     slots = chain.from_iterable(getattr(cls, '__slots__', []) for cls in type(hyperparams).__mro__)
@@ -41,6 +47,8 @@ def objective(trial: optuna.Trial):
 
     training_run = AlphaTrainingRunLightning(FastTicTacToe, evaluator, hyperparams)
     trainer.fit(training_run)
+
+    wandb.finish()
 
     return training_run.avg_reward_against_minimax_ema
 
@@ -57,7 +65,7 @@ def main():
     from optuna.storages import JournalFileStorage, JournalStorage
     storage = JournalStorage(JournalFileStorage(f'{os.getcwd()}/optuna_experiment.log'))
     study = optuna.create_study(direction='maximize', study_name='tictactoe_lightning', load_if_exists=True,
-                                pruner=optuna.pruners.MedianPruner(), storage=storage)
+                                pruner=optuna.pruners.MedianPruner(n_warmup_steps=2000), storage=storage)
     study.optimize(objective, n_trials=args.n_trials, n_jobs=args.n_jobs)
 
 
