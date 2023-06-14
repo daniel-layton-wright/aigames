@@ -39,9 +39,7 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         self.game_class = game_class
         self.alpha_evaluator = copy.deepcopy(alpha_evaluator)
         self.network = self.alpha_evaluator.network
-        self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, max_size=self.hyperparams.max_data_size,
-                                                  min_size=self.hyperparams.min_data_size,
-                                                  batch_size=self.hyperparams.batch_size)
+        self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, self.hyperparams)
         self.listeners = training_listeners
         self.agents = []
         self.n_iters = 0
