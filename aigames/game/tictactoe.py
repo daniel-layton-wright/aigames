@@ -3,6 +3,7 @@ import numpy as np
 import itertools
 from typing import Union
 import torch
+from functools import lru_cache
 
 
 class TicTacToe(SequentialGame):
@@ -432,6 +433,9 @@ class FastTicTacToeState:
     def hash(self):
         return tuple(self.tensor_state[0].numpy().flatten())
 
+    def __hash__(self):
+        return self.hash().__hash__()
+
 
 class FastTicTacToe(SequentialGame):
     @classmethod
@@ -460,6 +464,7 @@ class FastTicTacToe(SequentialGame):
         return state.is_terminal_state
 
     @classmethod
+    @lru_cache(maxsize=1000)
     def get_next_state_and_rewards(cls, state, action):
         next_state = cls.get_initial_state()
         m = (1-2*state.cur_player_index)

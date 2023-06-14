@@ -19,7 +19,7 @@ setup(
         'pandas',
         'numpy',
         'google-cloud-storage',
-        'tensorboardX', 'matplotlib', 'optuna', 'wandb', 'pytorch_lightning'
+        'tensorboardX', 'matplotlib', 'optuna', 'wandb', 'pytorch_lightning', 'gcsfs'
     ],
     tests_require=[],
     setup_requires=[],
