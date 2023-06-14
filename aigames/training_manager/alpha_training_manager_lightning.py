@@ -6,16 +6,19 @@ from aigames.agent.minimax_agent import MinimaxAgent
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDataset):
-    def __init__(self, evaluator: BaseAlphaEvaluator = None, max_size=50000, process_state=True, min_size=100,
-                 batch_size=32, num_samples=100):
-        super().__init__(evaluator, max_size, process_state, min_size)
-        self.batch_size = batch_size
-        self.num_samples = num_samples
+    def __init__(self, evaluator: BaseAlphaEvaluator = None,
+                 hyperparams: AlphaTrainingHyperparameters = None, process_state=True):
+        if hyperparams is None:
+            hyperparams = AlphaTrainingHyperparameters()
+
+        super().__init__(evaluator, hyperparams.max_data_size, process_state, hyperparams.min_data_size)
+        self.hyperparams = hyperparams
 
     def __iter__(self):
         dataset = ListDataset(self.states, self.pis, self.rewards)
-        sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=(self.num_samples * self.batch_size))
-        dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=self.batch_size)
+        sampler = torch.utils.data.RandomSampler(dataset, replacement=True,
+                                                 num_samples=(self.hyperparams.num_samples_per_epoch * self.hyperparams.batch_size))
+        dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=self.hyperparams.batch_size)
         return iter(dataloader)
 
 
@@ -36,7 +39,9 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         self.game_class = game_class
         self.alpha_evaluator = copy.deepcopy(alpha_evaluator)
         self.network = self.alpha_evaluator.network
-        self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, max_size=self.hyperparams.max_data_size)
+        self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, max_size=self.hyperparams.max_data_size,
+                                                  min_size=self.hyperparams.min_data_size,
+                                                  batch_size=self.hyperparams.batch_size)
         self.listeners = training_listeners
         self.agents = []
         self.n_iters = 0
