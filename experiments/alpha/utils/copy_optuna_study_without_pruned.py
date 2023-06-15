@@ -18,7 +18,7 @@ def main():
 
     # Create the destination study
     dest_storage = JournalStorage(JournalFileStorage(args.dest_study))
-    dest_study = optuna.create_study(study_name=args.dest_study_name, storage=dest_storage)
+    dest_study = optuna.create_study(study_name=args.dest_study_name, storage=dest_storage, direction=source_study.direction)
 
     # Copy the trials from the source to the destination if they are completed
     n_copied = 0
