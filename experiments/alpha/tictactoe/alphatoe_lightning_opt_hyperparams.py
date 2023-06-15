@@ -8,7 +8,7 @@ import wandb
 from itertools import chain
 
 
-def objective(trial: optuna.Trial):
+def objective(trial: optuna.Trial, args):
     network = TicTacToeNetwork()
     evaluator = FastTicTacToeEvaluator(network)
     hyperparams = AlphaTrainingHyperparameters()
@@ -33,15 +33,18 @@ def objective(trial: optuna.Trial):
     # So we can get the name for model checkpointing
     wandb.init(**wandb_kwargs)
 
+    wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
+
+    callbacks = [
+         CustomPyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema",
+                                               step_variable="current_epoch",
+                                               before_prune=lambda: wandb.finish()),
+         ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_top_k=1, mode='max',
+                         monitor='avg_reward_against_minimax_ema'),
+     ]
+
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(**wandb_kwargs),
-                         max_epochs=50,
-                         callbacks=[
-                             CustomPyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema",
-                                                                   step_variable="current_epoch",
-                                                                   before_prune=lambda: wandb.finish()),
-                             ModelCheckpoint(dirpath=f'gs://aigames-1/{wandb.run.name}/', save_top_k=1, mode='max',
-                                             monitor='avg_reward_against_minimax_ema'),
-                         ])
+                         max_epochs=50, callbacks=callbacks)
 
     slots = chain.from_iterable(getattr(cls, '__slots__', []) for cls in type(hyperparams).__mro__)
     params = {s: getattr(hyperparams, s) for s in slots if hasattr(hyperparams, s)}
@@ -62,19 +65,28 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--n_jobs', type=int, default=1)
     parser.add_argument('--n_trials', type=int, default=10)
+    parser.add_argument('--ckpt_dir', type=str, required=True)
+    parser.add_argument('--optuna_study', '-o', type=str, required=False, default=f'{os.getcwd()}/optuna_experiment.log')
     args, _ = parser.parse_known_args()
 
     from optuna.storages import JournalFileStorage, JournalStorage
-    storage = JournalStorage(JournalFileStorage(f'{os.getcwd()}/optuna_experiment.log'))
-    study = optuna.create_study(direction='maximize', study_name='tictactoe_lightning', load_if_exists=True,
-                                pruner=optuna.pruners.PercentilePruner(
-                                    0.5,
-                                    n_startup_trials=10,
-                                    n_min_trials=10,
-                                    n_warmup_steps=15,  # this number is in epochs
-                                    interval_steps=50,
-                                ), storage=storage)
-    study.optimize(objective, n_trials=args.n_trials, n_jobs=args.n_jobs)
+    storage = JournalStorage(JournalFileStorage(args.optuna_study))
+    study = optuna.create_study(
+        direction='maximize', study_name='tictactoe_lightning', load_if_exists=True,
+        storage=storage,
+        pruner=optuna.pruners.PatientPruner(
+            optuna.pruners.PercentilePruner(
+                0.5,
+                n_startup_trials=10,
+                n_min_trials=10,
+                n_warmup_steps=10,  # this number is in epochs
+                interval_steps=5,
+            ),
+            patience=5,
+            min_delta=0
+        )
+    )
+    study.optimize(lambda trial: objective(trial, args), n_trials=args.n_trials, n_jobs=args.n_jobs)
 
 
 if __name__ == '__main__':
