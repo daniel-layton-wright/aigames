@@ -67,8 +67,12 @@ def main():
     from optuna.storages import JournalFileStorage, JournalStorage
     storage = JournalStorage(JournalFileStorage(f'{os.getcwd()}/optuna_experiment.log'))
     study = optuna.create_study(direction='maximize', study_name='tictactoe_lightning', load_if_exists=True,
-                                pruner=optuna.pruners.MedianPruner(
-                                    n_warmup_steps=15  # this number is in epochs
+                                pruner=optuna.pruners.PercentilePruner(
+                                    0.5,
+                                    n_startup_trials=10,
+                                    n_min_trials=10,
+                                    n_warmup_steps=15,  # this number is in epochs
+                                    interval_steps=50,
                                 ), storage=storage)
     study.optimize(objective, n_trials=args.n_trials, n_jobs=args.n_jobs)
 
