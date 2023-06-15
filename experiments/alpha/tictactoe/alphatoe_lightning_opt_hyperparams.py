@@ -37,7 +37,7 @@ def objective(trial: optuna.Trial):
                          max_epochs=50,
                          callbacks=[
                              PyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema"),
-                             ModelCheckpoint(dirpath=f'gs://aigames-1/{wandb.run.name}/', save_top_k=1,
+                             ModelCheckpoint(dirpath=f'gs://aigames-1/{wandb.run.name}/', save_top_k=1, mode='max',
                                              monitor='avg_reward_against_minimax_ema')
                          ])
 
@@ -65,7 +65,9 @@ def main():
     from optuna.storages import JournalFileStorage, JournalStorage
     storage = JournalStorage(JournalFileStorage(f'{os.getcwd()}/optuna_experiment.log'))
     study = optuna.create_study(direction='maximize', study_name='tictactoe_lightning', load_if_exists=True,
-                                pruner=optuna.pruners.MedianPruner(n_warmup_steps=2000), storage=storage)
+                                pruner=optuna.pruners.MedianPruner(
+                                    n_warmup_steps=15  # this number is in epochs
+                                ), storage=storage)
     study.optimize(objective, n_trials=args.n_trials, n_jobs=args.n_jobs)
 
 
