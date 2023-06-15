@@ -37,7 +37,8 @@ def objective(trial: optuna.Trial):
                          max_epochs=50,
                          callbacks=[
                              CustomPyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema",
-                                                                   step_variable="current_epoch"),
+                                                                   step_variable="current_epoch",
+                                                                   before_prune=lambda: wandb.finish()),
                              ModelCheckpoint(dirpath=f'gs://aigames-1/{wandb.run.name}/', save_top_k=1, mode='max',
                                              monitor='avg_reward_against_minimax_ema'),
                          ])

@@ -1,11 +1,8 @@
 import warnings
-
 from packaging import version
-
 import optuna
 from optuna.storages._cached_storage import _CachedStorage
 from optuna.storages._rdb.storage import RDBStorage
-
 
 # Define key names of `Trial.system_attrs`.
 _EPOCH_KEY = "ddp_pl:epoch"
@@ -55,13 +52,14 @@ class CustomPyTorchLightningPruningCallback(Callback):
         manually so that :class:`~optuna.exceptions.TrialPruned` is properly handled.
     """
 
-    def __init__(self, trial: optuna.trial.Trial, monitor: str, step_variable: str) -> None:
+    def __init__(self, trial: optuna.trial.Trial, monitor: str, step_variable: str, before_prune=None) -> None:
         _imports.check()
         super().__init__()
 
         self._trial = trial
         self.monitor = monitor
         self.step_variable = step_variable
+        self.before_prune = before_prune
         assert(self.step_variable in ['current_epoch', 'global_step'])
         self.is_ddp_backend = False
 
@@ -122,6 +120,10 @@ class CustomPyTorchLightningPruningCallback(Callback):
             self._trial.report(current_score.item(), step=step)
             if not self._trial.should_prune():
                 return
+
+            if self.before_prune is not None:
+                self.before_prune()
+
             raise optuna.TrialPruned(f"Trial was pruned at {self.step_variable} {step}.")
 
         # Determine if the trial should be terminated in a DDP.
