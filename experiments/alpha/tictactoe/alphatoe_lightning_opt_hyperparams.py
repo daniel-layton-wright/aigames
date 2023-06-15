@@ -3,7 +3,7 @@ import pytorch_lightning.loggers
 from pytorch_lightning.callbacks import ModelCheckpoint
 from .alphatoe_lightning import *
 import optuna
-from optuna.integration import PyTorchLightningPruningCallback
+from ..utils.custom_optuna_pruner import CustomPyTorchLightningPruningCallback
 import wandb
 from itertools import chain
 
@@ -36,9 +36,10 @@ def objective(trial: optuna.Trial):
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(**wandb_kwargs),
                          max_epochs=50,
                          callbacks=[
-                             PyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema"),
+                             CustomPyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema",
+                                                                   step_variable="current_epoch"),
                              ModelCheckpoint(dirpath=f'gs://aigames-1/{wandb.run.name}/', save_top_k=1, mode='max',
-                                             monitor='avg_reward_against_minimax_ema')
+                                             monitor='avg_reward_against_minimax_ema'),
                          ])
 
     slots = chain.from_iterable(getattr(cls, '__slots__', []) for cls in type(hyperparams).__mro__)
