@@ -24,8 +24,7 @@ class BasicAlphaDatasetLightning(BasicAlphaDataset):
 
 class AlphaTrainingRunLightning(pl.LightningModule):
     def __init__(self, game_class: Type[SequentialGame], alpha_evaluator: AlphaNetworkEvaluator,
-                 hyperparams: AlphaTrainingHyperparameters,
-                 training_listeners: List[TrainingListener] = ()):
+                 hyperparams: AlphaTrainingHyperparameters):
         """
 
         :param game:
@@ -34,16 +33,14 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         :param training_listeners:
         """
         super().__init__()
+        self.save_hyperparameters()
         self.hyperparams = hyperparams
-        self.save_hyperparameters('hyperparams')
         self.game_class = game_class
         self.alpha_evaluator = copy.deepcopy(alpha_evaluator)
         self.network = self.alpha_evaluator.network
         self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, self.hyperparams)
-        self.listeners = training_listeners
         self.agents = []
         self.n_iters = 0
-        self.training_listeners = training_listeners
         self.minimax_agent = MinimaxAgent(FastTicTacToe) # for eval
         self.avg_reward_against_minimax_ema = None
 
@@ -53,10 +50,7 @@ class AlphaTrainingRunLightning(pl.LightningModule):
             self.agents.append(cur_agent)
 
         self.n_iters = 0
-        self.game = self.game_class(self.agents, [*self.listeners])
-
-        for listener in self.listeners:
-            listener.before_begin_training(self)
+        self.game = self.game_class(self.agents)
 
         while len(self.dataset) < self.hyperparams.min_data_size:
             self.game.play()
