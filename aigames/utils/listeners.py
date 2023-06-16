@@ -1,4 +1,5 @@
 from ..game.game import GameListener
+from ..game import SequentialGame
 
 
 class RewardListener(GameListener):
@@ -16,3 +17,26 @@ class RewardListener(GameListener):
         next_state, rewards = game.get_next_state_and_rewards(game.state, action)
         self.reward += (self.discount_rate ** self.i) * rewards[self.player_index]
         self.i += 1
+
+
+class GameHistoryListener(GameListener):
+    """
+    Stores the history of a game. And resets when a new game starts.
+    """
+    def __init__(self):
+        self.history = []
+
+    def before_game_start(self, game: SequentialGame):
+        self.history = []
+        self.history.append(game.state)
+
+    def after_action(self, game: SequentialGame):
+        self.history.append(game.state)
+
+    def __repr__(self):
+        out = ''
+        for state in self.history:
+            out += str(state)
+            out += '\n\n'
+
+        return out
