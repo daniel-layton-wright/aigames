@@ -44,7 +44,7 @@ def objective(trial: optuna.Trial, args):
      ]
 
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(**wandb_kwargs),
-                         max_epochs=50, callbacks=callbacks)
+                         max_epochs=args.n_epochs, callbacks=callbacks)
 
     slots = chain.from_iterable(getattr(cls, '__slots__', []) for cls in type(hyperparams).__mro__)
     params = {s: getattr(hyperparams, s) for s in slots if hasattr(hyperparams, s)}
@@ -67,6 +67,7 @@ def main():
     parser.add_argument('--n_trials', type=int, default=10)
     parser.add_argument('--ckpt_dir', type=str, required=True)
     parser.add_argument('--optuna_study', '-o', type=str, required=False, default=f'{os.getcwd()}/optuna_experiment.log')
+    parser.add_argument('--n_epochs', type=int, required=False, default=50, help='Number of epochs to train for per trial')
     args, _ = parser.parse_known_args()
 
     from optuna.storages import JournalFileStorage, JournalStorage
