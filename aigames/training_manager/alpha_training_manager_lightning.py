@@ -69,8 +69,16 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         mean_loss = losses.mean()
         return mean_loss
 
+    def on_train_epoch_start(self) -> None:
+        for agent in self.agents:  # Make sure to put agents in training mode
+            agent.train()
+
+    def on_train_batch_start(self, batch, batch_idx: int):
+        if batch_idx % self.hyperparams.play_game_every_n_iters == 0:
+            self.game.play()
+
     def training_step(self, batch, nb_batch) -> dict:
-        self.game.play()
+        self.network.train()  # reset to train mode because evaluator uses eval mode in games for batch norm layer
         loss = self.loss(*batch)
         self.log('loss', loss)
         return loss
