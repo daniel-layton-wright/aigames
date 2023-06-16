@@ -54,7 +54,8 @@ class TrainingTau:
 
 
 class AlphaAgentHyperparameters:
-    __slots__ = ['c_puct', 'dirichlet_alpha', 'dirichlet_epsilon', 'n_mcts', 'discount_rate', 'training_tau']
+    __slots__ = ['c_puct', 'dirichlet_alpha', 'dirichlet_epsilon', 'n_mcts', 'discount_rate', 'training_tau',
+                 'use_dirichlet_noise_in_eval']
 
     def __init__(self):
         self.c_puct = 1.0
@@ -63,6 +64,7 @@ class AlphaAgentHyperparameters:
         self.n_mcts = 1200
         self.discount_rate = 0.99
         self.training_tau = TrainingTau(1.0)
+        self.use_dirichlet_noise_in_eval = False  # the AlphaGo paper is unclear about this
 
 
 class AlphaAgent(Agent):
@@ -88,7 +90,8 @@ class AlphaAgent(Agent):
             self.cur_node = MCTSNode(self.game_class, state, None, self.evaluator, self.hyperparams, n_players=self.n_players)
 
         # Add Dirichlet noise to the root node
-        self.cur_node.add_dirichlet_noise()
+        if self.training or self.hyperparams.use_dirichlet_noise_in_eval:
+            self.cur_node.add_dirichlet_noise()
 
         r = range(self.hyperparams.n_mcts)
         if self.use_tqdm:
