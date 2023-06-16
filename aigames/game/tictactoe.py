@@ -112,22 +112,7 @@ class TicTacToe(SequentialGame):
         return rewards
 
     def __str__(self):
-        def line_to_marks(line):
-            out = []
-            for i in line:
-                if i == 1:
-                    out.append('x')
-                elif i == -1:
-                    out.append('o')
-                else:
-                    out.append(' ')
-
-            return out
-
-        return (
-            '-----\n'.join(['{}|{}|{}\n'.format(*line_to_marks(self.state[i, :])) for i in
-                            range(self.state.shape[0])])
-        )
+        return board_array_to_string(self.state)
 
     masks = [
         np.array([
@@ -241,24 +226,8 @@ class TicTacToe2(SequentialGame):
         return rewards
 
     def __str__(self):
-        def line_to_marks(line):
-            out = []
-            for i in line:
-                if i == 1:
-                    out.append('x')
-                elif i == -1:
-                    out.append('o')
-                else:
-                    out.append(' ')
-
-            return out
-
         new_state = (self.state[0, :, :] - self.state[1, :, :]) * (1 - 2 * self.state[2, 0, 0])
-
-        return (
-            '-----\n'.join(['{}|{}|{}\n'.format(*line_to_marks(new_state[i, :])) for i in
-                            range(new_state.shape[0])])
-        )
+        return board_array_to_string(new_state)
 
     masks = [
         np.array([
@@ -358,22 +327,7 @@ class TicTacToe3(SequentialGame):
         return rewards
 
     def __str__(self):
-        def line_to_marks(line):
-            out = []
-            for i in line:
-                if i == 1:
-                    out.append('x')
-                elif i == -1:
-                    out.append('o')
-                else:
-                    out.append(' ')
-
-            return out
-
-        return (
-            '-----\n'.join(['{}|{}|{}\n'.format(*line_to_marks(self.state[i, :])) for i in
-                            range(self.state.shape[0])])
-        )
+        return board_array_to_string(self.state)
 
     masks = [
         np.array([
@@ -435,6 +389,9 @@ class FastTicTacToeState:
 
     def __hash__(self):
         return self.hash().__hash__()
+
+    def __str__(self):
+        return board_array_to_string(self.tensor_state[0].numpy())
 
 
 class FastTicTacToe(SequentialGame):
@@ -511,19 +468,40 @@ class FastTicTacToe(SequentialGame):
         return rewards
 
     def __str__(self):
-        def line_to_marks(line):
-            out = []
-            for i in line:
-                if i == 1:
-                    out.append('x')
-                elif i == -1:
-                    out.append('o')
-                else:
-                    out.append(' ')
-
-            return out
-        s = self.state.tensor_state[0].numpy()
-        out = '-----\n'.join(['{}|{}|{}\n'.format(*line_to_marks(s[i, :])) for i in
-                            range(s.shape[0])])
+        out = board_array_to_string(self.state.tensor_state[0].numpy())
         out += f'\n{self.state.rewards}'
         return out
+
+
+def board_array_to_string(arr):
+    def line_to_marks(line):
+        out = []
+        for i in line:
+            if i == 1:
+                out.append('x')
+            elif i == -1:
+                out.append('o')
+            else:
+                out.append(' ')
+
+        return out
+
+    return (
+        '-----\n'.join(['{}|{}|{}\n'.format(*line_to_marks(arr[i, :])) for i in
+                        range(arr.shape[0])])
+    )
+
+
+def board_string_to_array(s):
+    """
+    Convert a string of the format xxo|oxx|oox to a numpy array
+    """
+    def char_to_int(c):
+        if c == 'x':
+            return 1
+        elif c == 'o':
+            return -1
+        else:
+            return 0
+
+    return np.array([[char_to_int(c) for c in line] for line in s.split('|')])
