@@ -5,6 +5,15 @@ from aigames.game.tictactoe import FastTicTacToe
 from aigames.agent.minimax_agent import MinimaxAgent
 
 
+class AlphaTrainingHyperparametersLightning(AlphaTrainingHyperparameters):
+    __slots__ = ['num_samples_per_epoch', 'play_game_every_n_iters']
+
+    def __init__(self):
+        super().__init__()
+        self.num_samples_per_epoch = 100  # this is used by the dataset
+        self.play_game_every_n_iters = 1
+
+
 class BasicAlphaDatasetLightning(BasicAlphaDataset):
     def __init__(self, evaluator: BaseAlphaEvaluator = None,
                  hyperparams: AlphaTrainingHyperparameters = None, process_state=True):
@@ -41,7 +50,7 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, self.hyperparams)
         self.agents = []
         self.n_iters = 0
-        self.minimax_agent = MinimaxAgent(FastTicTacToe) # for eval
+        self.minimax_agent = MinimaxAgent(FastTicTacToe)  # for eval
         self.avg_reward_against_minimax_ema = None
 
         for i in range(self.game_class.get_n_players()):
