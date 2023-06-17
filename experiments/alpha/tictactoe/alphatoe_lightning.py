@@ -1,9 +1,13 @@
+import argparse
+import wandb
+from pytorch_lightning.callbacks import ModelCheckpoint
 from aigames.agent.alpha_agent import *
 from aigames.training_manager.alpha_training_manager_lightning import *
 from aigames.game.tictactoe import *
 from aigames import Flatten
 import torch
 import pytorch_lightning as pl
+from aigames.utils.utils import get_all_slots
 
 
 class TicTacToeNetwork(nn.Module):
@@ -55,9 +59,21 @@ class FastTicTacToeEvaluator(AlphaNetworkEvaluator):
 
 
 def main():
+
+    # Start wandb run
+    wandb_kwargs = dict(
+        project='aigames2',
+        group='tictactoe_lightning',
+        reinit=False,
+    )
+
+    # So we can get the name for model checkpointing
+    wandb.init(**wandb_kwargs)
+    wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
+
     network = TicTacToeNetwork()
     evaluator = FastTicTacToeEvaluator(network)
-    hyperparams = AlphaTrainingHyperparameters()
+    hyperparams = AlphaTrainingHyperparametersLightning()
     hyperparams.min_data_size = 256
     hyperparams.n_mcts = 100
     hyperparams.dirichlet_alpha = 0.3
@@ -68,9 +84,22 @@ def main():
     hyperparams.c_puct = 5
     hyperparams.batch_size = 64
 
-    training_run = AlphaTrainingRunLightning(FastTicTacToe, evaluator, hyperparams)
+    # Setup an arg parser which will look for all the slots in hyperparams
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/')
+    for slot in get_all_slots(hyperparams):
+        parser.add_argument(f'--{slot}', type=type(getattr(hyperparams, slot)), default=getattr(hyperparams, slot))
 
-    trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger())
+    # Parse the args and set the hyperparams
+    args = parser.parse_args()
+    for slot in hyperparams.__slots__:
+        setattr(hyperparams, slot, getattr(args, slot))
+
+    training_run = AlphaTrainingRunLightning(FastTicTacToe, evaluator, hyperparams)
+    model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_top_k=1, mode='max',
+                         monitor='avg_reward_against_minimax_ema')
+    trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(**wandb_kwargs),
+                         callbacks=[model_checkpoint])
     trainer.fit(training_run)
 
 
