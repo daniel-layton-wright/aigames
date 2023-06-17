@@ -1,8 +1,8 @@
 from .alpha_training_manager import *
 import pytorch_lightning as pl
-from aigames.utils.listeners import RewardListener
 from aigames.game.tictactoe import FastTicTacToe
 from aigames.agent.minimax_agent import MinimaxAgent
+from aigames.utils.utils import play_tournament
 
 
 class AlphaTrainingHyperparametersLightning(AlphaTrainingHyperparameters):
@@ -98,20 +98,14 @@ class AlphaTrainingRunLightning(pl.LightningModule):
     def on_train_epoch_end(self) -> None:
         # Play tournament against minimax and log result
         agent = self.agents[-1]
-        agent.eval()
-        discount_rate = agent.hyperparams.discount_rate
-        reward_listener = RewardListener(discount_rate, 1)
+        agent.eval()  # Put agent in eval mode so that it doesn't learn from these games (not fair to learn against minimax)
+        avg_reward_against_minimax = play_tournament(FastTicTacToe, [self.minimax_agent, agent], 100, 1)
+        agent.train()  # Put agent back in train mode
 
-        rewards = []
-        for _ in range(100):
-            game = FastTicTacToe([self.minimax_agent, agent], [reward_listener])
-            game.play()
-            rewards.append(reward_listener.reward)
-
-        agent.train()
-        avg_reward_against_minimax = float(sum(rewards)) / len(rewards)
         self.log('avg_reward_against_minimax', avg_reward_against_minimax)
 
+        # Update and log the ema value
+        # TODO : make the ema param configurable
         if self.avg_reward_against_minimax_ema is None:
             self.avg_reward_against_minimax_ema = avg_reward_against_minimax
         else:
