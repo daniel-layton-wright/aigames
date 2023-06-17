@@ -494,7 +494,7 @@ def board_array_to_string(arr):
 
 def board_string_to_array(s):
     """
-    Convert a string of the format xxo|oxx|oox to a numpy array
+    Convert a string of the format xxo|o-x|oox to a numpy array
     """
     def char_to_int(c):
         if c == 'x':
