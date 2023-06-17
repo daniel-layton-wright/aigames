@@ -8,7 +8,7 @@ from experiments.alphatoe import TicTacToeNetwork, FastTicTacToeEvaluator
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--chk_path', '-c', type=str, help='Path for model checkpoint')
+    parser.add_argument('--ckpt_path', '-c', type=str, help='Path for model checkpoint')
     parser.add_argument('--debug', '-d', action='store_true', help='Enter debug mode after playing')
     args = parser.parse_args()
 
