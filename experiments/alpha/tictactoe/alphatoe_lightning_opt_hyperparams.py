@@ -5,13 +5,13 @@ from .alphatoe_lightning import *
 import optuna
 from ..utils.custom_optuna_pruner import CustomPyTorchLightningPruningCallback
 import wandb
-from itertools import chain
+from aigames.utils.utils import get_all_slots
 
 
 def objective(trial: optuna.Trial, args):
     network = TicTacToeNetwork()
     evaluator = FastTicTacToeEvaluator(network)
-    hyperparams = AlphaTrainingHyperparameters()
+    hyperparams = AlphaTrainingHyperparametersLightning()
     hyperparams.min_data_size = 10
     hyperparams.max_data_size = trial.suggest_int('max_data_size', 1000, 10000)
     hyperparams.n_mcts = 100
@@ -38,7 +38,8 @@ def objective(trial: optuna.Trial, args):
     callbacks = [
          CustomPyTorchLightningPruningCallback(trial, monitor="avg_reward_against_minimax_ema",
                                                step_variable="current_epoch",
-                                               before_prune=lambda: wandb.finish()),
+                                               before_prune=lambda: wandb.finish()  # This gracefully exits the wandb run when the trial is pruned
+                                               ),
          ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_top_k=1, mode='max',
                          monitor='avg_reward_against_minimax_ema'),
      ]
@@ -46,7 +47,8 @@ def objective(trial: optuna.Trial, args):
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(**wandb_kwargs),
                          max_epochs=args.n_epochs, callbacks=callbacks)
 
-    slots = chain.from_iterable(getattr(cls, '__slots__', []) for cls in type(hyperparams).__mro__)
+    # Store all the hyperparam values in wandb
+    slots = get_all_slots(hyperparams)
     params = {s: getattr(hyperparams, s) for s in slots if hasattr(hyperparams, s)}
     wandb.config.update(params)
 
@@ -55,7 +57,7 @@ def objective(trial: optuna.Trial, args):
 
     wandb.finish()
 
-    return training_run.avg_reward_against_minimax_ema
+    return training_run.avg_reward_against_minimax_ema  # Objective value
 
 
 def main():
@@ -63,7 +65,7 @@ def main():
     wandb.require("service")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--n_jobs', type=int, default=1)
+    parser.add_argument('--n_jobs', type=int, default=1, help='Recommend 1 on Google Cloud until wandb problems resolved.')
     parser.add_argument('--n_trials', type=int, default=10)
     parser.add_argument('--ckpt_dir', type=str, required=True)
     parser.add_argument('--optuna_study', '-o', type=str, required=False, default=f'{os.getcwd()}/optuna_experiment.log')
