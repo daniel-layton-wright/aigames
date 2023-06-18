@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import List
 from .game import SequentialGame
 import numpy as np
@@ -31,6 +32,25 @@ class SparseDict:
     def __setitem__(self, key, value):
         self.data[key] = value
 
+    def clone(self):
+        out = SparseDict(self.default_value)
+        out.data = copy.deepcopy(self.data)
+        return out
+
+
+def copy_neighbors(neighbors: SparseDict):
+    """
+    This is faster than deepcopy or clone (but we leverage knowing the structure of the variable, so it isn't all-purpose)
+
+    :param neighbors: SparseDict of SparseDicts
+    """
+    out = SparseDict(neighbors.default_value)
+    for key, value in neighbors.data.items():
+        out[key] = SparseDict(value.default_value)
+        out[key].data = value.data.copy()
+
+    return out
+
 
 class Connect4State:
     N_COLS = 7
@@ -50,6 +70,9 @@ class Connect4State:
     def __eq__(self, other):
         return (self.grid == other.grid).all()
 
+    def __hash__(self):
+        return tuple(self.grid[0].numpy().flatten()).__hash__()
+
 
 class Connect4(SequentialGame):
     @classmethod
@@ -61,9 +84,16 @@ class Connect4(SequentialGame):
         return state.cur_player_index
 
     @classmethod
+    @lru_cache(maxsize=32000)
     def get_next_state_and_rewards(cls, state: Connect4State, action):
-        next_state = copy.deepcopy(state)
-        marker = 1 - 2*state.cur_player_index
+        # This is faster than deepcopy
+        next_state = Connect4State()
+        next_state.neighbors = copy_neighbors(state.neighbors)
+        next_state.grid = state.grid.detach().clone()
+        next_state.legal_actions = state.legal_actions[:]
+        next_state.next_rows = state.next_rows.copy()
+
+        marker = 1 - 2*state.cur_player_index  # either 1 or -1
         i = next_state.next_rows[action]
         j = action
         next_state.grid[0, i, j] = marker
@@ -150,3 +180,21 @@ class Connect4(SequentialGame):
     @classmethod
     def get_initial_state(cls):
         return Connect4State()
+
+    def __str__(self):
+        # Print grid as x's and o's
+        out = ""
+        for i in range(Connect4State.N_ROWS):
+            out += '|'
+            for j in range(Connect4State.N_COLS):
+                if self.state.grid[0, i, j] == 1:
+                    out += "x|"
+                elif self.state.grid[0, i, j] == -1:
+                    out += "o|"
+                else:
+                    out += " |"
+            out += "\n"
+
+        out += '‾' * (Connect4State.N_COLS * 2 + 1)
+
+        return out

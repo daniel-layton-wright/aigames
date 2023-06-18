@@ -146,17 +146,21 @@ class AlphaAgent(Agent):
 
         return legal_action_index
 
-    def on_reward(self, reward, next_state, player_index):
-        self.episode_history.append(RewardData(player_index, reward))
-
+    def on_action(self, state, action, next_state):
+        """
+        This ensures we can re-use the children state
+        """
         try:
-            if self.cur_node is not None and (not self.game_class.states_equal(self.cur_node.state, next_state)):
-                next_state_index = next(i for i, x in enumerate(self.cur_node.children)
-                                        if self.game_class.states_equal(x.state, next_state))
-                self.cur_node = self.cur_node.children[next_state_index]
-                self.cur_node.parent = None
+            action_index = self.cur_node.actions.index(action)  # action among legal actions which will also correspond with children
+            self.cur_node.children[action_index].fill_state()
+            self.cur_node = self.cur_node.children[action_index]
+            assert(self.game_class.states_equal(self.cur_node.state, next_state))  # make sure we've got the right state
+            self.cur_node.parent = None
         except Exception as e:
             print("MCTSNode.on_reward : next_state does not exist in children states")
+
+    def on_reward(self, reward, next_state, player_index):
+        self.episode_history.append(RewardData(player_index, reward))
 
     def train(self):
         self.evaluator.train()
@@ -192,6 +196,9 @@ class MCTSNode:
     def __init__(self, game_class: Type[SequentialGame], state, parent_node, evaluator: BaseAlphaEvaluator,
                  hyperparams: AlphaAgentHyperparameters, n_players=2, action_index_from_parent_node=None,
                  N=None, total_N=None, Q=None):
+        # We either need the state itself or the parent_node and action_index so we can fill in the state later
+        assert(state is not None or (parent_node is not None and action_index_from_parent_node is not None))
+
         self.game_class = game_class
         self.state = state
         self.parent = parent_node
@@ -208,12 +215,7 @@ class MCTSNode:
         self.evaluator = evaluator
         self.hyperparams = hyperparams
         self.player_index = None
-
-        if self.state is None:  # this is a node created from a parent, let's get the state
-            self.state, self.rewards = self.game_class.get_next_state_and_rewards(self.parent.state,
-                                                                                  self.parent.actions[self.action_index_from_parent_node])
-
-        self.is_terminal_state = self.game_class.is_terminal_state(self.state)
+        self.is_terminal_state = None  # Can't fill this until we know the state for sure
 
         self.N = N if N is not None else np.zeros(self.n_players)
         self.total_N = total_N if total_N is not None else np.array([0])
@@ -228,17 +230,26 @@ class MCTSNode:
         self._need_to_add_dirichlet_noise = False
         self.v = None  # v is from the perspective of the player whose turn it is
 
+    def fill_state(self):
+        if self.state is None:  # this is a node created from a parent, let's get the state
+            self.state, self.rewards = self.game_class.get_next_state_and_rewards(self.parent.state,
+                                                                                  self.parent.actions[self.action_index_from_parent_node])
+
     def fill_info(self):
         # call this when self.state is not None
         self.actions = self.game_class.get_legal_actions(self.state)
-        self.action_indices = [self.all_actions.index(action) for action in self.actions]
+        self.action_indices = [self.all_actions.index(action) for action in self.actions]  # Index from all_actions
         self.n_children = len(self.actions)
         self.children_N = np.zeros((self.n_children, self.n_players))
         self.children_total_N = np.zeros(self.n_children)
         self.children_Q = np.zeros((self.n_children, self.n_players))
         self.player_index = self.game_class.get_cur_player_index(self.state)
+        self.is_terminal_state = self.game_class.is_terminal_state(self.state)
 
     def search(self):
+        if self.state is None:  # we haven't yet filled in the state, let's do it now
+            self.fill_state()
+
         if self.actions is None:  # we haven't yet filled in all this info, let's do it now
             self.fill_info()
 

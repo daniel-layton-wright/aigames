@@ -58,8 +58,37 @@ class FastTicTacToeEvaluator(AlphaNetworkEvaluator):
         return t
 
 
-def main():
+class AlphaTrainingRunLightningTTT(AlphaTrainingRunLightning):
+    """
+    Need this class for the eval function specific to TTT (most games can't eval against minimax)
+    """
+    def __init__(self, game_class: Type[SequentialGame], alpha_evaluator: AlphaNetworkEvaluator,
+                 hyperparams: AlphaTrainingHyperparametersLightning):
+        super().__init__(game_class, alpha_evaluator, hyperparams)
+        self.avg_reward_against_minimax_ema = None
+        self.minimax_agent = MinimaxAgent(FastTicTacToe)  # for eval
 
+    def on_train_epoch_end(self) -> None:
+        # Play tournament against minimax and log result
+        agent = self.agents[-1]
+        agent.eval()  # Put agent in eval mode so that it doesn't learn from these games (not fair to learn against minimax)
+        avg_reward_against_minimax = play_tournament(FastTicTacToe, [self.minimax_agent, agent], 100, 1)
+        agent.train()  # Put agent back in train mode
+
+        self.log('avg_reward_against_minimax', avg_reward_against_minimax)
+
+        # Update and log the ema value
+        # TODO : make the ema param configurable
+        if self.avg_reward_against_minimax_ema is None:
+            self.avg_reward_against_minimax_ema = avg_reward_against_minimax
+        else:
+            self.avg_reward_against_minimax_ema = ((0.85 * self.avg_reward_against_minimax_ema)
+                                                   + (0.15 * avg_reward_against_minimax))
+
+        self.log('avg_reward_against_minimax_ema', self.avg_reward_against_minimax_ema)
+
+
+def main():
     # Start wandb run
     wandb_kwargs = dict(
         project='aigames2',
@@ -92,10 +121,10 @@ def main():
 
     # Parse the args and set the hyperparams
     args = parser.parse_args()
-    for slot in hyperparams.__slots__:
+    for slot in get_all_slots(hyperparams):
         setattr(hyperparams, slot, getattr(args, slot))
 
-    training_run = AlphaTrainingRunLightning(FastTicTacToe, evaluator, hyperparams)
+    training_run = AlphaTrainingRunLightningTTT(FastTicTacToe, evaluator, hyperparams)
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_top_k=1, mode='max',
                          monitor='avg_reward_against_minimax_ema')
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(**wandb_kwargs),
