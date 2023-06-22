@@ -37,7 +37,8 @@ class AlphaAgentDebugListener(AlphaAgentListener):
 
 class TrainingTau:
     def __init__(self, fixed_tau_value=None, tau_schedule_list=None, tau_schedule_function=None):
-        if sum(map(int, [fixed_tau_value is not None, tau_schedule_list is not None, tau_schedule_function is not None])) != 1:
+        if sum(map(int, [fixed_tau_value is not None, tau_schedule_list is not None,
+                         tau_schedule_function is not None])) != 1:
             raise ValueError('Please pass exactly one of fixed_tau_value, tau_schedule_list, tau_schedule_function')
 
         self.fixed_tau_value = fixed_tau_value
@@ -67,9 +68,11 @@ class AlphaAgentHyperparameters:
         self.use_dirichlet_noise_in_eval = False  # the AlphaGo paper is unclear about this
 
 
+# noinspection PyBroadException
 class AlphaAgent(Agent):
-    def __init__(self, game_class: Type[SequentialGame], evaluator: BaseAlphaEvaluator, hyperparams: AlphaAgentHyperparameters,
-                 listeners: List[AlphaAgentListener] = None, use_tqdm: bool = False):
+    def __init__(self, game_class: Type[SequentialGame], evaluator: BaseAlphaEvaluator,
+                 hyperparams: AlphaAgentHyperparameters, listeners: List[AlphaAgentListener] = None,
+                 use_tqdm: bool = False):
         super().__init__()
         self.game_class = game_class
         self.all_actions = self.game_class.get_all_actions()
@@ -86,8 +89,10 @@ class AlphaAgent(Agent):
     def get_action(self, state, legal_actions):
         # Try to re-use the current node if possible but if it is None or does not match the current state, initialize
         # a new one from scratch
-        if self.cur_node is None or self.cur_node.state is None or (not self.game_class.states_equal(self.cur_node.state, state)):
-            self.cur_node = MCTSNode(self.game_class, state, None, self.evaluator, self.hyperparams, n_players=self.n_players)
+        if (self.cur_node is None or self.cur_node.state is None or
+                (not self.game_class.states_equal(self.cur_node.state, state))):
+            self.cur_node = MCTSNode(self.game_class, state, None, self.evaluator, self.hyperparams,
+                                     n_players=self.n_players)
 
         # Add Dirichlet noise to the root node
         if self.training or self.hyperparams.use_dirichlet_noise_in_eval:
@@ -98,7 +103,7 @@ class AlphaAgent(Agent):
             r = tqdm(r)
 
         # Do MCTS search
-        for i in r:
+        for _ in r:
             self.cur_node.search()
 
         for listener in self.listeners:
@@ -109,28 +114,23 @@ class AlphaAgent(Agent):
         else:
             tau = 0.0
 
-        try:
-            # Compute the distribution to choose from
-            pi = np.zeros(len(self.all_actions))
+        # Compute the distribution to choose from
+        pi = np.zeros(len(self.all_actions))
 
-            if self.hyperparams.n_mcts > 1:
-                action_distribution = self.cur_node.children_total_N
-            else:
-                action_distribution = self.cur_node.P_normalized
+        if self.hyperparams.n_mcts > 1:
+            action_distribution = self.cur_node.children_total_N
+        else:
+            self.cur_node.expand()
+            action_distribution = self.cur_node.P_normalized
 
-            if tau > 0:
-                pi[self.cur_node.action_indices] = action_distribution ** (1. / tau)
-                pi /= np.sum(pi)
-            else:
-                pi[self.cur_node.action_indices[np.argmax(action_distribution)]] = 1
+        if tau > 0:
+            pi[self.cur_node.action_indices] = action_distribution ** (1. / tau)
+            pi /= np.sum(pi)
+        else:
+            pi[self.cur_node.action_indices[np.argmax(action_distribution)]] = 1
 
-            # Choose the action according to the distribution pi
-            action_index = np.random.choice(range(len(self.all_actions)), p=pi)
-        except Exception as e:
-            # TODO : clean this up
-            print(e)
-            import pdb
-            pdb.set_trace()
+        # Choose the action according to the distribution pi
+        action_index = np.random.choice(range(len(self.all_actions)), p=pi)
 
         action = self.all_actions[action_index]
         legal_action_index = legal_actions.index(action)
@@ -151,12 +151,13 @@ class AlphaAgent(Agent):
         This ensures we can re-use the children state
         """
         try:
-            action_index = self.cur_node.actions.index(action)  # action among legal actions which will also correspond with children
+            # action among legal actions which will also correspond with children
+            action_index = self.cur_node.actions.index(action)
             self.cur_node.children[action_index].fill_state()
             self.cur_node = self.cur_node.children[action_index]
             assert(self.game_class.states_equal(self.cur_node.state, next_state))  # make sure we've got the right state
             self.cur_node.parent = None
-        except Exception as e:
+        except Exception:
             print("MCTSNode.on_reward : next_state does not exist in children states")
 
     def on_reward(self, reward, next_state, player_index):
@@ -185,7 +186,8 @@ class AlphaAgent(Agent):
 
         for data in episode_history:
             if isinstance(data, RewardData):
-                cum_rewards[data.player_index] = data.reward_value + self.hyperparams.discount_rate * cum_rewards[data.player_index]
+                cum_rewards[data.player_index] = (data.reward_value +
+                                                  self.hyperparams.discount_rate * cum_rewards[data.player_index])
             elif isinstance(data, TimestepData):
                 reward = cum_rewards[data.player_index]
                 for data_listener in self.listeners:
@@ -232,8 +234,8 @@ class MCTSNode:
 
     def fill_state(self):
         if self.state is None:  # this is a node created from a parent, let's get the state
-            self.state, self.rewards = self.game_class.get_next_state_and_rewards(self.parent.state,
-                                                                                  self.parent.actions[self.action_index_from_parent_node])
+            self.state, self.rewards = self.game_class.get_next_state_and_rewards(
+                self.parent.state, self.parent.actions[self.action_index_from_parent_node])
 
     def fill_info(self):
         # call this when self.state is not None
@@ -247,12 +249,6 @@ class MCTSNode:
         self.is_terminal_state = self.game_class.is_terminal_state(self.state)
 
     def search(self):
-        if self.state is None:  # we haven't yet filled in the state, let's do it now
-            self.fill_state()
-
-        if self.actions is None:  # we haven't yet filled in all this info, let's do it now
-            self.fill_info()
-
         if self.children is None:
             # We've reached a leaf node, expand
             self.expand()
@@ -270,12 +266,18 @@ class MCTSNode:
             next_node.search()
 
     def expand(self):
+        if self.state is None:  # we haven't yet filled in the state, let's do it now
+            self.fill_state()
+
+        if self.actions is None:  # we haven't yet filled in all this info, let's do it now
+            self.fill_info()
+
         if not self.is_terminal_state:
             # Evaluate the node with the evaluator
             self.P, self.v = self.evaluator.evaluate(self.state)
 
             # Filter the distribution to allowed actions
-            self.P_normalized = self.P[self.action_indices] #.detach().cpu().numpy()
+            self.P_normalized = self.P[self.action_indices]
             self.P_normalized /= self.P_normalized.sum()
             if self._need_to_add_dirichlet_noise:
                 self._add_dirichlet_noise()
@@ -290,6 +292,7 @@ class MCTSNode:
                 ]
 
     def add_dirichlet_noise(self):
+        # TODO clean this up
         if self.P_normalized is not None:
             self._add_dirichlet_noise()
         else:
@@ -297,9 +300,11 @@ class MCTSNode:
 
     def _add_dirichlet_noise(self):
         self.P_normalized = ((1 - self.hyperparams.dirichlet_epsilon) * self.P_normalized +
-                             self.hyperparams.dirichlet_epsilon * np.random.dirichlet([self.hyperparams.dirichlet_alpha] * self.n_children))
+                             self.hyperparams.dirichlet_epsilon
+                             * np.random.dirichlet([self.hyperparams.dirichlet_alpha] * self.n_children))
 
     def backup(self, value, player_index):
+        # TODO should we update all player indices? (Network could output for all)
         self.N[player_index] += 1
         self.total_N += 1
         self.W[player_index] += value
@@ -309,6 +314,7 @@ class MCTSNode:
             self.parent.backup(value + self.rewards[player_index], player_index)
 
     def backup_all(self, values):
+        # TODO : shouldn't we use the discount rate in backing up rewards?
         self.N += 1
         self.total_N += 1
         self.W += values
