@@ -17,21 +17,6 @@ import copy
 from aigames.utils.utils import play_tournament
 
 
-class Connect4Evaluator(AlphaNetworkEvaluator):
-    def process_state(self, state: Connect4State):
-        s = state.grid
-        if abs(s).sum() % 2 == 1:
-            s = -1 * s
-
-        t = torch.zeros(2, 6, 7, dtype=torch.float)
-        t[0, :, :] = s
-
-        t[1, :, :] = (t[0, :, :] == -1)
-        t[0, :, :] += t[1, :, :]
-
-        return t
-
-
 class AlphaTrainingRunLightningConnect4(AlphaTrainingRunLightning):
     """
     Need this class for the eval function specific to Connect4
@@ -43,6 +28,8 @@ class AlphaTrainingRunLightningConnect4(AlphaTrainingRunLightning):
         self.avg_reward_against_more_mcts_agent = None
 
     def on_train_epoch_end(self) -> None:
+        return
+        # TODO : fix this, doesn't actually make sense because agent will be deterministic
         # Play tournament against minimax and log result
         agent = self.agents[0]
         more_mcts_agent = copy.copy(agent)  # shallow copy, so gets same network etc
@@ -68,7 +55,6 @@ class AlphaTrainingRunLightningConnect4(AlphaTrainingRunLightning):
 
 
 def main():
-
     network = Connect4Network()
     evaluator = Connect4Evaluator(network)
     hyperparams = AlphaTrainingHyperparametersLightning()
@@ -82,8 +68,8 @@ def main():
     hyperparams.training_tau = TrainingTau(1.0)
     hyperparams.c_puct = 1
     hyperparams.batch_size = 32
-    hyperparams.play_game_every_n_iters = 10
-    hyperparams.num_samples_per_epoch = 10000
+    hyperparams.play_game_every_n_iters = 20
+    hyperparams.num_samples_per_epoch = 20000
 
     # Setup an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
@@ -108,8 +94,7 @@ def main():
     wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
 
     training_run = AlphaTrainingRunLightningConnect4(Connect4, evaluator, hyperparams)
-    model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_top_k=1, mode='max',
-                         monitor='avg_reward_against_more_mcts_agent')
+    model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1, logger=pl.loggers.WandbLogger(**wandb_kwargs),
                          callbacks=[model_checkpoint])
     trainer.fit(training_run)

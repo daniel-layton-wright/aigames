@@ -101,7 +101,6 @@ class AlphaNetworkEvaluator(BaseAlphaEvaluator):
 
     def evaluate(self, state):
         with torch.no_grad():
-            self.network.eval()  # just be aware
             pi, v = self.network(self.process_state(state).unsqueeze(0))
         return pi.numpy(), v.numpy()
 
