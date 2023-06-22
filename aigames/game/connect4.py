@@ -198,3 +198,187 @@ class Connect4(SequentialGame):
         out += '‾' * (Connect4State.N_COLS * 2 + 1)
 
         return out
+
+
+class Connect4BitState:
+    """
+    The state is represented as two bit strings (game_grid and player0_grid) of length 49. The positions are laid out
+    as follows:
+
+    - -  -  -  -  -  -
+    6 13 20 27 34 41 48
+    5 12 19 26 33 40 47
+    4 11 18 25 32 39 46
+    3 10 17 24 31 38 45
+    2 9  16 23 30 37 44
+    1 8  15 22 29 36 43
+
+    Note that in positions 7, 14, ..., 49, we always have a zero. This is for convenience when checking for four in a
+    row vertically (to make sure we don't wrap around to count four in a row mistakenly)
+
+    We also store the tensor_state for convenience because this is needed by the network and rather than recompute it
+    every network evaluation, we can just update it progressively in this state. But it is not used for the game logic.
+
+    """
+    N_ROWS = 6
+    N_COLS = 7
+
+    def __init__(self):
+        self.game_grid = 0  # this has a 1 where either player has played
+        self.player0_grid = 0  # this has a 1 where player 0 has played
+        self.cur_player_index = 0
+        self.next_rows = np.zeros(self.N_COLS).astype(int)
+        self.legal_actions = list(range(self.N_COLS))
+        self.tensor_state = torch.zeros(2, self.N_ROWS+1, self.N_COLS)
+
+    def clone(self):
+        new_state = Connect4BitState()
+        new_state.game_grid = self.game_grid
+        new_state.player0_grid = self.player0_grid
+        new_state.cur_player_index = self.cur_player_index
+        new_state.next_rows = self.next_rows.copy()
+        new_state.legal_actions = self.legal_actions[:]
+        new_state.tensor_state = self.tensor_state.clone()
+        return new_state
+
+    @property
+    def player1_grid(self):
+        return self.game_grid ^ self.player0_grid  # you can tell where player1 played where there is a 1 in game_grid but not in player0_grid
+
+    @property
+    def is_terminal_state(self):
+        return (self.is_winning_state(self.player0_grid) or self.is_winning_state(self.player1_grid) or
+                self.next_rows.sum() == self.N_COLS * self.N_ROWS)
+
+    @staticmethod
+    def is_winning_state(grid):
+        # Check horizontal 4 in a row
+        horizontal_neighbor = grid & (grid >> 7)
+        if (horizontal_neighbor & (horizontal_neighbor >> 14)) > 0:
+            # If a square has a horizontal neighbor and the square two over also has a horizontal neighbor,
+            #   then there is 4 in a row
+            return True
+
+        # Check vertical 4 in a row
+        vertical_neighbor = grid & (grid >> 1)
+        if (vertical_neighbor & (vertical_neighbor >> 2)) > 0:
+            return True
+
+        # Check diagonal 4 in a row
+        diagonal_neighbor = grid & (grid >> 8)
+        if (diagonal_neighbor & (diagonal_neighbor >> 16)) > 0:
+            return True
+
+        # Check other diagonal 4 in a row
+        other_diagonal_neighbor = grid & (grid >> 6)
+        if (other_diagonal_neighbor & (other_diagonal_neighbor >> 12)) > 0:
+            return True
+
+        # If no 4 in a row found, return False
+        return False
+
+    @property
+    def rewards(self):
+        # If not a terminal state, return 0s
+        if self.is_winning_state(self.player0_grid):
+            return np.array([1, -1])
+        elif self.is_winning_state(self.player1_grid):
+            return np.array([-1, 1])
+        else:
+            return np.array([0, 0])
+
+    def __eq__(self, other):
+        return self.game_grid == other.game_grid and self.player0_grid == other.player0_grid
+
+    def __hash__(self):
+        return hash((self.game_grid, self.player0_grid))
+
+    def __str__(self):
+        out = ""
+        for row in range(self.N_ROWS-1, -1, -1):
+            out += "|"
+            for column in range(0, 7):
+                if self.player0_grid & (1 << (self.N_COLS * column + row)):
+                    out += "x"
+                elif self.player1_grid & (1 << (self.N_COLS * column + row)):
+                    out += "o"
+                else:
+                    out += " "
+
+                out += "|"
+
+            out += "\n"
+
+        return out
+
+
+class Connect4V2(SequentialGame):
+    ALL_ACTIONS = list(range(Connect4BitState.N_COLS))
+
+    @classmethod
+    @lru_cache(maxsize=100000)
+    def get_next_state_and_rewards(cls, state: Connect4BitState, action):
+        """
+
+        :param state: the input state that action is being taken on (should not be changed by method)
+        :param action: the column to play in
+        """
+        new_state = state.clone()
+        new_state.cur_player_index = 1 - state.cur_player_index
+
+        # Add a 1 to the game_grid in the appropriate location
+        new_state.game_grid |= (1 << (Connect4BitState.N_COLS * action + new_state.next_rows[action]))
+
+        # If this is player 0, also add a 1 to the player0_grid
+        if state.cur_player_index == 0:
+            new_state.player0_grid |= (1 << (Connect4BitState.N_COLS * action + new_state.next_rows[action]))
+
+        # Update the tensor state
+        new_state.tensor_state[0, Connect4BitState.N_ROWS - new_state.next_rows[action], action] = 1
+
+        # Flip tensor state so current player is dim 0
+        new_state.tensor_state = new_state.tensor_state.flip(0)
+
+        # Update the next rows
+        new_state.next_rows[action] += 1
+
+        # Update legal actions, if necessary
+        if new_state.next_rows[action] == Connect4BitState.N_ROWS:
+            new_state.legal_actions.remove(action)
+
+        return new_state, new_state.rewards
+
+    @classmethod
+    def is_terminal_state(cls, state):
+        return state.is_terminal_state
+
+    @classmethod
+    def get_rewards(cls, state):
+        return state.rewards
+
+    @classmethod
+    def get_all_actions(cls) -> List:
+        return cls.ALL_ACTIONS
+
+    @classmethod
+    def get_legal_actions(cls, state: Connect4BitState) -> List:
+        return state.legal_actions
+
+    @classmethod
+    def get_cur_player_index(cls, state: Connect4BitState) -> int:
+        return state.cur_player_index
+
+    @classmethod
+    def get_n_players(cls):
+        return 2
+
+    @classmethod
+    def states_equal(cls, state1: Connect4BitState, state2: Connect4BitState):
+        return state1 == state2
+
+    @classmethod
+    def get_initial_state(cls):
+        return Connect4BitState()
+
+    def __str__(self):
+        return str(self.state)
