@@ -16,7 +16,7 @@ class AlphaTrainingHyperparametersLightning(AlphaTrainingHyperparameters):
 
 class BasicAlphaDatasetLightning(BasicAlphaDataset):
     def __init__(self, evaluator: BaseAlphaEvaluator = None,
-                 hyperparams: AlphaTrainingHyperparameters = None, process_state=True):
+                 hyperparams: AlphaTrainingHyperparametersLightning = None, process_state=True):
         if hyperparams is None:
             hyperparams = AlphaTrainingHyperparameters()
 
@@ -26,14 +26,15 @@ class BasicAlphaDatasetLightning(BasicAlphaDataset):
     def __iter__(self):
         dataset = ListDataset(self.states, self.pis, self.rewards)
         sampler = torch.utils.data.RandomSampler(dataset, replacement=True,
-                                                 num_samples=(self.hyperparams.num_samples_per_epoch * self.hyperparams.batch_size))
+                                                 num_samples=(self.hyperparams.num_samples_per_epoch *
+                                                              self.hyperparams.batch_size))
         dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=self.hyperparams.batch_size)
         return iter(dataloader)
 
 
 class AlphaTrainingRunLightning(pl.LightningModule):
     def __init__(self, game_class: Type[SequentialGame], alpha_evaluator: AlphaNetworkEvaluator,
-                 hyperparams: AlphaTrainingHyperparameters):
+                 hyperparams: AlphaTrainingHyperparametersLightning):
         """
 
         :param game:
@@ -45,24 +46,12 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         self.save_hyperparameters()
         self.hyperparams = hyperparams
         self.game_class = game_class
-        self.alpha_evaluator = copy.deepcopy(alpha_evaluator)
+        self.alpha_evaluator = copy.deepcopy(alpha_evaluator)  # TODO: why?
         self.network = self.alpha_evaluator.network
         self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, self.hyperparams)
         self.agents = []
-        self.n_iters = 0
-        self.minimax_agent = MinimaxAgent(FastTicTacToe)  # for eval
-        self.avg_reward_against_minimax_ema = None
-
-        for i in range(self.game_class.get_n_players()):
-            cur_agent = AlphaAgent(self.game_class, self.alpha_evaluator, self.hyperparams,
-                                   listeners=[self.dataset])
-            self.agents.append(cur_agent)
-
-        self.n_iters = 0
-        self.game = self.game_class(self.agents)
-
-        while len(self.dataset) < self.hyperparams.min_data_size:
-            self.game.play()
+        self.agent = AlphaAgent(self.game_class, self.alpha_evaluator, self.hyperparams, listeners=[self.dataset])
+        self.game = self.game_class([self.agent for _ in range(self.game_class.get_n_players())])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)
@@ -77,6 +66,13 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         losses = (values - pred_values) ** 2 - torch.sum(action_distns * torch.log(pred_distns), dim=1)
         mean_loss = losses.mean()
         return mean_loss
+
+    def on_train_start(self):
+        with tqdm(total=self.hyperparams.min_data_size) as pbar:
+            pbar.set_description('Generating initial dataset')
+            while len(self.dataset) < self.hyperparams.min_data_size:
+                self.game.play()
+                pbar.update(len(self.dataset) - pbar.n)  # Because update expects the increment (not cumulative total)
 
     def on_train_epoch_start(self) -> None:
         for agent in self.agents:  # Make sure to put agents in training mode
@@ -94,22 +90,3 @@ class AlphaTrainingRunLightning(pl.LightningModule):
 
     def train_dataloader(self):
         return self.dataset
-
-    def on_train_epoch_end(self) -> None:
-        # Play tournament against minimax and log result
-        agent = self.agents[-1]
-        agent.eval()  # Put agent in eval mode so that it doesn't learn from these games (not fair to learn against minimax)
-        avg_reward_against_minimax = play_tournament(FastTicTacToe, [self.minimax_agent, agent], 100, 1)
-        agent.train()  # Put agent back in train mode
-
-        self.log('avg_reward_against_minimax', avg_reward_against_minimax)
-
-        # Update and log the ema value
-        # TODO : make the ema param configurable
-        if self.avg_reward_against_minimax_ema is None:
-            self.avg_reward_against_minimax_ema = avg_reward_against_minimax
-        else:
-            self.avg_reward_against_minimax_ema = ((0.85 * self.avg_reward_against_minimax_ema)
-                                                   + (0.15 * avg_reward_against_minimax))
-
-        self.log('avg_reward_against_minimax_ema', self.avg_reward_against_minimax_ema)
