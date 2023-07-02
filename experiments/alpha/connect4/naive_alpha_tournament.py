@@ -22,7 +22,7 @@ def main():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--game_class', type=str, default='Connect4V2')
     parser.add_argument('--evaluator_class', type=str, default='Connect4EvaluatorV2')
-    parser.add_argument('--network_class', type=str, default='Connect4NetworkV2')
+    parser.add_argument('--network_class', type=str, default='Connect4NetworkV3')
     add_all_slots_to_arg_parser(parser, hyperparams)
     args = parser.parse_args()
 
