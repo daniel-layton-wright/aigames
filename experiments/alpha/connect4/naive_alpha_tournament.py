@@ -8,11 +8,12 @@ from aigames.agent.alpha_agent import AlphaAgent, AlphaAgentHyperparameters
 from aigames.utils.utils import play_tournament, load_from_arg_parser, add_all_slots_to_arg_parser
 from aigames.game.connect4 import Connect4, Connect4V2
 from aigames.game.command_line_game import CommandLineGame
+from aigames.training_manager.alpha_training_manager_lightning import AlphaTrainingRunLightning, AlphaTrainingHyperparametersLightning
 import sys
 
 
 def main():
-    hyperparams = AlphaAgentHyperparameters()
+    hyperparams = AlphaTrainingHyperparametersLightning()
     hyperparams.n_mcts = 100
 
     # Setup arg parser
@@ -34,8 +35,9 @@ def main():
 
     # Setup the network, evaluator, and agent
     network = network_class()
-    evaluator = evaluator_class(network)
-    agent = AlphaAgent(game_class, evaluator, hyperparams)
+    evaluator = evaluator_class()
+    alpha_run = AlphaTrainingRunLightning(game_class, network, evaluator, hyperparams)
+    agent = AlphaAgent(game_class, alpha_run.alpha_evaluator, hyperparams)
     # command_line_listener = CommandLineGame()
 
     network.eval()

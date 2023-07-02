@@ -158,7 +158,7 @@ class AlphaAgent(Agent):
             assert(self.game_class.states_equal(self.cur_node.state, next_state))  # make sure we've got the right state
             self.cur_node.parent = None
         except Exception:
-            print("MCTSNode.on_reward : next_state does not exist in children states")
+            print("MCTSNode.on_action : next_state does not exist in children states")
 
     def on_reward(self, reward, next_state, player_index):
         self.episode_history.append(RewardData(player_index, reward))

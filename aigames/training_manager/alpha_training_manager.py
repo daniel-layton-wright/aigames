@@ -96,17 +96,23 @@ class AlphaDataRelayer:
 
 
 class AlphaNetworkEvaluator(BaseAlphaEvaluator):
-    def __init__(self, network: nn.Module):
+    def __init__(self, network: nn.Module = None):
+        """
+
+        :param network: The network to use. If None, make sure to overwrite before calling evaluate.
+         Should take in a state and output a policy and value
+        """
         self.network = network
 
+    @torch.no_grad()
     def evaluate(self, state):
-        with torch.no_grad():
-            pi, v = self.network(self.process_state(state).unsqueeze(0))
+        pi, v = self.network(self.process_state(state).unsqueeze(0))
         return pi.numpy(), v.numpy()
 
     def process_state(self, state):
         raise NotImplementedError()
 
+    # TODO : fix these (maybe just remove) doesn't make sense for batch norm stuff
     def eval(self):
         # Switch to eval mode
         self.network.eval()
