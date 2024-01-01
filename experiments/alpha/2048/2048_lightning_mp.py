@@ -11,12 +11,20 @@ import pytorch_lightning.loggers as pl_loggers
 from aigames.utils.utils import get_all_slots, add_all_slots_to_arg_parser
 import os
 import torch.multiprocessing as mp
+import torch
 
 
 def main():
     mp.set_start_method('forkserver')
     network = TwentyFortyEightNetwork(n_blocks=2, n_channels=64, n_out_channels=16)
-    evaluator = TwentyFortyEightEvaluator(network)
+
+    # Set up the evaluator. If a GPU is available, use it, otherwise use the CPU
+    if torch.cuda.is_available():
+        device = torch.device('cuda:0')
+    else:
+        device = torch.device('cpu')
+
+    evaluator = TwentyFortyEightEvaluator(network, device=device)
     hyperparams = AlphaTrainingHyperparametersLightningMP()
     hyperparams.self_play_every_n_epochs = 100
     hyperparams.n_self_play_games = 1

@@ -96,7 +96,7 @@ class AlphaDataRelayer:
 
 
 class AlphaNetworkEvaluator(BaseAlphaEvaluator):
-    def __init__(self, network: nn.Module = None):
+    def __init__(self, network: nn.Module = None, device=None):
         """
 
         :param network: The network to use. If None, make sure to overwrite before calling evaluate.
@@ -104,9 +104,12 @@ class AlphaNetworkEvaluator(BaseAlphaEvaluator):
         """
         self.network = network
 
+        # If device is none, default to cpu else use the device specified
+        self.device = device or torch.device('cpu')
+
     @torch.no_grad()
     def evaluate(self, state):
-        pi, v = self.network(self.process_state(state).unsqueeze(0))
+        pi, v = self.network(self.process_state(state).to(self.device).unsqueeze(0))
         return pi.numpy(), v.numpy()
 
     def process_state(self, state):
