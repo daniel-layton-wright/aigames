@@ -23,6 +23,7 @@ class AlphaEvaluatorMP:
         self.response_queue_i = 0  # This needs to be overwritten in the subprocess
 
     def evaluation_loop(self, mp_data: AlphaTrainingMPData):
+        torch.multiprocessing.set_sharing_strategy('file_system')
         # Loop until we get a stop signals
         while mp_data.stop.value < 2:
             try:
@@ -51,6 +52,7 @@ class AlphaSelfPlayMP:
         self.game = game
 
     def self_play_loop(self, response_queue_index: int, mp_data: AlphaTrainingMPData):
+        torch.multiprocessing.set_sharing_strategy('file_system')
         self.game.players[0].evaluator.response_queue_i = response_queue_index
 
         # Play at least one game
@@ -132,6 +134,7 @@ class AlphaTrainingRunLightningMP(AlphaTrainingRunLightning):
             self.mp_self_play(self.hyperparams.n_self_play_games)
 
     def mp_self_play(self, n_games):
+        torch.multiprocessing.set_sharing_strategy('file_system')
         # This makes sure the agent collects data:
         self.agent.train()
 
