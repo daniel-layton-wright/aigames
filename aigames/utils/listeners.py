@@ -19,6 +19,19 @@ class RewardListener(GameListener):
         self.i += 1
 
 
+class AverageRewardListener(RewardListener):
+    def __init__(self, discount_rate, player_index):
+        super().__init__(discount_rate, player_index)
+        self.n_games = 0
+        self.total_reward = 0
+        self.avg_reward = 0
+
+    def on_game_end(self, game):
+        self.n_games += 1
+        self.total_reward += self.reward
+        self.avg_reward = self.total_reward / self.n_games
+
+
 class GameHistoryListener(GameListener):
     """
     Stores the history of a game. And resets when a new game starts.

@@ -2,7 +2,8 @@ from typing import Optional, List
 from .listeners import RewardListener, GameListener
 
 
-def play_tournament(game_class, players, n_games, discount_rate=0.99, tqdm=True, listeners: Optional[List[GameListener]] = None):
+# TODO: replace this with more general version
+def play_tournament_old(game_class, players, n_games, discount_rate=0.99, tqdm=True, listeners: Optional[List[GameListener]] = None):
     reward_listener = RewardListener(discount_rate, 1)
     listeners = listeners or []
     listeners.append(reward_listener)
@@ -20,6 +21,18 @@ def play_tournament(game_class, players, n_games, discount_rate=0.99, tqdm=True,
         rewards.append(reward_listener.reward)
 
     return float(sum(rewards)) / len(rewards)
+
+
+def play_tournament(game_class, players, n_games, tqdm=True, listeners: Optional[List[GameListener]] = None):
+    if not tqdm:
+        loop = range(n_games)
+    else:
+        from tqdm.auto import tqdm
+        loop = tqdm(range(n_games), desc=f'{game_class.__name__} tournament')
+
+    for _ in loop:
+        game = game_class(players, listeners)
+        game.play()
 
 
 def get_all_slots(obj):

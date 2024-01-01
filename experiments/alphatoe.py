@@ -2,7 +2,7 @@ from aigames.game.tictactoe import TicTacToe
 from aigames.agent.alpha_agent import *
 from aigames.agent.minimax_agent import MinimaxAgent
 from aigames.game.command_line_game import CommandLineGame
-from aigames.utils.utils import play_tournament
+from aigames.utils.utils import play_tournament_old
 from aigames.training_manager.alpha_training_manager import *
 from aigames.training_manager.alpha_training_manager_lightning import *
 from aigames.utils.listeners import RewardListener

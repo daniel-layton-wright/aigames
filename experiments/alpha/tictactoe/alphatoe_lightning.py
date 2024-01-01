@@ -72,7 +72,7 @@ class AlphaTrainingRunLightningTTT(AlphaTrainingRunLightning):
         # Play tournament against minimax and log result
         agent = self.agents[-1]
         agent.eval()  # Put agent in eval mode so that it doesn't learn from these games (not fair to learn against minimax)
-        avg_reward_against_minimax = play_tournament(FastTicTacToe, [self.minimax_agent, agent], 100, 1)
+        avg_reward_against_minimax = play_tournament_old(FastTicTacToe, [self.minimax_agent, agent], 100, 1)
         agent.train()  # Put agent back in train mode
 
         self.log('avg_reward_against_minimax', avg_reward_against_minimax)

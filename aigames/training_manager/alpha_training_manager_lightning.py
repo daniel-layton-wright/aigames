@@ -5,7 +5,7 @@ import torch.utils.data
 import math
 from aigames.game.tictactoe import FastTicTacToe
 from aigames.agent.minimax_agent import MinimaxAgent
-from aigames.utils.utils import play_tournament
+from aigames.utils.utils import play_tournament_old
 
 
 class AlphaTrainingHyperparametersLightning(AlphaTrainingHyperparameters):
@@ -73,20 +73,23 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         mean_loss = losses.mean()
         return mean_loss
 
-    def on_train_start(self):  # TODO: this might need to be on_fit_start
+    def on_fit_start(self):  # TODO: this might need to be on_fit_start
+        self.network.eval()
         with tqdm(total=self.hyperparams.min_data_size) as pbar:
             pbar.set_description('Generating initial dataset')
             while len(self.dataset) < self.hyperparams.min_data_size:
                 self.game.play()
                 pbar.update(len(self.dataset) - pbar.n)  # Because update expects the increment (not cumulative total)
+                print(self.dataset.states[-1])
 
     def on_train_epoch_start(self) -> None:
-        for agent in self.agents:  # Make sure to put agents in training mode
-            agent.train()
+        self.agent.train()
 
     def on_train_batch_start(self, batch, batch_idx: int):
         if batch_idx % self.hyperparams.play_game_every_n_iters == 0:
+            self.network.eval()
             self.game.play()
+            self.network.train()
 
     def training_step(self, batch, nb_batch) -> dict:
         loss = self.loss(*batch)

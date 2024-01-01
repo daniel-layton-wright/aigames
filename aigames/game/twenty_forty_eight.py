@@ -5,6 +5,29 @@ import enum
 import copy
 
 
+def get_random_new_value():
+    if np.random.rand() < 0.9:
+        return 2
+    else:
+        return 4
+
+
+class TwentyFortyEightState:
+    def __init__(self):
+        self.grid = np.zeros((4, 4)).astype(int)
+        random_position = tuple(np.random.randint(4, size=2))
+
+        random_position2 = tuple(np.random.randint(4, size=2))
+        while random_position2 == random_position:
+            random_position2 = tuple(np.random.randint(4, size=2))
+
+        # For each random position, put a value in
+        for pos in [random_position, random_position2]:
+            self.grid[pos] = get_random_new_value()
+
+        self.reward = np.array([0])
+
+
 class TwentyFortyEight(SequentialGame):
     @classmethod
     def get_n_players(cls):
@@ -24,10 +47,11 @@ class TwentyFortyEight(SequentialGame):
 
             return out
 
-        padding = len(str(self.state.max()))
+        grid = self.state.grid
+        padding = len(str(grid.max()))
         line_length = padding*4 + 3
         return (
-            ('-' * line_length + '\n').join(['{}|{}|{}|{}\n'.format(*line_to_str(self.state[i, :], padding)) for i in range(self.state.shape[0])])
+            ('-' * line_length + '\n').join(['{}|{}|{}|{}\n'.format(*line_to_str(grid[i, :], padding)) for i in range(grid.shape[0])])
         )
 
     @classmethod
@@ -41,25 +65,29 @@ class TwentyFortyEight(SequentialGame):
     @classmethod
     def get_next_state_and_rewards(cls, state, action):
         state = copy.deepcopy(state)
-        reward = 0
+        state.reward = 0
 
-        state_to_shift = state
+        state_to_shift = state.grid
         if action == cls.Moves.RIGHT:
-            state_to_shift = np.flip(state, 1)
+            state_to_shift = np.flip(state.grid, 1)
         elif action == cls.Moves.UP:
-            state_to_shift = state.T
+            state_to_shift = state.grid.T
         elif action == cls.Moves.DOWN:
-            state_to_shift = np.flip(state.T, 1)
+            state_to_shift = np.flip(state.grid.T, 1)
 
         for row in state_to_shift:
-            reward += cls.shift_row_left(row)
+            state.reward += cls.shift_row_left(row)
 
         # Add in a random 2:
-        empty_slots = list(zip(*np.where(state == 0)))
+        empty_slots = list(zip(*np.where(state.grid == 0)))
         random_empty_slot = empty_slots[np.random.randint(len(empty_slots))]
-        state[random_empty_slot] = 2
+        state.grid[random_empty_slot] = get_random_new_value()
 
-        return state, [reward]
+        return state, [state.reward]
+
+    @classmethod
+    def get_rewards(cls, state):
+        return [state.reward]
 
     @classmethod
     def shift_row_left(cls, row) -> int:
@@ -87,10 +115,7 @@ class TwentyFortyEight(SequentialGame):
 
     @classmethod
     def get_initial_state(cls):
-        state = np.zeros((4, 4)).astype(int)
-        random_position = tuple(np.random.randint(4, size=2))
-        state[random_position] = 2
-        return state
+        return TwentyFortyEightState()
 
     @classmethod
     def get_all_actions(cls) -> List:
@@ -100,16 +125,18 @@ class TwentyFortyEight(SequentialGame):
     def get_legal_actions(cls, state) -> List:
         actions = []
 
-        if any(cls.row_can_move_left(row) for row in state):
+        grid = state.grid
+
+        if any(cls.row_can_move_left(row) for row in grid):
             actions.append(cls.Moves.LEFT)
 
-        if any(cls.row_can_move_right(row) for row in state):
+        if any(cls.row_can_move_right(row) for row in grid):
             actions.append(cls.Moves.RIGHT)
 
-        if any(cls.col_can_move_up(col) for col in state.T):
+        if any(cls.col_can_move_up(col) for col in grid.T):
             actions.append(cls.Moves.UP)
 
-        if any(cls.col_can_move_down(col) for col in state.T):
+        if any(cls.col_can_move_down(col) for col in grid.T):
             actions.append(cls.Moves.DOWN)
 
         return actions
@@ -127,6 +154,10 @@ class TwentyFortyEight(SequentialGame):
             return True
 
         return False
+
+    @classmethod
+    def states_equal(cls, state1, state2):
+        return np.array_equal(state1.grid, state2.grid) and state1.reward == state2.reward
 
     @classmethod
     def row_can_move_right(cls, row):
