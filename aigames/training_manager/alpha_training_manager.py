@@ -110,7 +110,7 @@ class AlphaNetworkEvaluator(BaseAlphaEvaluator):
     @torch.no_grad()
     def evaluate(self, state):
         pi, v = self.network(self.process_state(state).to(self.device).unsqueeze(0))
-        return pi.numpy(), v.numpy()
+        return pi.cpu().numpy(), v.cpu().numpy()
 
     def process_state(self, state):
         raise NotImplementedError()
