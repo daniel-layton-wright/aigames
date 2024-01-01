@@ -34,9 +34,9 @@ class BasicAlphaDataset(AlphaDataset):
         if self.process_state:
             state = self.evaluator.process_state(state)
 
-        self.states.append(torch.FloatTensor(state))
-        self.pis.append(torch.FloatTensor(pi))
-        self.rewards.append(torch.FloatTensor([reward]))
+        self.states.append(torch.FloatTensor(state).to(self.evaluator.device))
+        self.pis.append(torch.FloatTensor(pi).to(self.evaluator.device))
+        self.rewards.append(torch.FloatTensor([reward]).to(self.evaluator.device))
 
         while len(self) > self.max_size:
             self.pop()
@@ -102,6 +102,7 @@ class AlphaNetworkEvaluator(BaseAlphaEvaluator):
         :param network: The network to use. If None, make sure to overwrite before calling evaluate.
          Should take in a state and output a policy and value
         """
+        super().__init__()
         self.network = network
 
         # If device is none, default to cpu else use the device specified

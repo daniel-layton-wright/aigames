@@ -3,9 +3,13 @@ from .agent import Agent
 from ..game.game import SequentialGame
 from typing import Type, List
 from tqdm.auto import tqdm
+import torch
 
 
 class BaseAlphaEvaluator:
+    def __init__(self):
+        self.device = torch.device('cpu')
+
     def evaluate(self, state):
         raise NotImplementedError()
 
