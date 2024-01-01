@@ -3,7 +3,8 @@ import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint
 from aigames.agent.alpha_agent import TrainingTau
 from aigames.training_manager.alpha_training_manager_mp import AlphaTrainingRunLightningMP,\
-    AlphaTrainingHyperparametersLightningMP
+    AlphaTrainingHyperparametersLightningMP, AlphaTrainingRunSelfPlayMetadataListener,\
+    AlphaTrainingRunSelfPlayMetadataProcessor
 from aigames.game.twenty_forty_eight import TwentyFortyEight
 from .network_architectures import TwentyFortyEightNetwork, TwentyFortyEightEvaluator
 import pytorch_lightning as pl
@@ -12,6 +13,33 @@ from aigames.utils.utils import get_all_slots, add_all_slots_to_arg_parser
 import os
 import torch.multiprocessing as mp
 import torch
+
+
+class TwentyFortyEightBestTileListener(AlphaTrainingRunSelfPlayMetadataListener):
+    def __init__(self):
+        super().__init__()
+        self.best_tile = None
+
+    def on_game_end(self, game):
+        self.best_tile = game.state.grid.max()
+        self.metadata_queue.put({'best_tile': self.best_tile})
+
+
+class TwentyFortyEightBestTileProcessor(AlphaTrainingRunSelfPlayMetadataProcessor):
+    def process_metadata(self, metadata, training_run: AlphaTrainingRunLightningMP):
+        # Loop over metadata and if the item is a dict and has a best tile entry, take the average
+        best_tiles = []
+        for item in metadata:
+            if isinstance(item, dict) and 'best_tile' in item:
+                best_tiles.append(item['best_tile'])
+
+        if len(best_tiles) > 0:
+            avg_best_tile = sum(best_tiles) / len(best_tiles)
+        else:
+            avg_best_tile = None
+
+        # Log to the training run experiment
+        training_run.logger.experiment.log({'best_tile': avg_best_tile})
 
 
 def main():
@@ -26,18 +54,20 @@ def main():
 
     evaluator = TwentyFortyEightEvaluator(network, device=device)
     hyperparams = AlphaTrainingHyperparametersLightningMP()
-    hyperparams.self_play_every_n_epochs = 100
-    hyperparams.n_self_play_games = 1
+    hyperparams.self_play_every_n_epochs = 20
+    hyperparams.n_self_play_games = 200
     hyperparams.n_self_play_procs = 4
     hyperparams.max_data_size = 100*42*2
     hyperparams.n_mcts = 100
     hyperparams.dirichlet_alpha = 1
     hyperparams.dirichlet_epsilon = 0.25
-    hyperparams.lr = 0.001
+    hyperparams.lr = 0.1
     hyperparams.weight_decay = 0
     hyperparams.training_tau = TrainingTau(tau_schedule_list=[1 for _ in range(21)] + [0 for _ in range(21)])
     hyperparams.c_puct = 4
     hyperparams.batch_size = 64
+    hyperparams.game_listeners = [TwentyFortyEightBestTileListener()]
+    hyperparams.metadata_processors = [TwentyFortyEightBestTileProcessor()]
 
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()

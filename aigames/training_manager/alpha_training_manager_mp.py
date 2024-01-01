@@ -7,6 +7,7 @@ import torch.multiprocessing as mp
 import queue
 import torch.utils.data
 from .training_manager import ListDataset
+from ..utils.listeners import GameListener
 
 
 class AlphaTrainingMPData:
@@ -66,7 +67,8 @@ class AlphaSelfPlayMP:
 
 
 class AlphaTrainingHyperparametersLightningMP(AlphaTrainingHyperparametersLightning):
-    __slots__ = ['n_self_play_procs', 'n_self_play_games', 'self_play_every_n_epochs', 'n_data_loader_workers']
+    __slots__ = ['n_self_play_procs', 'n_self_play_games', 'self_play_every_n_epochs', 'n_data_loader_workers',
+                 'metadata_processors']
 
     def __init__(self):
         super().__init__()
@@ -74,6 +76,7 @@ class AlphaTrainingHyperparametersLightningMP(AlphaTrainingHyperparametersLightn
         self.n_self_play_games = 1000  # Number of games to play in each self-play run
         self.self_play_every_n_epochs = 4  # Do self-play every n epochs
         self.n_data_loader_workers = 1
+        self.metadata_processors = []
 
 
 class BasicAlphaDatasetLightningMP(BasicAlphaDatasetLightning):
@@ -101,6 +104,40 @@ class BasicAlphaDatasetLightningMP(BasicAlphaDatasetLightning):
                 super().on_data_point(state, pi, reward)
 
 
+class AlphaTrainingRunSelfPlayMetadataCollector:
+    def __init__(self):
+        self.metadata_queue = mp.Queue()
+        self.metadata = []
+
+    def collect_metadata(self):
+        """
+        Collect metadata from the self-play processes. Only call after all self-play is over
+        """
+        # While the queue is not empty, add data to list
+        self.metadata = []
+        while True:
+            try:
+                self.metadata.append(self.metadata_queue.get(block=False))
+            except queue.Empty:
+                break
+
+
+class AlphaTrainingRunSelfPlayMetadataListener(GameListener):
+    def __init__(self):
+        self.metadata_queue = None
+
+    def set_metadata_queue(self, q: mp.Queue):
+        self.metadata_queue = q
+
+
+class AlphaTrainingRunSelfPlayMetadataProcessor:
+    def process_metadata(self, metadata, training_run: AlphaTrainingRunLightning):
+        """
+        Process the metadata from the self-play processes. Only call after all self-play is over
+        """
+        pass
+
+
 class AlphaTrainingRunLightningMP(AlphaTrainingRunLightning):
     def __init__(self, game_class, network, alpha_evaluator, hyperparams: AlphaTrainingHyperparametersLightningMP):
         super().__init__(game_class, network, alpha_evaluator, hyperparams)
@@ -111,9 +148,15 @@ class AlphaTrainingRunLightningMP(AlphaTrainingRunLightning):
         self.agent.alpha_evaluator = self.alpha_evaluator_mp
 
         # Update the dataset to use the multiprocessing version
+        self.metadata_collector = AlphaTrainingRunSelfPlayMetadataCollector()
         self.agent.listeners.remove(self.dataset)
         self.dataset = BasicAlphaDatasetLightningMP(self.alpha_evaluator, hyperparams)
         self.agent.listeners.append(self.dataset)
+
+        # For each game listener, add the metadata queue
+        for listener in self.game.listeners:
+            if isinstance(listener, AlphaTrainingRunSelfPlayMetadataListener):
+                listener.set_metadata_queue(self.metadata_collector.metadata_queue)
 
     def on_fit_start(self):
         # Do first self-play
@@ -180,6 +223,11 @@ class AlphaTrainingRunLightningMP(AlphaTrainingRunLightning):
                     self_play_processes.remove(proc)
 
         self.dataset.add_data_from_queue()
+
+        # Collect and process metadata
+        self.metadata_collector.collect_metadata()
+        for processor in self.hyperparams.metadata_processors:
+            processor.process_metadata(self.metadata_collector.metadata, self)
 
         mp_data.stop.value += 1
         eval_proc.join()

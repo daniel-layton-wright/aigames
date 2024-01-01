@@ -165,7 +165,8 @@ class AlphaNetworkOptimizer:
 
 
 class AlphaTrainingHyperparameters(AlphaAgentHyperparameters):
-    __slots__ = ['min_data_size', 'max_data_size', 'batch_size', 'share_among_players', 'lr', 'weight_decay']
+    __slots__ = ['min_data_size', 'max_data_size', 'batch_size', 'share_among_players', 'lr', 'weight_decay',
+                 'game_listeners']
 
     def __init__(self):
         super().__init__()
@@ -175,6 +176,7 @@ class AlphaTrainingHyperparameters(AlphaAgentHyperparameters):
         self.share_among_players = True
         self.lr = 1e-3
         self.weight_decay = 1e-4
+        self.game_listeners = []
 
 
 class AlphaTrainingRun(GameListener):

@@ -57,7 +57,8 @@ class AlphaTrainingRunLightning(pl.LightningModule):
         self.alpha_evaluator.network = self.network
         self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, self.hyperparams)
         self.agent = AlphaAgent(self.game_class, self.alpha_evaluator, self.hyperparams, listeners=[self.dataset])
-        self.game = self.game_class([self.agent for _ in range(self.game_class.get_n_players())])
+        self.game = self.game_class([self.agent for _ in range(self.game_class.get_n_players())],
+                                    listeners=hyperparams.game_listeners)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)
