@@ -9,9 +9,7 @@ from torchvision.models.resnet import BasicBlock
 
 class TwentyFortyEightEvaluator(AlphaNetworkEvaluator):
     def process_state(self, state: TwentyFortyEightState):
-        # normalize the state from 0 to 1
-        s = state.grid.copy() / state.grid.max()
-        return torch.FloatTensor(s).unsqueeze(0)
+        return torch.FloatTensor(state.grid).unsqueeze(0)
 
 
 class TwentyFortyEightNetwork(nn.Module):
