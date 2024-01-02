@@ -55,7 +55,7 @@ def main():
     evaluator = TwentyFortyEightEvaluator(network, device=device)
     hyperparams = AlphaTrainingHyperparametersLightningMP()
     hyperparams.self_play_every_n_epochs = 20
-    hyperparams.n_self_play_games = 200
+    hyperparams.n_self_play_games = 100
     hyperparams.n_self_play_procs = 4
     hyperparams.max_data_size = 100*42*2
     hyperparams.n_mcts = 100
@@ -74,6 +74,7 @@ def main():
     add_all_slots_to_arg_parser(parser, hyperparams)
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/2048/')
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
+    parser.add_argument('--max_epcohs', type=int, default=100, help='Max epochs')
 
     # Parse the args and set the hyperparams
     args = parser.parse_args()
@@ -95,7 +96,7 @@ def main():
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=hyperparams.self_play_every_n_epochs,
                          logger=pl_loggers.WandbLogger(**wandb_kwargs),
-                         callbacks=[model_checkpoint], log_every_n_steps=1, max_epochs=99)
+                         callbacks=[model_checkpoint], log_every_n_steps=1, max_epochs=args.max_epochs)
     trainer.fit(training_run)
 
     if args.debug:
