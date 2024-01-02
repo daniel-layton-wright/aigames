@@ -74,7 +74,7 @@ def main():
     add_all_slots_to_arg_parser(parser, hyperparams)
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/2048/')
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
-    parser.add_argument('--max_epcohs', type=int, default=100, help='Max epochs')
+    parser.add_argument('--max_epochs', type=int, default=100, help='Max epochs')
 
     # Parse the args and set the hyperparams
     args = parser.parse_args()
