@@ -89,7 +89,7 @@ def main():
     hyperparams.n_self_play_procs = 4
     hyperparams.max_data_size = 20000
     hyperparams.min_data_size = 512
-    hyperparams.n_mcts = 100
+    hyperparams.n_mcts = 500
     hyperparams.dirichlet_alpha = 1
     hyperparams.dirichlet_epsilon = 0.25
     hyperparams.lr = 0.1
