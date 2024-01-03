@@ -1,6 +1,8 @@
 import argparse
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint
+
+from aigames import GameListener
 from aigames.agent.alpha_agent import TrainingTau
 from aigames.training_manager.alpha_training_manager_mp import AlphaTrainingRunLightningMP,\
     AlphaTrainingHyperparametersLightningMP, AlphaTrainingRunSelfPlayMetadataListener,\
@@ -9,7 +11,7 @@ from aigames.game.twenty_forty_eight import TwentyFortyEight
 from .network_architectures import TwentyFortyEightNetwork, TwentyFortyEightEvaluator
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
-from aigames.utils.utils import get_all_slots, add_all_slots_to_arg_parser
+from aigames.utils.utils import get_all_slots, add_all_slots_to_arg_parser, play_tournament
 import os
 import torch.multiprocessing as mp
 import torch
@@ -23,6 +25,18 @@ class TwentyFortyEightBestTileListener(AlphaTrainingRunSelfPlayMetadataListener)
     def on_game_end(self, game):
         self.best_tile = game.state.grid.max()
         self.metadata_queue.put({'best_tile': self.best_tile})
+
+
+class TwentyFortyEightAverageBestTileListener(GameListener):
+    def __init__(self):
+        self.best_tiles = []
+
+    def on_game_end(self, game):
+        self.best_tiles.append(game.state.grid.max())
+
+    @property
+    def average_best_tile(self):
+        return sum(self.best_tiles) / len(self.best_tiles) if len(self.best_tiles) > 0 else None
 
 
 class TwentyFortyEightBestTileProcessor(AlphaTrainingRunSelfPlayMetadataProcessor):
@@ -39,7 +53,23 @@ class TwentyFortyEightBestTileProcessor(AlphaTrainingRunSelfPlayMetadataProcesso
             avg_best_tile = None
 
         # Log to the training run experiment
-        training_run.logger.experiment.log({'best_tile': avg_best_tile})
+        training_run.logger.experiment.log({'best_tile_train': avg_best_tile})
+
+
+class AlphaTrainingRunTwentyFortyEight(AlphaTrainingRunLightningMP):
+
+    def on_train_epoch_end(self) -> None:
+        # Run a tournament with tau set to 0
+        self.agent.eval()
+
+        listener = TwentyFortyEightAverageBestTileListener()
+        play_tournament(TwentyFortyEight, [self.agent], 20, listeners=[listener])
+
+        # Log the value
+        self.log('best_tile_test', listener.average_best_tile)
+
+        self.agent.train()
+        super().on_train_epoch_end()
 
 
 def main():
@@ -57,15 +87,16 @@ def main():
     hyperparams.self_play_every_n_epochs = 20
     hyperparams.n_self_play_games = 100
     hyperparams.n_self_play_procs = 4
-    hyperparams.max_data_size = 100*42*2
+    hyperparams.max_data_size = 20000
+    hyperparams.min_data_size = 512
     hyperparams.n_mcts = 100
     hyperparams.dirichlet_alpha = 1
     hyperparams.dirichlet_epsilon = 0.25
     hyperparams.lr = 0.1
-    hyperparams.weight_decay = 0
-    hyperparams.training_tau = TrainingTau(tau_schedule_list=[1 for _ in range(21)] + [0 for _ in range(21)])
-    hyperparams.c_puct = 4
-    hyperparams.batch_size = 64
+    hyperparams.weight_decay = 1e-4
+    hyperparams.training_tau = TrainingTau(fixed_tau_value=1)
+    hyperparams.c_puct = 1
+    hyperparams.batch_size = 512
     hyperparams.game_listeners = [TwentyFortyEightBestTileListener()]
     hyperparams.metadata_processors = [TwentyFortyEightBestTileProcessor()]
 
