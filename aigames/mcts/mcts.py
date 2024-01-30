@@ -20,17 +20,17 @@ class MCTS:
     Implementation of MCTS, trying to do simultaneous roll-outs of different nodes and use GPU as much as possible
     """
 
-    def __init__(self, game_class: Type[GameMulti], evaluator, hyperparams, root_states):
+    def __init__(self, game: GameMulti, evaluator, hyperparams, root_states):
         self.hyperparams = hyperparams
         self.evaluator = evaluator
-        self.game_class = game_class
+        self.game_class = game
         self.total_states = 2 + self.hyperparams.n_iters
 
         # The network's pi value for each root, state (outputs a policy size)
-        n_actions = game_class.get_n_actions()
-        state_shape = game_class.get_state_shape()
-        n_players = game_class.get_n_players()
-        n_stochastic_actions = game_class.get_n_stochastic_actions()
+        n_actions = game.get_n_actions()
+        state_shape = game.get_state_shape()
+        n_players = game.get_n_players()
+        n_stochastic_actions = game.get_n_stochastic_actions()
 
         self.pi = torch.zeros(
             (self.hyperparams.n_roots, self.total_states, n_actions),
@@ -161,7 +161,7 @@ class MCTS:
         self.need_to_add_dirichlet_noise = torch.zeros((self.hyperparams.n_roots,), dtype=torch.bool,
                                                        device=self.hyperparams.device, requires_grad=False)
 
-        self.is_terminal[:, 1] = game_class.is_terminal(self.states[:, 1])
+        self.is_terminal[:, 1] = game.is_terminal(self.states[:, 1])
         self.n_iters[self.is_terminal[:, 1]] = self.hyperparams.n_iters
         self.pi[self.is_terminal[:, 1], 1, :] = 1.0 / n_actions
         self.n[self.is_terminal[:, 1], 1] = 1
