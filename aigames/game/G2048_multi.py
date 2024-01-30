@@ -114,9 +114,8 @@ class G2048Multi(GameMulti):
     )
 
     def __init__(self, n_parallel_games, player, listeners):
-        super().__init__(n_parallel_games, player, listeners)
-
         self.device = 'cpu'
+        super().__init__(n_parallel_games, player, listeners)
 
     def set_device(self, device):
         self.device = device
