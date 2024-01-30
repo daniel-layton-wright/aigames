@@ -73,7 +73,7 @@ def get_legal_action_masks_core(states, legal_move_mask):
     return torch.cat([mask, legal_move_mask[ind, :].reshape(states.shape[0], 4, 2).any(dim=1)], dim=1)
 
 
-def get_next_states_from_env_core(states: torch.Tensor, legal_move_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_next_states_from_env_core(states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     ones = torch.eye(16, dtype=states.dtype).view(16, 4, 4)
     twos = torch.eye(16, dtype=states.dtype).view(16, 4, 4) * 2
     base_progressions = torch.concat([ones, twos], dim=0).to(states.device)
@@ -110,7 +110,7 @@ class G2048Multi(GameMulti):
 
     get_next_states_from_env_jit = torch.jit.trace(
         get_next_states_from_env_core,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32), torch.randint(0, 2, (16**4, 2), dtype=torch.bool))
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32))
     )
 
     def __init__(self, n_parallel_games, player, listeners=None):
@@ -165,7 +165,7 @@ class G2048Multi(GameMulti):
 
         :param states: A tensor of size (N, 4, 4) representing the states
         """
-        next_states, probs = self.get_next_states_from_env_jit(states, LEGAL_MOVE_MASK)
+        next_states, probs = self.get_next_states_from_env_jit(states)
 
         idx = torch.multinomial(probs, num_samples=1).to(states.device).flatten()
         states = next_states[torch.arange(states.shape[0], device=states.device), idx, :, :]
