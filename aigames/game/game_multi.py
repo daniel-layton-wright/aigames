@@ -10,44 +10,34 @@ class GameListenerMulti(GameListener):
 
 
 class GameMulti:
-    @classmethod
-    def get_n_players(cls) -> int:
+    def get_n_players(self) -> int:
         raise NotImplementedError()
 
-    @classmethod
-    def get_n_actions(cls) -> int:
+    def get_n_actions(self) -> int:
         raise NotImplementedError()
 
-    @classmethod
-    def get_state_shape(cls) -> Tuple[int, ...]:
+    def get_state_shape(self) -> Tuple[int, ...]:
         raise NotImplementedError()
 
-    @classmethod
-    def get_n_stochastic_actions(cls) -> int:
+    def get_n_stochastic_actions(self) -> int:
         raise NotImplementedError()
 
-    @classmethod
-    def get_initial_states(cls, n) -> torch.Tensor:
+    def get_initial_states(self, n) -> torch.Tensor:
         raise NotImplementedError()
 
-    @classmethod
-    def get_cur_player_index(cls, states) -> torch.Tensor:
+    def get_cur_player_index(self, states) -> torch.Tensor:
         raise NotImplementedError()
 
-    @classmethod
-    def get_next_states(cls, states, actions) -> Tuple[torch.Tensor, torch.Tensor, torch.BoolTensor, torch.BoolTensor]:
+    def get_next_states(self, states, actions) -> Tuple[torch.Tensor, torch.Tensor, torch.BoolTensor, torch.BoolTensor]:
         raise NotImplementedError()
 
-    @classmethod
-    def get_next_states_from_env(cls, states) -> Tuple[torch.Tensor, torch.LongTensor, torch.BoolTensor]:
+    def get_next_states_from_env(self, states) -> Tuple[torch.Tensor, torch.LongTensor, torch.BoolTensor]:
         raise NotImplementedError()
 
-    @classmethod
-    def is_terminal(cls, states):
+    def is_terminal(self, states):
         raise NotImplementedError()
 
-    @classmethod
-    def get_legal_action_masks(cls, states):
+    def get_legal_action_masks(self, states):
         raise NotImplementedError()
 
     def __init__(self, n_parallel_games, player: AgentMulti, listeners: List[GameListenerMulti] = None):

@@ -116,20 +116,26 @@ class G2048Multi(GameMulti):
     def __init__(self, n_parallel_games, player, listeners):
         super().__init__(n_parallel_games, player, listeners)
 
-    @classmethod
-    def get_n_players(cls):
+        self.device = 'cpu'
+
+    def set_device(self, device):
+        self.device = device
+
+        MOVE_LEFT_MAP.to(self.device)
+        MOVE_RIGHT_MAP.to(self.device)
+        REWARD_MAP.to(self.device)
+        LEGAL_MOVE_MASK.to(self.device)
+
+    def get_n_players(self):
         return 1
 
-    @classmethod
-    def get_n_actions(cls):
+    def get_n_actions(self):
         return 4
 
-    @classmethod
-    def get_n_stochastic_actions(cls):
+    def get_n_stochastic_actions(self):
         return 32
 
-    @classmethod
-    def get_state_shape(cls) -> Tuple[int, ...]:
+    def get_state_shape(self) -> Tuple[int, ...]:
         return 4, 4
 
     class Moves(enum.Enum):
@@ -138,37 +144,33 @@ class G2048Multi(GameMulti):
         UP = 2
         DOWN = 3
 
-    @classmethod
-    def is_terminal(cls, states: torch.FloatTensor):
+    def is_terminal(self, states: torch.FloatTensor):
         # If any zeros, not terminal, else if no legal actions, terminal
         # The shape of states is N x state shape so N x 4 x 4
         # We need to return bools of size (N,)
-        return cls.is_terminal_jit(states, LEGAL_MOVE_MASK)
+        return self.is_terminal_jit(states, LEGAL_MOVE_MASK)
 
-    @classmethod
-    def get_cur_player_index(cls, states) -> torch.Tensor:
+    def get_cur_player_index(self, states) -> torch.Tensor:
         return torch.zeros((states.shape[0],), dtype=torch.long)
 
-    @classmethod
-    def get_next_states(cls, states: torch.Tensor, actions: torch.Tensor):
+    def get_next_states(self, states: torch.Tensor, actions: torch.Tensor):
         """
         :param states: A tensor of size (N, 4, 4) representing the states
         :param actions: A tensor of size (N,) representing the actions
         """
-        return cls.get_next_states_jit(states, actions, MOVE_LEFT_MAP, MOVE_RIGHT_MAP, REWARD_MAP, LEGAL_MOVE_MASK)
+        return self.get_next_states_jit(states, actions, MOVE_LEFT_MAP, MOVE_RIGHT_MAP, REWARD_MAP, LEGAL_MOVE_MASK)
 
-    @classmethod
-    def get_next_states_from_env(cls, states: torch.Tensor):
+    def get_next_states_from_env(self, states: torch.Tensor):
         """
         For each state in the states tensor, we need to add a random 1 or 2 into a slot that is zero
 
         :param states: A tensor of size (N, 4, 4) representing the states
         """
-        next_states, probs = cls.get_next_states_from_env_jit(states, LEGAL_MOVE_MASK)
+        next_states, probs = self.get_next_states_from_env_jit(states, LEGAL_MOVE_MASK)
 
         idx = torch.multinomial(probs, num_samples=1).flatten()
         states = next_states[torch.arange(states.shape[0]), idx, :, :]
-        is_terminal = cls.is_terminal(states)
+        is_terminal = self.is_terminal(states)
 
         return states, idx, is_terminal
 
@@ -199,26 +201,20 @@ class G2048Multi(GameMulti):
 
         return merge_values
 
-    @classmethod
-    def get_initial_states(cls, n_games):
-        states = torch.zeros((n_games, 4, 4), dtype=torch.float32)
+    def get_initial_states(self, n_games):
+        states = torch.zeros((n_games, 4, 4), dtype=torch.float32, device=self.device)
 
         # Add in two random values for each state
-        states, _, _ = cls.get_next_states_from_env(states)
-        states, _, _ = cls.get_next_states_from_env(states)
+        states, _, _ = self.get_next_states_from_env(states)
+        states, _, _ = self.get_next_states_from_env(states)
 
         return states
 
-    @classmethod
-    def get_all_actions(cls) -> List:
-        return list(cls.Moves)
-
-    @classmethod
-    def get_legal_action_masks(cls, states: torch.FloatTensor):
+    def get_legal_action_masks(self, states: torch.FloatTensor):
         """
         :param states: A tensor of size (N, 4, 4) representing the states
         """
-        return cls.get_legal_action_masks_jit(states, LEGAL_MOVE_MASK)
+        return self.get_legal_action_masks_jit(states, LEGAL_MOVE_MASK)
 
     @classmethod
     def row_can_move_left(cls, row):
@@ -245,10 +241,6 @@ class G2048Multi(GameMulti):
     @classmethod
     def col_can_move_down(cls, col):
         return cls.row_can_move_right(col)
-
-    @classmethod
-    def is_env_turn(cls, state):
-        return state.is_env_turn
 
     def __str__(self):
         def line_to_str(line, padding):
