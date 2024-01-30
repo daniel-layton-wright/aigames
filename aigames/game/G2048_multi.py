@@ -125,16 +125,20 @@ class G2048Multi(GameMulti):
         REWARD_MAP.to(self.device)
         LEGAL_MOVE_MASK.to(self.device)
 
-    def get_n_players(self):
+    @classmethod
+    def get_n_players(cls):
         return 1
 
-    def get_n_actions(self):
+    @classmethod
+    def get_n_actions(cls):
         return 4
 
-    def get_n_stochastic_actions(self):
+    @classmethod
+    def get_n_stochastic_actions(cls):
         return 32
 
-    def get_state_shape(self) -> Tuple[int, ...]:
+    @classmethod
+    def get_state_shape(cls) -> Tuple[int, ...]:
         return 4, 4
 
     class Moves(enum.Enum):

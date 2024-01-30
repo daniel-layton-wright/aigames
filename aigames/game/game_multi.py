@@ -10,16 +10,20 @@ class GameListenerMulti(GameListener):
 
 
 class GameMulti:
-    def get_n_players(self) -> int:
+    @classmethod
+    def get_n_players(cls) -> int:
         raise NotImplementedError()
 
-    def get_n_actions(self) -> int:
+    @classmethod
+    def get_n_actions(cls) -> int:
         raise NotImplementedError()
 
-    def get_state_shape(self) -> Tuple[int, ...]:
+    @classmethod
+    def get_state_shape(cls) -> Tuple[int, ...]:
         raise NotImplementedError()
 
-    def get_n_stochastic_actions(self) -> int:
+    @classmethod
+    def get_n_stochastic_actions(cls) -> int:
         raise NotImplementedError()
 
     def get_initial_states(self, n) -> torch.Tensor:
