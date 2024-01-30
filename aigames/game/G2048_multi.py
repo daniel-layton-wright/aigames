@@ -113,7 +113,7 @@ class G2048Multi(GameMulti):
         example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32), torch.randint(0, 2, (16**4, 2), dtype=torch.bool))
     )
 
-    def __init__(self, n_parallel_games, player, listeners):
+    def __init__(self, n_parallel_games, player, listeners=None):
         self.device = 'cpu'
         super().__init__(n_parallel_games, player, listeners)
 
@@ -167,7 +167,7 @@ class G2048Multi(GameMulti):
         """
         next_states, probs = self.get_next_states_from_env_jit(states, LEGAL_MOVE_MASK)
 
-        idx = torch.multinomial(probs, num_samples=1).flatten()
+        idx = torch.multinomial(probs, num_samples=1).to(states.device).flatten()
         states = next_states[torch.arange(states.shape[0], device=states.device), idx, :, :]
         is_terminal = self.is_terminal(states)
 
