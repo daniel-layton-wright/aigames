@@ -25,7 +25,7 @@ class AgentMulti:
     def on_rewards(self, rewards):
         pass
 
-    def before_game_start(self):
+    def before_game_start(self, game):
         pass
 
     def on_game_end(self):

@@ -83,6 +83,7 @@ class AlphaAgentMulti(AgentMulti):
                  hyperparams: AlphaAgentHyperparametersMulti, listeners: List[AlphaAgentListener] = None,
                  use_tqdm: bool = False):
         super().__init__()
+        self.game = None
         self.game_class = game_class
         self.hyperparams = hyperparams
         self.evaluator = evaluator
@@ -98,7 +99,7 @@ class AlphaAgentMulti(AgentMulti):
         # TODO: reuse previous nodes
         n_parallel_games = states.shape[0]
         self.hyperparams.mcts_hyperparams.n_roots = n_parallel_games
-        self.mcts = MCTS(self.game_class, self.evaluator, self.hyperparams.mcts_hyperparams, states)
+        self.mcts = MCTS(self.game, self.evaluator, self.hyperparams.mcts_hyperparams, states)
 
         # Add Dirichlet noise to the root node
         if self.training or self.hyperparams.use_dirichlet_noise_in_eval:
@@ -130,7 +131,7 @@ class AlphaAgentMulti(AgentMulti):
             actions = action_distribution.argmax(dim=1).flatten()
 
         # Record this for training, set the root node to the next node now and forget the parent
-        player_index = self.game_class.get_cur_player_index(states)
+        player_index = self.game.get_cur_player_index(states)
         self.episode_history.append(TimestepData(states, pi, player_index))
 
         return actions
@@ -146,7 +147,8 @@ class AlphaAgentMulti(AgentMulti):
         self.evaluator.eval()
         self.training = False
 
-    def before_game_start(self):
+    def before_game_start(self, game):
+        self.game = game
         self.episode_history = []
         self.move_number_in_current_game = 0
 

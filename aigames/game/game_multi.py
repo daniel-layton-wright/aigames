@@ -38,7 +38,8 @@ class GameMulti:
     def get_next_states_from_env(self, states) -> Tuple[torch.Tensor, torch.LongTensor, torch.BoolTensor]:
         raise NotImplementedError()
 
-    def is_terminal(self, states):
+    @classmethod
+    def is_terminal(cls, states):
         raise NotImplementedError()
 
     def get_legal_action_masks(self, states):
@@ -59,7 +60,7 @@ class GameMulti:
             for listener in self.listeners:
                 listener.before_game_start(self)
 
-            self.player.before_game_start()
+            self.player.before_game_start(self)
 
             is_env = torch.zeros((self.n_parallel_games,), dtype=torch.bool)
             is_terminal = torch.zeros((self.n_parallel_games,), dtype=torch.bool)

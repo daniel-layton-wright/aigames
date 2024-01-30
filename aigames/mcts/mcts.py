@@ -23,7 +23,7 @@ class MCTS:
     def __init__(self, game: GameMulti, evaluator, hyperparams, root_states):
         self.hyperparams = hyperparams
         self.evaluator = evaluator
-        self.game_class = game
+        self.game = game
         self.total_states = 2 + self.hyperparams.n_iters
 
         # The network's pi value for each root, state (outputs a policy size)
@@ -231,7 +231,7 @@ class MCTS:
 
     def fill_in_next_states(self, idx, cur_nodes, next_actions):
         # Get the next states
-        next_states, rewards, is_env, is_terminal = self.game_class.get_next_states(self.states[idx, cur_nodes], next_actions)
+        next_states, rewards, is_env, is_terminal = self.game.get_next_states(self.states[idx, cur_nodes], next_actions)
 
         self.env_is_next[idx, cur_nodes, next_actions] = is_env
 
@@ -260,7 +260,7 @@ class MCTS:
 
     def advance_to_player_states_from_env_states(self, idx, env_nodes, parent_nodes):
         # Now get the next player state for the env states
-        next_player_states, env_action_idx, is_terminal = self.game_class.get_next_states_from_env(self.env_states[idx, env_nodes])
+        next_player_states, env_action_idx, is_terminal = self.game.get_next_states_from_env(self.env_states[idx, env_nodes])
 
         next_node_idx = self.next_idx_env[idx, env_nodes, env_action_idx]
 
@@ -291,7 +291,7 @@ class MCTS:
 
         states = self.states[idx, nodes]
         self.pi[idx, nodes], values = self.evaluator.evaluate(states)
-        legal_actions_mask = self.game_class.get_legal_action_masks(states)
+        legal_actions_mask = self.game.get_legal_action_masks(states)
         self.pi[idx, nodes] *= legal_actions_mask
         # re-normalize pi
         self.pi[idx, nodes] /= self.pi[idx, nodes].sum(dim=1, keepdim=True)
@@ -342,7 +342,7 @@ class MCTS:
         mask = (self.pi[idx, 1] > 0)
 
         dirichlet = torch.distributions.dirichlet.Dirichlet(
-            torch.full((self.game_class.get_n_actions(),), self.hyperparams.dirichlet_alpha)
+            torch.full((self.game.get_n_actions(),), self.hyperparams.dirichlet_alpha)
         ).sample(torch.Size((len(idx),)))
 
         # Apply mask and renormalize
