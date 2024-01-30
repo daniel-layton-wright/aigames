@@ -168,7 +168,7 @@ class G2048Multi(GameMulti):
         next_states, probs = self.get_next_states_from_env_jit(states, LEGAL_MOVE_MASK)
 
         idx = torch.multinomial(probs, num_samples=1).flatten()
-        states = next_states[torch.arange(states.shape[0]), idx, :, :]
+        states = next_states[torch.arange(states.shape[0], device=states.device), idx, :, :]
         is_terminal = self.is_terminal(states)
 
         return states, idx, is_terminal
