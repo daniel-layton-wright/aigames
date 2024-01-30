@@ -43,6 +43,10 @@ class PartiallyObservableSequentialGame:
                 player.before_game_start(n_players=len(self.players))
 
             while not self.is_terminal_state(self.state):
+                # Check to see if it's the environment's turn to do something stochastic:
+                if self.is_env_turn(self.state):
+                    self.state = self.get_next_state_from_env(self.state)
+                    continue
 
                 # Ask the player for his move:
                 cur_player_index = self.get_cur_player_index(self.state)
@@ -125,6 +129,14 @@ class PartiallyObservableSequentialGame:
 
     @classmethod
     def states_equal(cls, state1, state2):
+        raise NotImplementedError()
+
+    @classmethod
+    def is_env_turn(cls, state):
+        return False  # This is for games with a stochastic env, default is not
+
+    @classmethod
+    def get_next_state_from_env(cls, state):
         raise NotImplementedError()
 
 

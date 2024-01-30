@@ -169,12 +169,13 @@ class AlphaTrainingRunLightningMP(AlphaTrainingRunLightning):
         pass  # In the parent class, it does self play here
 
     def on_train_epoch_start(self) -> None:
+        if self.current_epoch > 0 and self.current_epoch % self.hyperparams.self_play_every_n_epochs == 0:
+            self.mp_self_play(self.hyperparams.n_self_play_games)
+
         self.network.train()
 
     def on_train_epoch_end(self) -> None:
-        # Do self-play games if it's time
-        if (self.current_epoch + 1) % self.hyperparams.self_play_every_n_epochs == 0:
-            self.mp_self_play(self.hyperparams.n_self_play_games)
+        pass
 
     def mp_self_play(self, n_games):
         torch.multiprocessing.set_sharing_strategy('file_system')

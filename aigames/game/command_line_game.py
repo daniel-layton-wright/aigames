@@ -21,3 +21,6 @@ class CommandLineGame(GameListener):
 
     def on_game_end(self, game):
         print('Game over.')
+
+    def on_states_from_env(self, game):
+        pass

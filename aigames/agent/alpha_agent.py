@@ -327,6 +327,33 @@ class MCTSNode:
             self.parent.backup_all(values)
 
 
+class MCTSStochasticNode(MCTSNode):
+    """
+    This node represents a state from which the environment will make a random move (no player is moving)
+    """
+    def __init__(self, game_class: Type[SequentialGame], state, parent_node, evaluator: BaseAlphaEvaluator,
+                 hyperparams: AlphaAgentHyperparameters, n_players=2, action_index_from_parent_node=None,
+                 N=None, total_N=None, Q=None):
+        super().__init__(game_class, state, parent_node, evaluator, hyperparams, n_players,
+                         action_index_from_parent_node, N, total_N, Q)
+
+        self.next_states = dict()
+
+    def search(self):
+        # Generate a next state from the environment. If we've already seen this state, continue down that eval.
+        # Otherwise add it to our states and then search
+
+        random_next_state = self.game_class.get_next_state_from_env(self.state)
+        if random_next_state in self.next_states:
+            # We've already seen this state, continue down that eval
+            self.next_states[random_next_state].search()
+        else:
+            # Create child node, insert it into dict and search
+            self.next_states[random_next_state] = MCTSNode(random_next_state, self, self.evaluator,
+                                                                     self.hyperparams, self.n_players)
+            self.next_states[random_next_state].search()
+
+
 class TimestepData:
     def __init__(self, state, pi, player_index):
         self.state = state
@@ -348,6 +375,7 @@ class RewardData:
 
 class DummyAlphaEvaluator(BaseAlphaEvaluator):
     def __init__(self, n_actions):
+        super().__init__()
         self.n_actions = n_actions
         self.P = np.ones(n_actions)
         self.P /= self.P.sum()

@@ -1,3 +1,4 @@
+import torch
 
 
 class Agent:
@@ -8,6 +9,23 @@ class Agent:
         pass
 
     def before_game_start(self, n_players):
+        pass
+
+    def on_game_end(self):
+        pass
+
+    def on_action(self, state, action, next_state):
+        pass
+
+
+class AgentMulti:
+    def get_actions(self, states: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def on_rewards(self, rewards):
+        pass
+
+    def before_game_start(self):
         pass
 
     def on_game_end(self):

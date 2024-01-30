@@ -35,6 +35,18 @@ def play_tournament(game_class, players, n_games, tqdm=True, listeners: Optional
         game.play()
 
 
+def play_tournament_multi(game_class, players, n_parallel_games, n_rounds, tqdm=True, listeners: Optional[List[GameListener]] = None):
+    if not tqdm:
+        loop = range(n_rounds)
+    else:
+        from tqdm.auto import tqdm
+        loop = tqdm(range(n_rounds), desc=f'{game_class.__name__} tournament')
+
+    for _ in loop:
+        game = game_class(n_parallel_games, players, listeners)
+        game.play()
+
+
 def get_all_slots(obj):
     """
     For an object with a __slots__ variable which may inherit from other classes with __slots__ variables, this

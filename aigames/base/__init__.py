@@ -1,2 +1,2 @@
 from .agent import *
-from .game import *
+from .game_deprecated import *
