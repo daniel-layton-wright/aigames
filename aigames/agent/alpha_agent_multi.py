@@ -191,16 +191,18 @@ class RewardData:
 
 
 class DummyAlphaEvaluatorMulti(BaseAlphaEvaluator):
-    def __init__(self, n_actions, n_players):
+    def __init__(self, n_actions, n_players, device='cpu'):
         super().__init__()
         self.n_actions = n_actions
-        self.P = torch.ones(n_actions, dtype=torch.float32)
+        self.device = device
+        self.P = torch.ones(n_actions, dtype=torch.float32, device=device)
         self.P /= self.P.sum()
 
         self.n_players = n_players
 
     def evaluate(self, states):
-        return self.P.repeat(states.shape[0]).reshape(states.shape[0], -1), torch.zeros((states.shape[0], self.n_players))
+        return (self.P.repeat(states.shape[0]).reshape(states.shape[0], -1),
+                torch.zeros((states.shape[0], self.n_players), device=self.device))
 
     def process_state(self, state):
         return state
