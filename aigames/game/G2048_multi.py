@@ -15,7 +15,7 @@ def get_random_new_value():
 
 def get_next_states_core(states: torch.Tensor, actions: torch.Tensor, move_left_map: torch.Tensor,
                          move_right_map: torch.Tensor, reward_map: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    lookup_tensor = torch.FloatTensor([16 ** 3, 16 ** 2, 16, 1], device=states.device).unsqueeze(1)
+    lookup_tensor = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32, device=states.device).unsqueeze(1)
     new_states = torch.zeros_like(states)
     rewards = torch.zeros((states.shape[0], 1), dtype=torch.float32, device=states.device)
     left_mask = (actions == 0)
@@ -65,7 +65,7 @@ def is_terminal_core(states: torch.Tensor, legal_move_mask: torch.Tensor) -> tor
 
 
 def get_legal_action_masks_core(states, legal_move_mask):
-    lookup_tensor = torch.FloatTensor([16 ** 3, 16 ** 2, 16, 1], device=states.device).unsqueeze(1)
+    lookup_tensor = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32, device=states.device).unsqueeze(1)
     ind = states.matmul(lookup_tensor).flatten().to(int)
     mask = legal_move_mask[ind, :].reshape(states.shape[0], 4, 2).any(dim=1)
 
@@ -86,8 +86,6 @@ def get_next_states_from_env_core(states: torch.Tensor) -> Tuple[torch.Tensor, t
 
 
 class G2048Multi(GameMulti):
-
-    lookup_tensor = torch.FloatTensor([16 ** 3, 16 ** 2, 16, 1]).unsqueeze(1)
 
     get_next_states_jit = torch.jit.trace(
         get_next_states_full,
