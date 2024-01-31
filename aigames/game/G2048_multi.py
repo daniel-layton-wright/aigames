@@ -130,7 +130,7 @@ class G2048Multi(GameMulti):
         self.get_next_states_jit = torch.jit.trace(
             get_next_states_full,
             example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device),
-                            torch.LongTensor([0, 0], device=self.device),
+                            torch.zeros((2,), dtype=torch.long, device=self.device),
                             torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=self.device),
                             torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=self.device),
                             torch.randint(0, 2, (16 ** 4, 1), dtype=torch.float32, device=self.device),
