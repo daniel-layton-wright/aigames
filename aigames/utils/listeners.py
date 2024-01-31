@@ -1,22 +1,73 @@
 from ..game.game import GameListener
+from ..game.game_multi import GameListenerMulti
 from ..game import SequentialGame
+from tqdm.auto import tqdm
+import torch
 
 
 class RewardListener(GameListener):
-    def __init__(self, discount_rate, player_index):
+    def __init__(self, discount_rate, player_index, show_tqdm=False, tqdm_total=None):
         self.reward = 0
         self.i = 0
         self.discount_rate = discount_rate
         self.player_index = player_index
 
+        self.show_tqdm = show_tqdm
+        self.tqdm_total = tqdm_total
+        self.tqdm = None
+
     def before_game_start(self, game):
         self.reward = 0
         self.i = 0
 
+        if self.show_tqdm:
+            self.tqdm = tqdm(total=self.tqdm_total) if self.show_tqdm else None
+            self.tqdm.set_description('Game rewards')
+
     def on_action(self, game, action):
         next_state, rewards = game.get_next_state_and_rewards(game.state, action)
-        self.reward += (self.discount_rate ** self.i) * rewards[self.player_index]
+        reward_increment = (self.discount_rate ** self.i) * rewards[self.player_index]
+        self.reward += reward_increment
         self.i += 1
+        self.tqdm.update(reward_increment)
+
+
+class AvgRewardListenerMulti(GameListenerMulti):
+    def __init__(self, discount_rate, player_index, show_tqdm=False, tqdm_total=None):
+        self.rewards = None
+        self.i = 0
+        self.discount_rate = discount_rate
+        self.player_index = player_index
+
+        self.show_tqdm = show_tqdm
+        self.tqdm_total = tqdm_total
+        self.tqdm = None
+
+    def before_game_start(self, game):
+        self.rewards = torch.zeros(game.states.shape[0], dtype=torch.float32, device=game.states.device)
+
+        if self.show_tqdm:
+            self.tqdm = tqdm(total=self.tqdm_total) if self.show_tqdm else None
+            self.tqdm.set_description('Game rewards')
+
+    def on_rewards(self, rewards):
+        reward_increment = (self.discount_rate ** self.i) * rewards[:, self.player_index]
+        self.rewards += reward_increment
+        self.i += 1
+        self.tqdm.update((reward_increment.sum() / self.rewards.shape[0]).cpu().item())
+
+
+class ActionCounterProgressBar(GameListenerMulti):
+    def __init__(self, progress_bar_max):
+        self.progress_bar_max = progress_bar_max
+        self.tqdm = None
+
+    def before_game_start(self, game):
+        self.tqdm = tqdm(total=self.progress_bar_max)
+        self.tqdm.set_description('Game action count')
+
+    def on_action(self, game, actions):
+        self.tqdm.update(1)
 
 
 class AverageRewardListener(RewardListener):

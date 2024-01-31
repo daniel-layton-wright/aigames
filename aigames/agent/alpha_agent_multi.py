@@ -67,7 +67,6 @@ class AlphaAgentHyperparametersMulti:
 
     def __init__(self):
         self.mcts_hyperparams = MCTSHyperparameters()
-        self.n_mcts = 1200
         self.discount_rate = 0.99
         self.training_tau = TrainingTau(1.0)
         self.use_dirichlet_noise_in_eval = False  # the AlphaGo paper is unclear about this
@@ -105,7 +104,7 @@ class AlphaAgentMulti(AgentMulti):
         if self.training or self.hyperparams.use_dirichlet_noise_in_eval:
             self.mcts.add_dirichlet_noise()
 
-        self.mcts.search_for_n_iters(self.hyperparams.n_mcts)
+        self.mcts.search_for_n_iters(self.hyperparams.mcts_hyperparams.n_iters)
 
         if self.training:
             tau = self.hyperparams.training_tau.get_tau(self.move_number_in_current_game)

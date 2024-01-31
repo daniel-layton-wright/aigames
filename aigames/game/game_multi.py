@@ -8,6 +8,9 @@ class GameListenerMulti(GameListener):
     def on_states_from_env(self, game):
         pass
 
+    def on_rewards(self, rewards):
+        pass
+
 
 class GameMulti:
     @classmethod
@@ -86,6 +89,9 @@ class GameMulti:
                 # Advance to the next state according to the move
                 self.states[~is_terminal], rewards, is_env[~is_terminal], is_terminal[~is_terminal] = (
                     self.get_next_states(self.states[~is_terminal], actions))
+
+                for listener in self.listeners:
+                    listener.on_rewards(rewards)
 
                 self.player.on_rewards(rewards)
 
