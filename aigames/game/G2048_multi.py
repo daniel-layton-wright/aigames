@@ -126,7 +126,6 @@ def get_G2048Multi_game_class(d):
         )
 
         def __init__(self, n_parallel_games, player, listeners=None):
-            self.device = 'cpu'
             super().__init__(n_parallel_games, player, listeners)
 
         @classmethod
