@@ -62,8 +62,8 @@ class GameMulti:
 
             self.player.before_game_start(self)
 
-            is_env = torch.zeros((self.n_parallel_games,), dtype=torch.bool)
-            is_terminal = torch.zeros((self.n_parallel_games,), dtype=torch.bool)
+            is_env = torch.zeros((self.n_parallel_games,), dtype=torch.bool, device=self.states.device)
+            is_terminal = torch.zeros((self.n_parallel_games,), dtype=torch.bool, device=self.states.device)
 
             while (~is_terminal).any():
                 if is_env[~is_terminal].any():
