@@ -91,7 +91,8 @@ class G2048Multi(GameMulti):
 
     get_next_states_jit = torch.jit.trace(
         get_next_states_full,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32), torch.LongTensor([0, 0]),
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32),
+                        torch.LongTensor([0, 0]),
                         torch.randint(0, 2, (16**4, 4), dtype=torch.float32),
                         torch.randint(0, 2, (16**4, 4), dtype=torch.float32),
                         torch.randint(0, 2, (16**4, 1), dtype=torch.float32),
@@ -120,10 +121,40 @@ class G2048Multi(GameMulti):
     def set_device(self, device):
         self.device = device
 
-        MOVE_LEFT_MAP.to(self.device)
-        MOVE_RIGHT_MAP.to(self.device)
-        REWARD_MAP.to(self.device)
-        LEGAL_MOVE_MASK.to(self.device)
+        global MOVE_LEFT_MAP, MOVE_RIGHT_MAP, REWARD_MAP, LEGAL_MOVE_MASK
+        MOVE_LEFT_MAP = MOVE_LEFT_MAP.to(self.device)
+        MOVE_RIGHT_MAP = MOVE_RIGHT_MAP.to(self.device)
+        REWARD_MAP = REWARD_MAP.to(self.device)
+        LEGAL_MOVE_MASK = LEGAL_MOVE_MASK.to(self.device)
+
+        self.get_next_states_jit = torch.jit.trace(
+            get_next_states_full,
+            example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device),
+                            torch.LongTensor([0, 0], device=self.device),
+                            torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=self.device),
+                            torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=self.device),
+                            torch.randint(0, 2, (16 ** 4, 1), dtype=torch.float32, device=self.device),
+                            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=self.device))
+        )
+
+        self.get_legal_action_masks_jit = torch.jit.trace(
+            get_legal_action_masks_core,
+            example_inputs=(
+            torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device),
+            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=self.device))
+        )
+
+        self.is_terminal_jit = torch.jit.trace(
+            is_terminal_core,
+            example_inputs=(
+            torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device),
+            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=self.device))
+        )
+
+        self.get_next_states_from_env_jit = torch.jit.trace(
+            get_next_states_from_env_core,
+            example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device))
+        )
 
     @classmethod
     def get_n_players(cls):
