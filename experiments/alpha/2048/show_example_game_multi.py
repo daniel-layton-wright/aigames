@@ -11,12 +11,11 @@ from aigames.utils.utils import play_tournament_multi
 import argparse
 
 
-G2048Multi = get_G2048Multi_game_class('cpu')
-
-
 def main():
     # Set up an argparser
     parser = argparse.ArgumentParser()
+    # Add argument for device
+    parser.add_argument('--device', type=str, default='cpu')
     # Add an argument for whether to use a network or not
     parser.add_argument('--use_network', action='store_true')
     # Add an argument for the number of games
@@ -30,13 +29,15 @@ def main():
     # Parse the args
     args = parser.parse_args()
 
+    G2048Multi = get_G2048Multi_game_class(args.device)
+
     # If using a network set up the network, othereise use a dummy evaluator
     if args.use_network:
         network = TwentyFortyEightNetwork()
         network.eval()
         alpha_evaluator = TwentyFortyEightEvaluator(network)
     else:
-        alpha_evaluator = DummyAlphaEvaluatorMulti(4, 1)
+        alpha_evaluator = DummyAlphaEvaluatorMulti(4, 1, args.device)
 
     hyperparams = AlphaAgentHyperparametersMulti()
     hyperparams.n_mcts = 100
