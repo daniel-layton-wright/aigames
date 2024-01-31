@@ -119,11 +119,7 @@ class G2048Multi(GameMulti):
     def set_device(self, device):
         self.device = device
 
-        global MOVE_LEFT_MAP, MOVE_RIGHT_MAP, REWARD_MAP, LEGAL_MOVE_MASK
-        MOVE_LEFT_MAP = MOVE_LEFT_MAP.to(self.device)
-        MOVE_RIGHT_MAP = MOVE_RIGHT_MAP.to(self.device)
-        REWARD_MAP = REWARD_MAP.to(self.device)
-        LEGAL_MOVE_MASK = LEGAL_MOVE_MASK.to(self.device)
+        move_globals_to_device(device)
 
         self.get_next_states_jit = torch.jit.trace(
             get_next_states_full,
@@ -345,3 +341,11 @@ def get_legal_move_masks():
 MOVE_LEFT_MAP, REWARD_MAP = get_move_left_map_and_rewards()
 MOVE_RIGHT_MAP = get_move_right_map()
 LEGAL_MOVE_MASK = get_legal_move_masks()
+
+
+def move_globals_to_device(device):
+    global MOVE_LEFT_MAP, MOVE_RIGHT_MAP, REWARD_MAP, LEGAL_MOVE_MASK
+    MOVE_LEFT_MAP = MOVE_LEFT_MAP.to(device)
+    MOVE_RIGHT_MAP = MOVE_RIGHT_MAP.to(device)
+    REWARD_MAP = REWARD_MAP.to(device)
+    LEGAL_MOVE_MASK = LEGAL_MOVE_MASK.to(device)

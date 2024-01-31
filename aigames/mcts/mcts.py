@@ -343,7 +343,7 @@ class MCTS:
 
         dirichlet = torch.distributions.dirichlet.Dirichlet(
             torch.full((self.game.get_n_actions(),), self.hyperparams.dirichlet_alpha)
-        ).sample(torch.Size((len(idx),)))
+        ).sample(torch.Size((len(idx),))).to(self.hyperparams.device)
 
         # Apply mask and renormalize
         dirichlet *= mask
