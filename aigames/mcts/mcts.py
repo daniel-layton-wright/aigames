@@ -27,13 +27,14 @@ class MCTS:
         self.device = root_states.device
 
         # The network's pi value for each root, state (outputs a policy size)
+        n_roots = root_states.shape[0]
         n_actions = game.get_n_actions()
         state_shape = game.get_state_shape()
         n_players = game.get_n_players()
         n_stochastic_actions = game.get_n_stochastic_actions()
 
         self.pi = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, n_actions),
+            (n_roots, self.total_states, n_actions),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
@@ -41,14 +42,14 @@ class MCTS:
 
         # The number of visits for each child of each root, state
         self.n = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, n_actions),
+            (n_roots, self.total_states, n_actions),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
         )
 
         self.player_index = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states,),
+            (n_roots, self.total_states,),
             dtype=torch.long,
             device=self.device,
             requires_grad=False
@@ -56,14 +57,14 @@ class MCTS:
 
         # The total values that have been backed-up the tree for each child of each root, state
         self.w = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, n_actions, n_players),
+            (n_roots, self.total_states, n_actions, n_players),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
         )
 
         self.states = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, *state_shape),
+            (n_roots, self.total_states, *state_shape),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
@@ -72,21 +73,21 @@ class MCTS:
         self.states[:, 1] = root_states
 
         self.rewards = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, n_players),
+            (n_roots, self.total_states, n_players),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
         )
 
         self.env_state_rewards = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, n_players),
+            (n_roots, self.total_states, n_players),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
         )
 
         self.env_states = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, *state_shape),
+            (n_roots, self.total_states, *state_shape),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
@@ -94,71 +95,71 @@ class MCTS:
 
         # The action from the parent that got to this node (used for backing up values)
         self.actions = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states,),
+            (n_roots, self.total_states,),
             dtype=torch.long,
             device=self.device,
             requires_grad=False
         )
 
         self.next_idx = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, n_actions),
+            (n_roots, self.total_states, n_actions),
             dtype=torch.long,
             device=self.device,
             requires_grad=False
         )
 
         self.next_idx_env = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, n_stochastic_actions),
+            (n_roots, self.total_states, n_stochastic_actions),
             dtype=torch.long,
             device=self.device,
             requires_grad=False
         )
 
         self.env_is_next = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states, n_actions),
+            (n_roots, self.total_states, n_actions),
             dtype=torch.bool,
             device=self.device,
             requires_grad=False
         )
 
         self.is_leaf = torch.ones(
-            (self.hyperparams.n_roots, self.total_states,),
+            (n_roots, self.total_states,),
             dtype=torch.bool,
             device=self.device,
             requires_grad=False
         )
 
         self.is_terminal = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states,),
+            (n_roots, self.total_states,),
             dtype=torch.bool,
             device=self.device,
             requires_grad=False
         )
 
         self.parent_nodes = torch.zeros(
-            (self.hyperparams.n_roots, self.total_states,),
+            (n_roots, self.total_states,),
             dtype=torch.long,
             device=self.device,
             requires_grad=False
         )
 
-        self.n_iters = torch.zeros(self.hyperparams.n_roots, dtype=torch.long, device=self.device)
+        self.n_iters = torch.zeros(n_roots, dtype=torch.long, device=self.device)
 
-        self.root_idx = torch.arange(self.hyperparams.n_roots, dtype=torch.long, device=self.device)
+        self.root_idx = torch.arange(n_roots, dtype=torch.long, device=self.device)
 
-        self.cur_nodes = torch.ones((self.hyperparams.n_roots,), dtype=torch.long, device=self.device,
+        self.cur_nodes = torch.ones((n_roots,), dtype=torch.long, device=self.device,
                                     requires_grad=False)
 
-        self.next_actions = torch.zeros((self.hyperparams.n_roots,), dtype=torch.long, device=self.device,
+        self.next_actions = torch.zeros((n_roots,), dtype=torch.long, device=self.device,
                                         requires_grad=False)
 
-        self.next_empty_nodes = 2 * torch.ones((self.hyperparams.n_roots,), dtype=torch.long,
+        self.next_empty_nodes = 2 * torch.ones((n_roots,), dtype=torch.long,
                                                device=self.device, requires_grad=False)
 
-        self.next_empty_nodes_env = torch.ones((self.hyperparams.n_roots,), dtype=torch.long,
+        self.next_empty_nodes_env = torch.ones((n_roots,), dtype=torch.long,
                                                 device=self.device, requires_grad=False)
 
-        self.need_to_add_dirichlet_noise = torch.zeros((self.hyperparams.n_roots,), dtype=torch.bool,
+        self.need_to_add_dirichlet_noise = torch.zeros((n_roots,), dtype=torch.bool,
                                                        device=self.device, requires_grad=False)
 
         self.is_terminal[:, 1] = game.is_terminal(self.states[:, 1])
