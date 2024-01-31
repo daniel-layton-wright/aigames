@@ -85,205 +85,187 @@ def get_next_states_from_env_core(states: torch.Tensor) -> Tuple[torch.Tensor, t
     return progressions, probs
 
 
-class G2048Multi(GameMulti):
+def get_G2048Multi_game_class(d):
+    class G2048Multi(GameMulti):
 
-    get_next_states_jit = torch.jit.trace(
-        get_next_states_full,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32),
-                        torch.LongTensor([0, 0]),
-                        torch.randint(0, 2, (16**4, 4), dtype=torch.float32),
-                        torch.randint(0, 2, (16**4, 4), dtype=torch.float32),
-                        torch.randint(0, 2, (16**4, 1), dtype=torch.float32),
-                        torch.randint(0, 2, (16**4, 2), dtype=torch.float32))
-    )
+        device = d
 
-    get_legal_action_masks_jit = torch.jit.trace(
-        get_legal_action_masks_core,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32), torch.randint(0, 2, (16**4, 2), dtype=torch.bool))
-    )
+        MOVE_LEFT_MAP, REWARD_MAP = get_move_left_map_and_rewards()
+        MOVE_LEFT_MAP = MOVE_LEFT_MAP.to(device)
+        REWARD_MAP = REWARD_MAP.to(device)
+        MOVE_RIGHT_MAP = get_move_right_map().to(device)
+        LEGAL_MOVE_MASK = get_legal_move_masks().to(device)
 
-    is_terminal_jit = torch.jit.trace(
-        is_terminal_core,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32), torch.randint(0, 2, (16**4, 2), dtype=torch.bool))
-    )
-
-    get_next_states_from_env_jit = torch.jit.trace(
-        get_next_states_from_env_core,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32))
-    )
-
-    def __init__(self, n_parallel_games, player, listeners=None):
-        self.device = 'cpu'
-        super().__init__(n_parallel_games, player, listeners)
-
-    def set_device(self, device):
-        self.device = device
-
-        move_globals_to_device(device)
-
-        self.get_next_states_jit = torch.jit.trace(
+        get_next_states_jit = torch.jit.trace(
             get_next_states_full,
-            example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device),
-                            torch.zeros((2,), dtype=torch.long, device=self.device),
-                            torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=self.device),
-                            torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=self.device),
-                            torch.randint(0, 2, (16 ** 4, 1), dtype=torch.float32, device=self.device),
-                            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=self.device))
+            example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+                            torch.zeros((2,), dtype=torch.long, device=device),
+                            torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
+                            torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
+                            torch.randint(0, 2, (16 ** 4, 1), dtype=torch.float32, device=device),
+                            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=device))
         )
 
-        self.get_legal_action_masks_jit = torch.jit.trace(
+        get_legal_action_masks_jit = torch.jit.trace(
             get_legal_action_masks_core,
             example_inputs=(
-            torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device),
-            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=self.device))
+                torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+                torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
         )
 
-        self.is_terminal_jit = torch.jit.trace(
+        is_terminal_jit = torch.jit.trace(
             is_terminal_core,
             example_inputs=(
-            torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device),
-            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=self.device))
+                torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+                torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
         )
 
-        self.get_next_states_from_env_jit = torch.jit.trace(
+        get_next_states_from_env_jit = torch.jit.trace(
             get_next_states_from_env_core,
-            example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=self.device))
+            example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device))
         )
 
-    @classmethod
-    def get_n_players(cls):
-        return 1
+        def __init__(self, n_parallel_games, player, listeners=None):
+            self.device = 'cpu'
+            super().__init__(n_parallel_games, player, listeners)
 
-    @classmethod
-    def get_n_actions(cls):
-        return 4
+        @classmethod
+        def get_n_players(cls):
+            return 1
 
-    @classmethod
-    def get_n_stochastic_actions(cls):
-        return 32
+        @classmethod
+        def get_n_actions(cls):
+            return 4
 
-    @classmethod
-    def get_state_shape(cls) -> Tuple[int, ...]:
-        return 4, 4
+        @classmethod
+        def get_n_stochastic_actions(cls):
+            return 32
 
-    class Moves(enum.Enum):
-        LEFT = 0
-        RIGHT = 1
-        UP = 2
-        DOWN = 3
+        @classmethod
+        def get_state_shape(cls) -> Tuple[int, ...]:
+            return 4, 4
 
-    def is_terminal(self, states: torch.FloatTensor):
-        # If any zeros, not terminal, else if no legal actions, terminal
-        # The shape of states is N x state shape so N x 4 x 4
-        # We need to return bools of size (N,)
-        return self.is_terminal_jit(states, LEGAL_MOVE_MASK)
+        class Moves(enum.Enum):
+            LEFT = 0
+            RIGHT = 1
+            UP = 2
+            DOWN = 3
 
-    def get_cur_player_index(self, states) -> torch.Tensor:
-        return torch.zeros((states.shape[0],), dtype=torch.long)
+        def is_terminal(self, states: torch.FloatTensor):
+            # If any zeros, not terminal, else if no legal actions, terminal
+            # The shape of states is N x state shape so N x 4 x 4
+            # We need to return bools of size (N,)
+            return self.is_terminal_jit(states, self.LEGAL_MOVE_MASK)
 
-    def get_next_states(self, states: torch.Tensor, actions: torch.Tensor):
-        """
-        :param states: A tensor of size (N, 4, 4) representing the states
-        :param actions: A tensor of size (N,) representing the actions
-        """
-        return self.get_next_states_jit(states, actions, MOVE_LEFT_MAP, MOVE_RIGHT_MAP, REWARD_MAP, LEGAL_MOVE_MASK)
+        def get_cur_player_index(self, states) -> torch.Tensor:
+            return torch.zeros((states.shape[0],), dtype=torch.long)
 
-    def get_next_states_from_env(self, states: torch.Tensor):
-        """
-        For each state in the states tensor, we need to add a random 1 or 2 into a slot that is zero
+        def get_next_states(self, states: torch.Tensor, actions: torch.Tensor):
+            """
+            :param states: A tensor of size (N, 4, 4) representing the states
+            :param actions: A tensor of size (N,) representing the actions
+            """
+            return self.get_next_states_jit(states, actions, self.MOVE_LEFT_MAP, self.MOVE_RIGHT_MAP,
+                                            self.REWARD_MAP, self.LEGAL_MOVE_MASK)
 
-        :param states: A tensor of size (N, 4, 4) representing the states
-        """
-        next_states, probs = self.get_next_states_from_env_jit(states)
+        def get_next_states_from_env(self, states: torch.Tensor):
+            """
+            For each state in the states tensor, we need to add a random 1 or 2 into a slot that is zero
 
-        idx = torch.multinomial(probs, num_samples=1).to(states.device).flatten()
-        states = next_states[torch.arange(states.shape[0], device=states.device), idx, :, :]
-        is_terminal = self.is_terminal(states)
+            :param states: A tensor of size (N, 4, 4) representing the states
+            """
+            next_states, probs = self.get_next_states_from_env_jit(states)
 
-        return states, idx, is_terminal
+            idx = torch.multinomial(probs, num_samples=1).to(states.device).flatten()
+            states = next_states[torch.arange(states.shape[0], device=states.device), idx, :, :]
+            is_terminal = self.is_terminal(states)
 
-    @classmethod
-    def shift_row_left(cls, row) -> int:
-        """
-        Shifts the row left (in place)
+            return states, idx, is_terminal
 
-        :param row:
-        :return: Point value of merges
-        """
-        merge_values = 0
+        @classmethod
+        def shift_row_left(cls, row) -> int:
+            """
+            Shifts the row left (in place)
 
-        # First move everything over
-        for pos in range(len(row)):
-            if torch.sum(row[pos:]) > 0:  # Shift things over if there are non-zeros to shift over
-                while row[pos] == 0:
-                    row[pos:] = torch.cat([row[(pos+1):], torch.FloatTensor([0])])
+            :param row:
+            :return: Point value of merges
+            """
+            merge_values = 0
 
-        for pos in range(len(row) - 1):
-            if row[pos] == 0:
-                break
+            # First move everything over
+            for pos in range(len(row)):
+                if torch.sum(row[pos:]) > 0:  # Shift things over if there are non-zeros to shift over
+                    while row[pos] == 0:
+                        row[pos:] = torch.cat([row[(pos+1):], torch.FloatTensor([0])])
 
-            if row[pos] == row[pos+1]:
-                row[pos] += 1
-                row[(pos+1):] = torch.cat([row[(pos+2):], torch.FloatTensor([0])])
-                merge_values += row[pos]
+            for pos in range(len(row) - 1):
+                if row[pos] == 0:
+                    break
 
-        return merge_values
+                if row[pos] == row[pos+1]:
+                    row[pos] += 1
+                    row[(pos+1):] = torch.cat([row[(pos+2):], torch.FloatTensor([0])])
+                    merge_values += row[pos]
 
-    def get_initial_states(self, n_games):
-        states = torch.zeros((n_games, 4, 4), dtype=torch.float32, device=self.device)
+            return merge_values
 
-        # Add in two random values for each state
-        states, _, _ = self.get_next_states_from_env(states)
-        states, _, _ = self.get_next_states_from_env(states)
+        def get_initial_states(self, n_games):
+            states = torch.zeros((n_games, 4, 4), dtype=torch.float32, device=self.device)
 
-        return states
+            # Add in two random values for each state
+            states, _, _ = self.get_next_states_from_env(states)
+            states, _, _ = self.get_next_states_from_env(states)
 
-    def get_legal_action_masks(self, states: torch.FloatTensor):
-        """
-        :param states: A tensor of size (N, 4, 4) representing the states
-        """
-        return self.get_legal_action_masks_jit(states, LEGAL_MOVE_MASK)
+            return states
 
-    @classmethod
-    def row_can_move_left(cls, row):
-        if any(i == j and i != 0 for i, j in zip(row[:-1], row[1:])):
-            # A merge can be done
-            return True
+        def get_legal_action_masks(self, states: torch.FloatTensor):
+            """
+            :param states: A tensor of size (N, 4, 4) representing the states
+            """
+            return self.get_legal_action_masks_jit(states, self.LEGAL_MOVE_MASK)
 
-        first_zero = next((i for i, x in enumerate(row) if x == 0), None)
-        last_non_zero = next((len(row) - i for i, x in enumerate(reversed(row)) if x != 0), None)
-        if first_zero is not None and last_non_zero is not None and first_zero < last_non_zero:
-            # The first zero is to the left of the last non-zero, so the row can shift over
-            return True
+        @classmethod
+        def row_can_move_left(cls, row):
+            if any(i == j and i != 0 for i, j in zip(row[:-1], row[1:])):
+                # A merge can be done
+                return True
 
-        return False
+            first_zero = next((i for i, x in enumerate(row) if x == 0), None)
+            last_non_zero = next((len(row) - i for i, x in enumerate(reversed(row)) if x != 0), None)
+            if first_zero is not None and last_non_zero is not None and first_zero < last_non_zero:
+                # The first zero is to the left of the last non-zero, so the row can shift over
+                return True
 
-    @classmethod
-    def row_can_move_right(cls, row):
-        return cls.row_can_move_left(np.flip(row, 0))
+            return False
 
-    @classmethod
-    def col_can_move_up(cls, col):
-        return cls.row_can_move_left(col)
+        @classmethod
+        def row_can_move_right(cls, row):
+            return cls.row_can_move_left(np.flip(row, 0))
 
-    @classmethod
-    def col_can_move_down(cls, col):
-        return cls.row_can_move_right(col)
+        @classmethod
+        def col_can_move_up(cls, col):
+            return cls.row_can_move_left(col)
 
-    def __str__(self):
-        def line_to_str(line, padding):
-            out = []
-            for i in line:
-                out.append(str(i.item()).ljust(padding))
+        @classmethod
+        def col_can_move_down(cls, col):
+            return cls.row_can_move_right(col)
 
-            return out
+        def __str__(self):
+            def line_to_str(line, padding):
+                out = []
+                for i in line:
+                    out.append(str(i.item()).ljust(padding))
 
-        grid = self.states.reshape(-1, 4)
-        padding = len(str(grid.max()))
-        line_length = padding*4 + 3
-        return (
-            ('-' * line_length + '\n').join(['{}|{}|{}|{}\n'.format(*line_to_str(grid[i, :], padding)) for i in range(grid.shape[0])])
-        )
+                return out
+
+            grid = self.states.reshape(-1, 4)
+            padding = len(str(grid.max()))
+            line_length = padding*4 + 3
+            return (
+                ('-' * line_length + '\n').join(['{}|{}|{}|{}\n'.format(*line_to_str(grid[i, :], padding)) for i in range(grid.shape[0])])
+            )
+
+    return G2048Multi
 
 
 def get_move_left_map_and_rewards():
@@ -336,16 +318,3 @@ def get_legal_move_masks():
                     legal_move_mask[ind, 1] = G2048.row_can_move_left(torch.flip(row, [0]))
 
     return legal_move_mask
-
-
-MOVE_LEFT_MAP, REWARD_MAP = get_move_left_map_and_rewards()
-MOVE_RIGHT_MAP = get_move_right_map()
-LEGAL_MOVE_MASK = get_legal_move_masks()
-
-
-def move_globals_to_device(device):
-    global MOVE_LEFT_MAP, MOVE_RIGHT_MAP, REWARD_MAP, LEGAL_MOVE_MASK
-    MOVE_LEFT_MAP = MOVE_LEFT_MAP.to(device)
-    MOVE_RIGHT_MAP = MOVE_RIGHT_MAP.to(device)
-    REWARD_MAP = REWARD_MAP.to(device)
-    LEGAL_MOVE_MASK = LEGAL_MOVE_MASK.to(device)
