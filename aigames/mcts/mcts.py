@@ -208,6 +208,7 @@ class MCTS:
         self.backup(idx, self.parent_nodes[idx, nodes], self.actions[idx, nodes],
                     self.rewards[idx, nodes])
 
+        self.n_iters[terminal_mask] += 1
         self.cur_nodes[terminal_mask] = 1
 
     def advance_to_next_states(self, idx, nodes, next_actions):
