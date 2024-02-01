@@ -73,16 +73,22 @@ def get_legal_action_masks_core(states, legal_move_mask):
     return torch.cat([mask, legal_move_mask[ind, :].reshape(states.shape[0], 4, 2).any(dim=1)], dim=1)
 
 
-def get_next_states_from_env_core(states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_next_states_from_env_core(states: torch.Tensor, random_values: torch.Tensor, legal_move_mask)\
+        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     ones = torch.eye(16, dtype=states.dtype).view(16, 4, 4)
     twos = torch.eye(16, dtype=states.dtype).view(16, 4, 4) * 2
     base_progressions = torch.concat([ones, twos], dim=0).to(states.device)
     base_probabilities = torch.concat([torch.full((16,), 0.9), torch.full((16,), 0.1)], dim=0).to(states.device)
     valid_progressions = torch.logical_not(torch.any((states.unsqueeze(1) * base_progressions).view(-1, 32, 16), dim=2))
-    progressions = (states.unsqueeze(1) + base_progressions) * valid_progressions.view(states.shape[0], 32, 1, 1)
     probs = base_probabilities * valid_progressions
+    probs /= probs.sum(dim=1, keepdim=True)
+    idx = select_indices(probs, random_values)
+    is_terminal = is_terminal_core(states, legal_move_mask)
+    return states + base_progressions[idx], idx, is_terminal
 
-    return progressions, probs
+
+def select_indices(probs, random_values):
+    return (probs.cumsum(dim=1) < random_values.unsqueeze(-1)).sum(dim=1)
 
 
 def get_G2048Multi_game_class(d):
@@ -122,7 +128,9 @@ def get_G2048Multi_game_class(d):
 
         get_next_states_from_env_jit = torch.jit.trace(
             get_next_states_from_env_core,
-            example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device))
+            example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+                            torch.rand(2, dtype=torch.float32, device=device),
+                            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
         )
 
         def __init__(self, n_parallel_games, player, listeners=None):
@@ -150,11 +158,12 @@ def get_G2048Multi_game_class(d):
             UP = 2
             DOWN = 3
 
-        def is_terminal(self, states: torch.FloatTensor):
+        @classmethod
+        def is_terminal(cls, states: torch.FloatTensor):
             # If any zeros, not terminal, else if no legal actions, terminal
             # The shape of states is N x state shape so N x 4 x 4
             # We need to return bools of size (N,)
-            return self.is_terminal_jit(states, self.LEGAL_MOVE_MASK)
+            return cls.is_terminal_jit(states, cls.LEGAL_MOVE_MASK)
 
         def get_cur_player_index(self, states) -> torch.Tensor:
             return torch.zeros((states.shape[0],), dtype=torch.long)
@@ -167,19 +176,15 @@ def get_G2048Multi_game_class(d):
             return self.get_next_states_jit(states, actions, self.MOVE_LEFT_MAP, self.MOVE_RIGHT_MAP,
                                             self.REWARD_MAP, self.LEGAL_MOVE_MASK)
 
-        def get_next_states_from_env(self, states: torch.Tensor):
+        @classmethod
+        def get_next_states_from_env(cls, states: torch.Tensor):
             """
             For each state in the states tensor, we need to add a random 1 or 2 into a slot that is zero
 
             :param states: A tensor of size (N, 4, 4) representing the states
             """
-            next_states, probs = self.get_next_states_from_env_jit(states)
-
-            idx = torch.multinomial(probs, num_samples=1).to(states.device).flatten()
-            states = next_states[torch.arange(states.shape[0], device=states.device), idx, :, :]
-            is_terminal = self.is_terminal(states)
-
-            return states, idx, is_terminal
+            random_values = torch.rand(states.shape[0], dtype=torch.float32, device=states.device)
+            return cls.get_next_states_from_env_jit(states, random_values, cls.LEGAL_MOVE_MASK)
 
         @classmethod
         def shift_row_left(cls, row) -> int:
@@ -208,12 +213,13 @@ def get_G2048Multi_game_class(d):
 
             return merge_values
 
-        def get_initial_states(self, n_games):
-            states = torch.zeros((n_games, 4, 4), dtype=torch.float32, device=self.device)
+        @classmethod
+        def get_initial_states(cls, n_games):
+            states = torch.zeros((n_games, 4, 4), dtype=torch.float32, device=cls.device)
 
             # Add in two random values for each state
-            states, _, _ = self.get_next_states_from_env(states)
-            states, _, _ = self.get_next_states_from_env(states)
+            states, _, _ = cls.get_next_states_from_env(states)
+            states, _, _ = cls.get_next_states_from_env(states)
 
             return states
 
