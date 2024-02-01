@@ -26,12 +26,14 @@ def main():
     parser.add_argument('--show_avg_score', action='store_true')
     # Add argument for action counter
     parser.add_argument('--show_action_counter', action='store_true')
+    # Pdb flag
+    parser.add_argument('--pdb', action='store_true')
     # Parse the args
     args = parser.parse_args()
 
     G2048Multi = get_G2048Multi_game_class(args.device)
 
-    # If using a network set up the network, othereise use a dummy evaluator
+    # If using a network set up the network, otherwise use a dummy evaluator
     if args.use_network:
         network = TwentyFortyEightNetwork()
         network.eval()
@@ -40,7 +42,7 @@ def main():
         alpha_evaluator = DummyAlphaEvaluatorMulti(4, 1, args.device)
 
     hyperparams = AlphaAgentHyperparametersMulti()
-    hyperparams.n_mcts = 100
+    hyperparams.mcts_hyperparams.n_iters = 100
     alpha_agent = AlphaAgentMulti(G2048Multi, alpha_evaluator, hyperparams)
 
     listeners = []
@@ -54,6 +56,10 @@ def main():
         listeners.append(ActionCounterProgressBar(200))
 
     play_tournament_multi(G2048Multi, alpha_agent, args.n_games, 1, listeners=listeners)
+
+    if args.pdb:
+        import pdb
+        pdb.set_trace()
 
 
 if __name__ == '__main__':

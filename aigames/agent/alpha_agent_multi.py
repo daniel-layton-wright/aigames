@@ -62,8 +62,7 @@ class TrainingTau:
 
 
 class AlphaAgentHyperparametersMulti:
-    __slots__ = ['mcts_hyperparams', 'n_mcts', 'discount_rate', 'training_tau',
-                 'use_dirichlet_noise_in_eval']
+    __slots__ = ['mcts_hyperparams', 'discount_rate', 'training_tau', 'use_dirichlet_noise_in_eval']
 
     def __init__(self):
         self.mcts_hyperparams = MCTSHyperparameters()
@@ -111,7 +110,7 @@ class AlphaAgentMulti(AgentMulti):
         else:
             tau = 0.0
 
-        if self.hyperparams.n_mcts > 1:
+        if self.hyperparams.mcts_hyperparams.n_iters > 1:
             action_distribution = self.mcts.n[:, 1]
         else:
             self.mcts.expand()
