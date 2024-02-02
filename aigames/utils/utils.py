@@ -79,3 +79,56 @@ def load_from_arg_parser(args, obj):
     """
     for slot in get_all_slots(obj):
         setattr(obj, slot, getattr(args, slot))
+
+
+def cache(func):
+    """
+    A decorator for functions which will cache the result to file
+    """
+    try:
+        import os
+        import sys
+        path = os.path.abspath(os.path.dirname(sys.modules[func.__module__].__file__))
+        filename = f'{func.__name__}_cache.pkl'
+        full_file_path = os.path.join(path, filename)
+
+        import pickle
+
+        if not os.path.exists(full_file_path):
+            # Create the file and put in an empty dict
+            with open(full_file_path, 'wb') as f:
+                pickle.dump({}, f)
+
+        def wrapped_func(*args, **kwargs):
+            try:
+                with open(full_file_path, 'rb') as f:
+                    cache_dict = pickle.load(f)
+
+                    # Hash args and kwargs
+                    import hashlib
+                    hash = hashlib.md5()
+                    hash.update(pickle.dumps(args))
+                    hash.update(pickle.dumps(kwargs))
+                    hash = hash.hexdigest()
+
+                    if hash in cache_dict:
+                        return cache_dict[hash]
+                    else:
+                        result = func(*args, **kwargs)
+                        cache_dict[hash] = result
+                        with open(full_file_path, 'wb') as f:
+                            pickle.dump(cache_dict, f)
+                        return result
+            except Exception as e:
+                # If anything goes wrong just return the result from the original function and print warning message
+                import warnings
+                warnings.warn(f'Cache failed: {e}, using original function')
+                return func(*args, **kwargs)
+
+        return wrapped_func
+
+    except Exception as e:
+        # If anything goes wrong, just return the original function and make a warning message
+        import warnings
+        warnings.warn(f'Cache decorator failed: {e}, using original function')
+        return func

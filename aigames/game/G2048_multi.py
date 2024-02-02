@@ -2,8 +2,8 @@ from typing import List, Tuple, Final
 import numpy as np
 import enum
 import torch
-from .G2048 import G2048
 from aigames.game.game_multi import GameMulti
+from aigames.utils.utils import cache
 
 
 def get_random_new_value():
@@ -234,32 +234,6 @@ def get_G2048Multi_game_class(d):
             """
             return self.get_legal_action_masks_jit(states, self.LEGAL_MOVE_MASK)
 
-        @classmethod
-        def row_can_move_left(cls, row):
-            if any(i == j and i != 0 for i, j in zip(row[:-1], row[1:])):
-                # A merge can be done
-                return True
-
-            first_zero = next((i for i, x in enumerate(row) if x == 0), None)
-            last_non_zero = next((len(row) - i for i, x in enumerate(reversed(row)) if x != 0), None)
-            if first_zero is not None and last_non_zero is not None and first_zero < last_non_zero:
-                # The first zero is to the left of the last non-zero, so the row can shift over
-                return True
-
-            return False
-
-        @classmethod
-        def row_can_move_right(cls, row):
-            return cls.row_can_move_left(np.flip(row, 0))
-
-        @classmethod
-        def col_can_move_up(cls, col):
-            return cls.row_can_move_left(col)
-
-        @classmethod
-        def col_can_move_down(cls, col):
-            return cls.row_can_move_right(col)
-
         def __str__(self):
             def line_to_str(line, padding):
                 out = []
@@ -278,6 +252,52 @@ def get_G2048Multi_game_class(d):
     return G2048Multi
 
 
+def row_can_move_left(row):
+    if any(i == j and i != 0 for i, j in zip(row[:-1], row[1:])):
+        # A merge can be done
+        return True
+
+    first_zero = next((i for i, x in enumerate(row) if x == 0), None)
+    last_non_zero = next((len(row) - i for i, x in enumerate(reversed(row)) if x != 0), None)
+    if first_zero is not None and last_non_zero is not None and first_zero < last_non_zero:
+        # The first zero is to the left of the last non-zero, so the row can shift over
+        return True
+
+    return False
+
+
+def row_can_move_right(row):
+    return row_can_move_left(np.flip(row, 0))
+
+
+def shift_row_left(row) -> int:
+    """
+    Shifts the row left (in place)
+
+    :param row:
+    :return: Point value of merges
+    """
+    merge_values = 0
+
+    # First move everything over
+    for pos in range(len(row)):
+        if torch.sum(row[pos:]) > 0:  # Shift things over if there are non-zeros to shift over
+            while row[pos] == 0:
+                row[pos:] = torch.cat([row[(pos+1):], torch.FloatTensor([0])])
+
+    for pos in range(len(row) - 1):
+        if row[pos] == 0:
+            break
+
+        if row[pos] == row[pos+1]:
+            row[pos] += 1
+            row[(pos+1):] = torch.cat([row[(pos+2):], torch.FloatTensor([0])])
+            merge_values += 2**row[pos]
+
+    return merge_values
+
+
+@cache
 def get_move_left_map_and_rewards():
     move_left_map = torch.zeros((16**4, 4), dtype=torch.float)
     reward_map = torch.zeros((16**4, 1), dtype=torch.float)
@@ -288,13 +308,14 @@ def get_move_left_map_and_rewards():
                 for l in range(16):
                     row = torch.FloatTensor([i, j, k, l])
                     ind = int(lookup_tensor.dot(row).item())
-                    reward = G2048.shift_row_left(row)
+                    reward = shift_row_left(row)
                     move_left_map[ind, :] = row
                     reward_map[ind] = reward
 
     return move_left_map, reward_map
 
 
+@cache
 def get_move_right_map():
     move_right_map = torch.zeros((16**4, 4), dtype=torch.float)
     lookup_tensor = torch.FloatTensor([16**3, 16**2, 16, 1])
@@ -305,13 +326,14 @@ def get_move_right_map():
                     row = torch.FloatTensor([i, j, k, l])
                     ind = int(lookup_tensor.dot(row).item())
                     row = torch.flip(row, [0])
-                    G2048.shift_row_left(row)
+                    shift_row_left(row)
                     row = torch.flip(row, [0])
                     move_right_map[ind, :] = row
 
     return move_right_map
 
 
+@cache
 def get_legal_move_masks():
     """
     Fills in the LEGAL_MOVE_MASK array for a row. The format is [LEFT, RIGHT] (use transposes to get up down)
@@ -324,7 +346,7 @@ def get_legal_move_masks():
                 for l in range(16):
                     row = torch.FloatTensor([i, j, k, l])
                     ind = int(lookup_tensor.dot(row).item())
-                    legal_move_mask[ind, 0] = G2048.row_can_move_left(row)
-                    legal_move_mask[ind, 1] = G2048.row_can_move_left(torch.flip(row, [0]))
+                    legal_move_mask[ind, 0] = row_can_move_left(row)
+                    legal_move_mask[ind, 1] = row_can_move_left(torch.flip(row, [0]))
 
     return legal_move_mask
