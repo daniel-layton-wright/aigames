@@ -221,12 +221,14 @@ class MCTS:
         is_env = self.env_is_next[idx[mask], nodes[mask], next_actions[mask]]
         self.cur_nodes[idx[mask][~is_env]] = next_idx[mask][~is_env]
 
-        # If the next idx is an env state, we need to get the next player state
-        idx_env = idx[mask][is_env]
-        self.advance_to_player_states_from_env_states(idx_env, next_idx[mask][is_env], nodes[mask][is_env])
-
         # If the next idx is zero then we need to fill it in
         self.fill_in_next_states(idx[~mask], nodes[~mask], next_actions[~mask])
+
+        # Now we have a valid next_idx for everybody
+        # If the next idx is an env state, we need to get the next player state
+        is_env = self.env_is_next[idx, nodes, next_actions]
+        next_idx_env = self.next_idx[idx, nodes, next_actions][is_env]
+        self.advance_to_player_states_from_env_states(idx[is_env], next_idx_env, nodes[is_env])
 
         # Set the action
         self.actions[idx, self.cur_nodes[idx]] = next_actions
@@ -255,8 +257,6 @@ class MCTS:
         self.env_states[idx_env, next_nodes_env] = next_states[is_env]
         self.env_state_rewards[idx_env, next_nodes_env] = rewards[is_env]
         self.next_idx[idx_env, cur_nodes[is_env], next_actions[is_env]] = next_nodes_env
-
-        self.advance_to_player_states_from_env_states(idx_env, next_nodes_env, cur_nodes[is_env])
 
         self.next_empty_nodes_env[idx_env] += 1
 
