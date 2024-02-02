@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Final
 import numpy as np
 import enum
 import torch
@@ -15,7 +15,7 @@ def get_random_new_value():
 
 def get_next_states_core(states: torch.Tensor, actions: torch.Tensor, move_left_map: torch.Tensor,
                          move_right_map: torch.Tensor, reward_map: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    lookup_tensor = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32, device=states.device).unsqueeze(1)
+    lookup_tensor: Final = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32, device=states.device).unsqueeze(1)
     new_states = torch.zeros_like(states)
     rewards = torch.zeros((states.shape[0], 1), dtype=torch.float32, device=states.device)
     left_mask = (actions == 0)
@@ -65,7 +65,7 @@ def is_terminal_core(states: torch.Tensor, legal_move_mask: torch.Tensor) -> tor
 
 
 def get_legal_action_masks_core(states, legal_move_mask):
-    lookup_tensor = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32, device=states.device).unsqueeze(1)
+    lookup_tensor: Final = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32, device=states.device).unsqueeze(1)
     ind = states.matmul(lookup_tensor).flatten().to(int)
     mask = legal_move_mask[ind, :].reshape(states.shape[0], 4, 2).any(dim=1)
 
@@ -75,16 +75,21 @@ def get_legal_action_masks_core(states, legal_move_mask):
 
 def get_next_states_from_env_core(states: torch.Tensor, random_values: torch.Tensor, legal_move_mask)\
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    ones = torch.eye(16, dtype=states.dtype).view(16, 4, 4)
-    twos = torch.eye(16, dtype=states.dtype).view(16, 4, 4) * 2
-    base_progressions = torch.concat([ones, twos], dim=0).to(states.device)
-    base_probabilities = torch.concat([torch.full((16,), 0.9), torch.full((16,), 0.1)], dim=0).to(states.device)
+    base_progressions = torch.tensor(torch.concat([
+        torch.eye(16, dtype=states.dtype).view(16, 4, 4),
+        torch.eye(16, dtype=states.dtype).view(16, 4, 4) * 2
+    ], dim=0).to(states.device))
+    base_probabilities = torch.tensor(torch.concat([
+        torch.full((16,), 0.9),
+        torch.full((16,), 0.1)
+    ], dim=0).to(states.device))
     valid_progressions = torch.logical_not(torch.any((states.unsqueeze(1) * base_progressions).view(-1, 32, 16), dim=2))
     probs = base_probabilities * valid_progressions
     probs /= probs.sum(dim=1, keepdim=True)
     idx = select_indices(probs, random_values)
-    is_terminal = is_terminal_core(states, legal_move_mask)
-    return states + base_progressions[idx], idx, is_terminal
+    next_states = states + base_progressions[idx]
+    is_terminal = is_terminal_core(next_states, legal_move_mask)
+    return next_states, idx, is_terminal
 
 
 def select_indices(probs, random_values):
