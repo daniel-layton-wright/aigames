@@ -171,7 +171,7 @@ def get_G2048Multi_game_class(d):
             return cls.is_terminal_jit(states, cls.LEGAL_MOVE_MASK)
 
         def get_cur_player_index(self, states) -> torch.Tensor:
-            return torch.zeros((states.shape[0],), dtype=torch.long)
+            return torch.zeros((states.shape[0],), dtype=torch.long, device=states.device)
 
         def get_next_states(self, states: torch.Tensor, actions: torch.Tensor):
             """
