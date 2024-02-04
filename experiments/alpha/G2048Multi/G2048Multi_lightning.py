@@ -33,13 +33,6 @@ class G2048BestTileListener(GameListenerMulti):
 def main():
     network = G2048MultiNetwork(n_blocks=2, n_channels=64, n_out_channels=16)
 
-    # Set up the evaluator. If a GPU is available, use it, otherwise use the CPU
-    if torch.cuda.is_available():
-        device = torch.device('cuda:0')
-    else:
-        device = torch.device('cpu')
-
-    evaluator = G2048MultiEvaluator(network, device=device)
     hyperparams = AlphaMultiTrainingHyperparameters()
     hyperparams.self_play_every_n_epochs = 10
     hyperparams.n_parallel_games = 1000
@@ -53,13 +46,12 @@ def main():
     hyperparams.weight_decay = 1e-4
     hyperparams.training_tau = TrainingTau(fixed_tau_value=1)
     hyperparams.batch_size = 512
-    c = CommandLineGame(0)
-    c.on_rewards = lambda x: None
-    hyperparams.game_listeners = [ActionCounterProgressBar(500), c]
+    hyperparams.game_listeners = [ActionCounterProgressBar(500)]
 
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
     add_all_slots_to_arg_parser(parser, hyperparams)
+    add_all_slots_to_arg_parser(parser, hyperparams.mcts_hyperparams)
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/G2048Multi/')
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
     parser.add_argument('--max_epochs', type=int, default=100, help='Max epochs')
@@ -68,6 +60,9 @@ def main():
     args = parser.parse_args()
     for slot in get_all_slots(hyperparams):
         setattr(hyperparams, slot, getattr(args, slot))
+
+    for slot in get_all_slots(hyperparams.mcts_hyperparams):
+        setattr(hyperparams.mcts_hyperparams, slot, getattr(args, slot))
 
     # Start wandb run
     wandb_kwargs = dict(
@@ -80,6 +75,7 @@ def main():
     wandb.init(**wandb_kwargs)
     wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
 
+    evaluator = G2048MultiEvaluator(network, device=hyperparams.device)
     G2048Multi = get_G2048Multi_game_class(hyperparams.device)
 
     training_run = AlphaMultiTrainingRunLightning(G2048Multi, network, evaluator, hyperparams)
