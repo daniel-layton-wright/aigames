@@ -170,7 +170,7 @@ class AlphaAgentMulti(AgentMulti):
                 cum_rewards = (data.reward_value.nan_to_num(0) + self.hyperparams.discount_rate * cum_rewards)
             elif isinstance(data, TimestepData):
                 mask = data.player_index >= 0
-                reward = cum_rewards[torch.arange(self.game.n_parallel_games)[mask], :]
+                reward = cum_rewards[torch.arange(self.game.n_parallel_games, device=mask.device)[mask], :]
                 for data_listener in self.listeners:
                     data_listener.on_data_point(data.states[mask], data.pis[mask], reward)
 

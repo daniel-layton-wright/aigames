@@ -19,7 +19,7 @@ class Agent:
 
 
 class AgentMulti:
-    def get_actions(self, states: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def get_actions(self, states: torch.Tensor, mask: torch.BoolTensor) -> torch.Tensor:
         raise NotImplementedError()
 
     def on_rewards(self, rewards: torch.Tensor, mask: torch.Tensor):
