@@ -80,7 +80,7 @@ class GameMulti:
                     listener.on_states_from_env(self)
 
                 # Ask the player for his move:
-                actions = self.player.get_actions(self.states[~is_terminal])
+                actions = self.player.get_actions(self.states[~is_terminal], ~is_terminal)
 
                 # Notify listeners of the move
                 for listener in self.listeners:
@@ -93,7 +93,7 @@ class GameMulti:
                 for listener in self.listeners:
                     listener.on_rewards(rewards)
 
-                self.player.on_rewards(rewards)
+                self.player.on_rewards(rewards, ~is_terminal)
 
                 # Callback to listeners after the action
                 for listener in self.listeners:

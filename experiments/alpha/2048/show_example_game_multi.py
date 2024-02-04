@@ -3,7 +3,6 @@ Prints out a game between to naive MCTS players (dummy alpha evaluator)
 """
 from aigames.game import CommandLineGame
 from aigames.game.G2048_multi import get_G2048Multi_game_class
-from aigames.agent.alpha_agent import AlphaAgent, DummyAlphaEvaluator, AlphaAgentHyperparameters
 from aigames.agent.alpha_agent_multi import AlphaAgentMulti, AlphaAgentHyperparametersMulti as AlphaAgentHyperparametersMulti, DummyAlphaEvaluatorMulti
 from aigames.utils.listeners import AvgRewardListenerMulti, ActionCounterProgressBar
 from .network_architectures import TwentyFortyEightNetwork, TwentyFortyEightEvaluator

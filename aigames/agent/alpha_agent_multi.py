@@ -1,10 +1,6 @@
-import numpy as np
-from .agent import Agent, AgentMulti
-from ..game.game import SequentialGame
+from .agent import AgentMulti
 from typing import Type, List
-from tqdm.auto import tqdm
 import torch
-
 from ..game.game_multi import GameMulti
 from ..mcts.mcts import MCTS, MCTSHyperparameters
 
@@ -28,7 +24,7 @@ class BaseAlphaEvaluator:
         pass
 
 
-class AlphaAgentListener:
+class AlphaAgentMultiListener:
     def after_mcts_search(self, root_node):
         pass
 
@@ -36,7 +32,7 @@ class AlphaAgentListener:
         pass
 
 
-class AlphaAgentDebugListener(AlphaAgentListener):
+class AlphaAgentDebugListener(AlphaAgentMultiListener):
     def after_mcts_search(self, root_node):
         import pdb
         pdb.set_trace()
@@ -78,7 +74,7 @@ class AlphaAgentMulti(AgentMulti):
     version of MCTS). It's root parallelization.
     """
     def __init__(self, game_class: Type[GameMulti], evaluator: BaseAlphaEvaluator,
-                 hyperparams: AlphaAgentHyperparametersMulti, listeners: List[AlphaAgentListener] = None,
+                 hyperparams: AlphaAgentHyperparametersMulti, listeners: List[AlphaAgentMultiListener] = None,
                  use_tqdm: bool = False):
         super().__init__()
         self.game = None
@@ -93,7 +89,7 @@ class AlphaAgentMulti(AgentMulti):
         self.listeners = listeners if listeners is not None else []
         self.use_tqdm = use_tqdm
 
-    def get_actions(self, states, is_terminal=None):
+    def get_actions(self, states, mask):
         # TODO: reuse previous nodes
         n_parallel_games = states.shape[0]
         self.hyperparams.mcts_hyperparams.n_roots = n_parallel_games
@@ -117,7 +113,6 @@ class AlphaAgentMulti(AgentMulti):
             action_distribution = self.mcts.pi[:, 1]
 
         pi = torch.zeros((n_parallel_games, self.game_class.get_n_actions()))
-        actions = torch.zeros(n_parallel_games, dtype=torch.long)
 
         if tau > 0:
             pi = action_distribution ** (1. / tau)
@@ -128,14 +123,26 @@ class AlphaAgentMulti(AgentMulti):
             pi[torch.arange(n_parallel_games), action_distribution.argmax(dim=1)] = 1
             actions = action_distribution.argmax(dim=1).flatten()
 
-        # Record this for training, set the root node to the next node now and forget the parent
-        player_index = self.game.get_cur_player_index(states)
-        self.episode_history.append(TimestepData(states, pi, player_index))
+        self.record_pi(mask, pi, states)
 
         return actions
 
-    def on_rewards(self, rewards):
-        pass
+    def record_pi(self, mask, pi, states):
+        # Record this for training, set the root node to the next node now and forget the parent
+        full_pi = torch.ones((mask.shape[0], *pi.shape[1:]), dtype=pi.dtype, device=pi.device) * torch.nan
+        full_states = torch.ones((mask.shape[0], *states.shape[1:]), dtype=states.dtype,
+                                 device=states.device) * torch.nan
+        player_index = torch.ones((mask.shape[0],), dtype=torch.long, device=states.device) * -1
+        full_states[mask] = states
+        player_index[mask] = self.game.get_cur_player_index(states)
+        full_pi[mask] = pi
+        self.episode_history.append(TimestepData(full_states, full_pi, player_index))
+
+    def on_rewards(self, rewards: torch.Tensor, mask: torch.Tensor):
+        full_rewards = (torch.ones((mask.shape[0], *rewards.shape[1:]), dtype=rewards.dtype, device=rewards.device)
+                        * torch.nan)
+        full_rewards[mask] = rewards
+        self.episode_history.append(RewardData(full_rewards))
 
     def train(self):
         self.evaluator.train()
@@ -145,47 +152,44 @@ class AlphaAgentMulti(AgentMulti):
         self.evaluator.eval()
         self.training = False
 
-    def before_game_start(self, game):
+    def before_game_start(self, game: GameMulti):
         self.game = game
         self.episode_history = []
         self.move_number_in_current_game = 0
 
     def on_game_end(self):
-        return
-
         if not self.training:
             return
 
         episode_history = reversed(self.episode_history)  # work backwards
-        cum_rewards = [0 for _ in range(self.n_players)]
+        cum_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32)
 
         for data in episode_history:
             if isinstance(data, RewardData):
-                cum_rewards[data.player_index] = (data.reward_value +
-                                                  self.hyperparams.discount_rate * cum_rewards[data.player_index])
+                cum_rewards = (data.reward_value.nan_to_num(0) + self.hyperparams.discount_rate * cum_rewards)
             elif isinstance(data, TimestepData):
-                reward = cum_rewards[data.player_index]
+                mask = data.player_index >= 0
+                reward = cum_rewards[torch.arange(self.game.n_parallel_games)[mask], :]
                 for data_listener in self.listeners:
-                    data_listener.on_data_point(data.state, data.pi, reward)
+                    data_listener.on_data_point(data.states[mask], data.pis[mask], reward)
 
 
 class TimestepData:
-    def __init__(self, state, pi, player_index):
-        self.state = state
-        self.pi = pi
+    def __init__(self, states, pis, player_index):
+        self.states = states
+        self.pis = pis
         self.player_index = player_index
 
     def __repr__(self):
-        return f'(state: {self.state}, pi={self.pi}, i={self.player_index})'
+        return f'(state: {self.states}, pi={self.pis}, i={self.player_index})'
 
 
 class RewardData:
-    def __init__(self, player_index, reward_value):
-        self.player_index = player_index
+    def __init__(self, reward_value):
         self.reward_value = reward_value
 
     def __repr__(self):
-        return f'(p: {self.player_index}, r: {self.reward_value})'
+        return f'(r: {self.reward_value})'
 
 
 class DummyAlphaEvaluatorMulti(BaseAlphaEvaluator):

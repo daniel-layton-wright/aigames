@@ -143,8 +143,6 @@ class MCTS:
             requires_grad=False
         )
 
-        self.n_iters = torch.zeros(n_roots, dtype=torch.long, device=self.device)
-
         self.root_idx = torch.arange(n_roots, dtype=torch.long, device=self.device)
 
         self.cur_nodes = torch.ones((n_roots,), dtype=torch.long, device=self.device,
@@ -162,19 +160,24 @@ class MCTS:
         self.need_to_add_dirichlet_noise = torch.zeros((n_roots,), dtype=torch.bool,
                                                        device=self.device, requires_grad=False)
 
+        self.only_one_action = torch.zeros((n_roots,), dtype=torch.bool, device=self.device, requires_grad=False)
+
         self.is_terminal[:, 1] = game.is_terminal(self.states[:, 1])
-        self.n_iters[self.is_terminal[:, 1]] = self.hyperparams.n_iters
         self.pi[self.is_terminal[:, 1], 1, :] = 1.0 / n_actions
         self.n[self.is_terminal[:, 1], 1] = 1
 
-    def search(self):
+    def searchable_roots(self):
         out_of_bounds = (self.next_empty_nodes >= self.total_states) | (self.next_empty_nodes_env > self.total_states)
-        searchable = (~self.is_leaf[self.root_idx, self.cur_nodes]
-                      & ~self.is_terminal[self.root_idx, self.cur_nodes]
-                      & ~out_of_bounds)
+        return (~out_of_bounds
+                & ~self.only_one_action)
 
-        cur_nodes = self.cur_nodes[searchable]
-        idx = self.root_idx[searchable]
+    def search(self):
+        not_leaves_or_terminal = (~self.is_leaf[self.root_idx, self.cur_nodes]
+                               & ~self.is_terminal[self.root_idx, self.cur_nodes])
+        cur_searchable = not_leaves_or_terminal & self.searchable_roots()
+
+        cur_nodes = self.cur_nodes[cur_searchable]
+        idx = self.root_idx[cur_searchable]
 
         # If we're at a terminal state, reset back to the root
         self.handle_terminal_states()
@@ -194,7 +197,7 @@ class MCTS:
         self.advance_to_next_states(idx, cur_nodes, next_actions)
 
     def search_for_n_iters(self, n_iters):
-        while self.n_iters.min() < n_iters:
+        while any(self.searchable_roots()) > 0 and self.n[self.searchable_roots()].sum(dim=2).min() < n_iters:
             self.search()
 
     def handle_terminal_states(self):
@@ -208,7 +211,6 @@ class MCTS:
         self.backup(idx, self.parent_nodes[idx, nodes], self.actions[idx, nodes],
                     self.rewards[idx, nodes])
 
-        self.n_iters[terminal_mask] += 1
         self.cur_nodes[terminal_mask] = 1
 
     def advance_to_next_states(self, idx, nodes, next_actions):
@@ -298,6 +300,13 @@ class MCTS:
         # re-normalize pi
         self.pi[idx, nodes] /= self.pi[idx, nodes].sum(dim=1, keepdim=True)
 
+        # For any roots, if there is only one valid action, set the flag; prevents searching for efficiency
+        roots = (nodes == 1)
+        self.only_one_action[idx[roots]] = (legal_actions_mask[roots].sum(dim=1) == 1)
+        # Give one visit in n to the only legal action
+        only_one_action = roots & self.only_one_action[idx]
+        self.n[idx[only_one_action], nodes[only_one_action], legal_actions_mask[only_one_action].to(int).argmax(dim=1)] = 1
+
         parents = self.parent_nodes[idx, nodes]
         has_parent = parents.to(torch.bool)
         nodesp = nodes[has_parent]
@@ -318,7 +327,6 @@ class MCTS:
 
         # reset back to root and increment count
         self.cur_nodes[is_leaf_mask] = 1
-        self.n_iters[is_leaf_mask] += 1
 
     def backup(self, idx, nodes, actions, values):
         if nodes.shape[0] == 0:
@@ -344,7 +352,7 @@ class MCTS:
         mask = (self.pi[idx, 1] > 0)
 
         dirichlet = torch.distributions.dirichlet.Dirichlet(
-            torch.full((self.game.get_n_actions(),), self.hyperparams.dirichlet_alpha)
+            torch.full((self.game.get_n_actions(),), self.hyperparams.dirichlet_alpha, dtype=torch.float32)
         ).sample(torch.Size((len(idx),))).to(self.device)
 
         # Apply mask and renormalize

@@ -1,18 +1,21 @@
-from functools import lru_cache
-from torch import nn
-from aigames import Flatten
-from aigames.training_manager.alpha_training_manager import AlphaNetworkEvaluator
-from aigames.game.twenty_forty_eight import TwentyFortyEight, TwentyFortyEightState
 import torch
+from torch import nn
+from aigames.training_manager.alpha_training_manager import AlphaNetworkEvaluator
 from torchvision.models.resnet import BasicBlock
+from aigames import Flatten
 
 
-class TwentyFortyEightEvaluator(AlphaNetworkEvaluator):
-    def process_state(self, state: TwentyFortyEightState):
-        return torch.FloatTensor(state.grid).unsqueeze(0)
+class G2048MultiEvaluator(AlphaNetworkEvaluator):
+    def process_state(self, state: torch.Tensor):
+        return state.unsqueeze(1)
+
+    @torch.no_grad()
+    def evaluate(self, state):
+        pi, v = self.network(self.process_state(state).to(self.device))
+        return pi,  v
 
 
-class TwentyFortyEightNetwork(nn.Module):
+class G2048MultiNetwork(nn.Module):
     def __init__(self, n_blocks=4, n_channels=64, n_out_channels=32):
         super().__init__()
         self.n_channels = n_channels
@@ -37,6 +40,7 @@ class TwentyFortyEightNetwork(nn.Module):
             nn.Linear(in_features=32, out_features=4),
             nn.Softmax(dim=1)
         )
+
         self.value_head = nn.Sequential(
             nn.Linear(in_features=self.n_base_out_features, out_features=128),
             nn.ReLU(),
@@ -46,5 +50,5 @@ class TwentyFortyEightNetwork(nn.Module):
     def forward(self, processed_state):
         base = self.base(processed_state)
         policy = self.policy_head(base).squeeze()
-        value = self.value_head(base)
+        value = torch.exp(self.value_head(base))
         return policy, value
