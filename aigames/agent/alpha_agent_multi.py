@@ -162,7 +162,8 @@ class AlphaAgentMulti(AgentMulti):
             return
 
         episode_history = reversed(self.episode_history)  # work backwards
-        cum_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32)
+        cum_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
+                                  device=self.game.states.device)
 
         for data in episode_history:
             if isinstance(data, RewardData):
