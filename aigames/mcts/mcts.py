@@ -197,7 +197,7 @@ class MCTS:
         self.advance_to_next_states(idx, cur_nodes, next_actions)
 
     def search_for_n_iters(self, n_iters):
-        while any(self.searchable_roots()) > 0 and self.n[self.searchable_roots()].sum(dim=2).min() < n_iters:
+        while any(self.searchable_roots()) and self.n[self.searchable_roots(), 1].sum(dim=1).min() < n_iters:
             self.search()
 
     def handle_terminal_states(self):
