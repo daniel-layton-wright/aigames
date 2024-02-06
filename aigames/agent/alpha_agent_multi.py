@@ -66,7 +66,7 @@ class AlphaAgentHyperparametersMulti:
         self.discount_rate = 0.99
         self.training_tau = TrainingTau(1.0)
         self.use_dirichlet_noise_in_eval = False  # the AlphaGo paper is unclear about this
-        self.reuse_mcts_tree = True
+        self.reuse_mcts_tree = False  # Initial testing showed this was actually slower (on G2048Multi) :/
 
 
 # noinspection PyBroadException
