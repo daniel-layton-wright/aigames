@@ -58,13 +58,15 @@ class TrainingTau:
 
 
 class AlphaAgentHyperparametersMulti:
-    __slots__ = ['mcts_hyperparams', 'discount_rate', 'training_tau', 'use_dirichlet_noise_in_eval']
+    __slots__ = ['mcts_hyperparams', 'discount_rate', 'training_tau', 'use_dirichlet_noise_in_eval',
+                 'reuse_mcts_tree']
 
     def __init__(self):
         self.mcts_hyperparams = MCTSHyperparameters()
         self.discount_rate = 0.99
         self.training_tau = TrainingTau(1.0)
         self.use_dirichlet_noise_in_eval = False  # the AlphaGo paper is unclear about this
+        self.reuse_mcts_tree = True
 
 
 # noinspection PyBroadException
@@ -90,10 +92,13 @@ class AlphaAgentMulti(AgentMulti):
         self.use_tqdm = use_tqdm
 
     def get_actions(self, states, mask):
-        # TODO: reuse previous nodes
         n_parallel_games = states.shape[0]
         self.hyperparams.mcts_hyperparams.n_roots = n_parallel_games
-        self.mcts = MCTS(self.game, self.evaluator, self.hyperparams.mcts_hyperparams, states)
+
+        if self.hyperparams.reuse_mcts_tree and self.mcts is not None:
+            self.mcts = self.mcts.get_next_mcts(states)
+        else:
+            self.mcts = MCTS(self.game, self.evaluator, self.hyperparams.mcts_hyperparams, states)
 
         # Add Dirichlet noise to the root node
         if self.training or self.hyperparams.use_dirichlet_noise_in_eval:

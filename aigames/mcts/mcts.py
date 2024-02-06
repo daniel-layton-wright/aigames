@@ -33,6 +33,8 @@ class MCTS:
         n_players = game.get_n_players()
         n_stochastic_actions = game.get_n_stochastic_actions()
 
+        self.state_shape = state_shape
+
         self.pi = torch.zeros(
             (n_roots, self.total_states, n_actions),
             dtype=torch.float32,
@@ -301,11 +303,7 @@ class MCTS:
         self.pi[idx, nodes] /= self.pi[idx, nodes].sum(dim=1, keepdim=True)
 
         # For any roots, if there is only one valid action, set the flag; prevents searching for efficiency
-        roots = (nodes == 1)
-        self.only_one_action[idx[roots]] = (legal_actions_mask[roots].sum(dim=1) == 1)
-        # Give one visit in n to the only legal action
-        only_one_action = roots & self.only_one_action[idx]
-        self.n[idx[only_one_action], nodes[only_one_action], legal_actions_mask[only_one_action].to(int).argmax(dim=1)] = 1
+        self.set_only_one_action(idx, nodes, legal_actions_mask)
 
         parents = self.parent_nodes[idx, nodes]
         has_parent = parents.to(torch.bool)
@@ -327,6 +325,14 @@ class MCTS:
 
         # reset back to root and increment count
         self.cur_nodes[is_leaf_mask] = 1
+
+    def set_only_one_action(self, idx, nodes, legal_actions_mask):
+        roots = (nodes == 1)
+        self.only_one_action[idx[roots]] = (legal_actions_mask[roots].sum(dim=1) == 1)
+        # Give one visit in n to the only legal action
+        only_one_action = roots & self.only_one_action[idx]
+        self.n[
+            idx[only_one_action], nodes[only_one_action], legal_actions_mask[only_one_action].to(int).argmax(dim=1)] = 1
 
     def backup(self, idx, nodes, actions, values):
         if nodes.shape[0] == 0:
@@ -361,3 +367,85 @@ class MCTS:
 
         self.pi[idx, 1] = ((1 - self.hyperparams.dirichlet_epsilon) * self.pi[idx, 1]
                            + self.hyperparams.dirichlet_epsilon * dirichlet)
+
+    def get_next_mcts(self, new_roots: torch.Tensor):
+        """
+        Preserve as much of the current tree as possible with a new tree whose roots are new_states
+
+        :param new_roots: The new states to start the new tree from
+        """
+        mcts = MCTS(self.game, self.evaluator, self.hyperparams, new_roots)
+        mcts.next_empty_nodes[:] = 1  # For convenience, we're just going to overwrite the root
+
+        # Maybe you could try to do these in parallel? but much simpler to write by doing each root one by one
+        for root in self.root_idx:
+            state_match = (self.states[root] == new_roots[root])
+            for _ in self.state_shape:
+                state_match = state_match.all(dim=1)
+
+            node_idx = state_match.nonzero().flatten()
+            if node_idx.shape[0] == 0:
+                mcts.next_empty_nodes[root] = 2  # This state was not visited in existing tree, just keep the root we set in the constructor
+                continue
+
+            if node_idx.shape[0] > 1:
+                best = self.n[root, node_idx].sum(dim=1).argmax()
+                node_idx = node_idx[best].item()
+            else:
+                node_idx = node_idx.item()
+
+            player_nodes = [(0, None, None, node_idx)]  # Format is: parent_node, env_parent_node (or None), env_parent_action (or None), node_idx
+            env_nodes = []  # Format is parent_node, node_idx, action
+
+            while len(player_nodes) > 0 or len(env_nodes) > 0:
+                # Handle all the player_nodes first
+                if len(player_nodes) > 0:
+                    new_parent, env_parent, env_action, node = player_nodes.pop()
+                    new_node = mcts.next_empty_nodes[root].clone()
+
+                    mcts.states[root, new_node] = self.states[root, node]
+                    mcts.rewards[root, new_node] = self.rewards[root, node]
+                    mcts.is_terminal[root, new_node] = self.is_terminal[root, node]
+                    mcts.parent_nodes[root, new_node] = new_parent
+                    mcts.pi[root, new_node] = self.pi[root, node]
+                    mcts.n[root, new_node] = self.n[root, node]
+                    mcts.w[root, new_node] = self.w[root, node]
+                    mcts.player_index[root, new_node] = self.player_index[root, node]
+                    mcts.actions[root, new_node] = self.actions[root, node]
+                    mcts.is_leaf[root, new_node] = self.is_leaf[root, node]
+                    mcts.env_is_next[root, new_node] = self.env_is_next[root, node]
+
+                    if env_parent is not None:
+                        mcts.next_idx_env[root, env_parent, env_action] = new_node
+                    elif new_parent > 0:
+                        mcts.next_idx[root, new_parent, self.actions[root, node]] = new_node
+
+                    # Enqueue the children
+                    for action, next_idx in enumerate(self.next_idx[root, node]):
+                        if next_idx != 0:
+                            if self.env_is_next[root, node, action]:
+                                env_nodes.append((new_node, next_idx, action))
+                            else:
+                                player_nodes.append((new_node, None, None, next_idx))
+
+                    mcts.next_empty_nodes[root] += 1
+                else:
+                    new_parent, env_node, action = env_nodes.pop()
+                    new_env_node = mcts.next_empty_nodes_env[root].clone()
+                    mcts.env_states[root, new_env_node] = self.env_states[root, env_node]
+                    mcts.env_state_rewards[root, new_env_node] = self.env_state_rewards[root, env_node]
+                    mcts.next_idx[root, new_parent, action] = new_env_node
+
+                    # Enqueue the children
+                    for action, next_idx in enumerate(self.next_idx_env[root, env_node]):
+                        if next_idx != 0:
+                            player_nodes.append((new_parent, new_env_node, action, next_idx))
+
+                    mcts.next_empty_nodes_env[root] += 1
+
+        mcts.set_only_one_action(mcts.root_idx, torch.ones((mcts.root_idx.shape[0],), dtype=torch.long, device=mcts.device),
+                                 (mcts.pi[mcts.root_idx, 1] > 0.0))
+
+        assert ((mcts.parent_nodes[:, 1] != 1).all())
+
+        return mcts
