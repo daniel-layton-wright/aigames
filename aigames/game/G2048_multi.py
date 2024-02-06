@@ -96,7 +96,7 @@ def select_indices(probs, random_values):
     return (probs.cumsum(dim=1) < random_values.unsqueeze(-1)).sum(dim=1)
 
 
-def get_G2048Multi_game_class(d):
+def get_G2048Multi_game_class_(d):
     class G2048Multi(GameMulti):
 
         device = d
@@ -233,6 +233,13 @@ def get_G2048Multi_game_class(d):
             :param states: A tensor of size (N, 4, 4) representing the states
             """
             return self.get_legal_action_masks_jit(states, self.LEGAL_MOVE_MASK)
+
+        @classmethod
+        def delete_jit_methods(cls):
+            del cls.get_next_states_jit
+            del cls.get_legal_action_masks_jit
+            del cls.is_terminal_jit
+            del cls.get_next_states_from_env_jit
 
         def __str__(self):
             import termcolor
@@ -377,3 +384,16 @@ def get_legal_move_masks():
                     legal_move_mask[ind, 1] = row_can_move_left(torch.flip(row, [0]))
 
     return legal_move_mask
+
+
+G2048Multi = get_G2048Multi_game_class_('cpu')
+
+if torch.cuda.is_available():
+    G2048MultiCuda = get_G2048Multi_game_class_('cuda')
+
+
+def get_G2048Multi_game_class(device):
+    if device == 'cuda':
+        return G2048MultiCuda
+    else:
+        return G2048Multi
