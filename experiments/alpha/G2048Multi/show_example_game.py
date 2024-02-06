@@ -63,7 +63,7 @@ def main():
         # Pickle the agent object to the given path
         import pickle
         with open(args.pickle_history_path, 'wb') as f:
-            pickle.dump(alpha_agent.episode_history, f)
+            pickle.dump({'hyperparams': hyperparams, 'episode_history': alpha_agent.episode_history}, f)
 
     if args.pdb:
         import pdb
