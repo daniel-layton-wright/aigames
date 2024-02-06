@@ -1,9 +1,10 @@
 from .game import GameListener
 import os
 import time
+from .game_multi import GameListenerMulti
 
 
-class CommandLineGame(GameListener):
+class CommandLineGame(GameListenerMulti):
     def __init__(self, pause_time=1, clear_screen=True):
         self.pause_time = pause_time
         self.clear_screen = clear_screen

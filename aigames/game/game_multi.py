@@ -1,6 +1,6 @@
 from typing import List, Tuple
 import torch
-from aigames import AbortGameException, GameListener
+from aigames.game import AbortGameException, GameListener
 from aigames.agent import AgentMulti
 
 

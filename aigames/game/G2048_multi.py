@@ -235,18 +235,45 @@ def get_G2048Multi_game_class(d):
             return self.get_legal_action_masks_jit(states, self.LEGAL_MOVE_MASK)
 
         def __str__(self):
+            import termcolor
+            color_map = {
+                0: 'dark_grey',
+                1: 'light_grey',
+                2: 'white',
+                3: 'light_yellow',
+                4: 'yellow',
+                5: 'light_red',
+                6: 'red',
+                7: 'light_blue',
+                8: 'blue',
+                9:  'light_magenta',
+                10: 'magenta',
+                11: 'light_green',
+                12: 'green',
+                13: 'green',
+                14: 'green',
+                15: 'green',
+                16: 'green'
+            }
+
             def line_to_str(line, padding):
                 out = []
                 for i in line:
-                    out.append(str(i.item()).ljust(padding))
+                    num = str(2**i.item()) if i.item() > 0 else ''
+                    out.append(termcolor.colored(num.ljust(padding), color=color_map.get(i.item(), 'white')))
 
                 return out
 
-            grid = self.states.reshape(-1, 4)
-            padding = len(str(grid.max()))
-            line_length = padding*4 + 3
+            def grid_to_str(grid, padding):
+                x = ' ' * padding
+                return ('-' * line_length + '\n').join(
+                    [(f' {x} | {x} | {x} | {x} \n' + ' {} | {} | {} | {} \n' + f' {x} | {x} | {x} | {x} \n').format(*line_to_str(grid[i, :], padding)) for i in range(grid.shape[0])])
+
+            grid = self.states.to(int)
+            padding = len(str(2**grid.max().item()))
+            line_length = (padding + 2)*4 + 3
             return (
-                ('-' * line_length + '\n').join(['{}|{}|{}|{}\n'.format(*line_to_str(grid[i, :], padding)) for i in range(grid.shape[0])])
+                ('-' * line_length + '\n' + '-' * line_length + '\n').join([grid_to_str(g, padding) for g in grid])
             )
 
     return G2048Multi
