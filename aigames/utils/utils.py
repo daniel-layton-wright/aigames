@@ -1,3 +1,4 @@
+import argparse
 from typing import Optional, List
 from .listeners import RewardListener, GameListener
 
@@ -65,8 +66,15 @@ def add_all_slots_to_arg_parser(parser, obj):
     :param obj: An object with a __slots__ variables
     """
     for slot in get_all_slots(obj):
-        parser.add_argument(f'--{slot}', type=type(getattr(obj, slot)), default=getattr(obj, slot),
-                            help=f'The {slot} of {type(obj).__name__} class, type: {type(getattr(obj, slot)).__name__}')
+        cur_type = type(getattr(obj, slot))
+        extra_args = {}
+
+        if cur_type == bool:
+            extra_args['action'] = argparse.BooleanOptionalAction
+
+        parser.add_argument(f'--{slot}', type=cur_type, default=getattr(obj, slot),
+                            help=f'The {slot} of {type(obj).__name__} class, type: {type(getattr(obj, slot)).__name__}',
+                            **extra_args)
 
 
 def load_from_arg_parser(args, obj):

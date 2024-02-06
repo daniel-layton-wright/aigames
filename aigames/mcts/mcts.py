@@ -1,4 +1,3 @@
-from typing import Type
 import torch
 from aigames.game.game_multi import GameMulti
 
