@@ -5,43 +5,45 @@ from aigames.game import CommandLineGame
 from aigames.game.G2048_multi import get_G2048Multi_game_class
 from aigames.agent.alpha_agent_multi import AlphaAgentMulti, AlphaAgentHyperparametersMulti as AlphaAgentHyperparametersMulti, DummyAlphaEvaluatorMulti
 from aigames.utils.listeners import AvgRewardListenerMulti, ActionCounterProgressBar
-from .network_architectures import TwentyFortyEightNetwork, TwentyFortyEightEvaluator
-from aigames.utils.utils import play_tournament_multi
+from .network_architectures import G2048MultiNetwork, G2048MultiEvaluator
+from aigames.utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
 import argparse
 
 
 def main():
+    hyperparams = AlphaAgentHyperparametersMulti()
+    hyperparams.mcts_hyperparams.n_iters = 100
+
     # Set up an argparser
     parser = argparse.ArgumentParser()
-    # Add argument for device
     parser.add_argument('--device', type=str, default='cpu')
-    # Add an argument for whether to use a network or not
     parser.add_argument('--use_network', action='store_true')
-    # Add an argument for the number of games
     parser.add_argument('--n_games', type=int, default=1)
-    # Add an argument for hiding the command line game interface if desired
     parser.add_argument('--hide_game', action='store_true')
-    # Add argument for whether to show average score listener
     parser.add_argument('--show_avg_score', action='store_true')
-    # Add argument for action counter
     parser.add_argument('--show_action_counter', action='store_true')
-    # Pdb flag
     parser.add_argument('--pdb', action='store_true')
+    parser.add_argument('--pickle_history_path', type=str, default=None)
+
+    add_all_slots_to_arg_parser(parser, hyperparams)
+    add_all_slots_to_arg_parser(parser, hyperparams.mcts_hyperparams)
+
     # Parse the args
     args = parser.parse_args()
+
+    load_from_arg_parser(args, hyperparams)
+    load_from_arg_parser(args, hyperparams.mcts_hyperparams)
 
     G2048Multi = get_G2048Multi_game_class(args.device)
 
     # If using a network set up the network, otherwise use a dummy evaluator
     if args.use_network:
-        network = TwentyFortyEightNetwork()
+        network = G2048MultiNetwork()
         network.eval()
-        alpha_evaluator = TwentyFortyEightEvaluator(network)
+        alpha_evaluator = G2048MultiEvaluator(network)
     else:
         alpha_evaluator = DummyAlphaEvaluatorMulti(4, 1, args.device)
 
-    hyperparams = AlphaAgentHyperparametersMulti()
-    hyperparams.mcts_hyperparams.n_iters = 100
     alpha_agent = AlphaAgentMulti(G2048Multi, alpha_evaluator, hyperparams)
 
     listeners = []
@@ -52,9 +54,16 @@ def main():
         listeners.append(AvgRewardListenerMulti(hyperparams.discount_rate, 0, show_tqdm=True, tqdm_total=20000))
 
     if args.show_action_counter:
-        listeners.append(ActionCounterProgressBar(200))
+        listeners.append(ActionCounterProgressBar(500))
 
-    play_tournament_multi(G2048Multi, alpha_agent, args.n_games, 1, listeners=listeners)
+    game = G2048Multi(args.n_games, alpha_agent, listeners)
+    game.play()
+
+    if args.pickle_history_path is not None:
+        # Pickle the agent object to the given path
+        import pickle
+        with open(args.pickle_history_path, 'wb') as f:
+            pickle.dump(alpha_agent.episode_history, f)
 
     if args.pdb:
         import pdb
