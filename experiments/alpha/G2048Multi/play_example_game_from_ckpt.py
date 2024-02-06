@@ -34,7 +34,7 @@ def main():
 
     hyperparams = AlphaMultiTrainingHyperparameters()
     hyperparams.self_play_every_n_epochs = 10
-    hyperparams.n_parallel_games = 1000
+    hyperparams.n_parallel_games = 1
     hyperparams.max_data_size = 200000
     hyperparams.min_data_size = 512
     hyperparams.mcts_hyperparams.n_iters = 250
@@ -45,15 +45,14 @@ def main():
     hyperparams.weight_decay = 1e-4
     hyperparams.training_tau = TrainingTau(fixed_tau_value=1)
     hyperparams.batch_size = 512
-    hyperparams.game_listeners = [ActionCounterProgressBar(500)]
+    hyperparams.game_listeners = [CommandLineGame(0)]
 
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
     add_all_slots_to_arg_parser(parser, hyperparams)
     add_all_slots_to_arg_parser(parser, hyperparams.mcts_hyperparams)
-    parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/G2048Multi/')
+    parser.add_argument('--ckpt_path', required=False)
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
-    parser.add_argument('--max_epochs', type=int, default=100, help='Max epochs')
 
     # Parse the args and set the hyperparams
     args = parser.parse_args()
@@ -63,27 +62,15 @@ def main():
     for slot in get_all_slots(hyperparams.mcts_hyperparams):
         setattr(hyperparams.mcts_hyperparams, slot, getattr(args, slot))
 
-    # Start wandb run
-    wandb_kwargs = dict(
-        project='aigames2',
-        group='G2048Multi_lightning',
-        reinit=False,
-    )
-
-    # So we can get the name for model checkpointing
-    wandb.init(**wandb_kwargs)
-    wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
-
     evaluator = G2048MultiEvaluator(network, device=hyperparams.device)
     G2048Multi = get_G2048Multi_game_class(hyperparams.device)
 
     training_run = AlphaMultiTrainingRunLightning(G2048Multi, network, evaluator, hyperparams)
-    training_run.game.listeners.append(G2048BestTileListener(training_run))
-    model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
-    trainer = pl.Trainer(reload_dataloaders_every_n_epochs=hyperparams.self_play_every_n_epochs,
-                         logger=pl_loggers.WandbLogger(**wandb_kwargs),
-                         callbacks=[model_checkpoint], log_every_n_steps=1, max_epochs=args.max_epochs)
-    trainer.fit(training_run)
+    training_run = training_run.load_from_checkpoint(args.ckpt_path, map_location=args.device, game_class=G2048Multi, hyperparams=hyperparams)
+    training_run.alpha_evaluator.device = args.device
+    training_run.agent.eval()
+    training_run.network.eval()
+    training_run.game.play()
 
     if args.debug:
         import pdb
