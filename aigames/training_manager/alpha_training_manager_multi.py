@@ -1,4 +1,3 @@
-from .alpha_training_manager import AlphaDataset
 from ..agent.alpha_agent import BaseAlphaEvaluator
 import torch
 from ..agent.alpha_agent_multi import AlphaAgentMultiListener
@@ -9,7 +8,7 @@ class AlphaDatasetMulti(AlphaAgentMultiListener):
         raise NotImplementedError()
 
 
-class BasicAlphaDatasetMulti(AlphaDataset):
+class BasicAlphaDatasetMulti(AlphaDatasetMulti):
     def __init__(self, evaluator: BaseAlphaEvaluator = None, max_size=50000, process_state=True, min_size=100):
         self.evaluator = evaluator
         self.max_size = max_size

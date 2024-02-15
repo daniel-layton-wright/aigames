@@ -26,7 +26,7 @@ class BaseAlphaEvaluator:
 
 
 class AlphaAgentMultiListener:
-    def after_mcts_search(self, root_node):
+    def after_mcts_search(self, mcts, pi, chosen_actions):
         pass
 
     def on_data_point(self, state, pi, reward):
@@ -34,7 +34,7 @@ class AlphaAgentMultiListener:
 
 
 class AlphaAgentDebugListener(AlphaAgentMultiListener):
-    def after_mcts_search(self, root_node):
+    def after_mcts_search(self, mcts, pi, chosen_actions):
         import pdb
         pdb.set_trace()
 
@@ -122,6 +122,9 @@ class AlphaAgentMulti(AgentMulti):
         else:
             pi[torch.arange(n_parallel_games), action_distribution.argmax(dim=1)] = 1
             actions = action_distribution.argmax(dim=1).flatten()
+
+        for listener in self.listeners:
+            listener.after_mcts_search(self.mcts, pi, actions)
 
         self.record_pi(mask, pi, states)
 
