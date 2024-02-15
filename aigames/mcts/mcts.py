@@ -22,7 +22,7 @@ class MCTS:
         self.hyperparams = hyperparams
         self.evaluator = evaluator
         self.game = game
-        self.total_states = 2 + self.hyperparams.n_iters
+        self.total_states = 2 + self.hyperparams.n_iters  # node 0 is dummy, 1 for the root, 1 for each iter
         self.device = root_states.device
 
         # The network's pi value for each root, state (outputs a policy size)
@@ -80,15 +80,8 @@ class MCTS:
             requires_grad=False
         )
 
-        self.env_state_rewards = torch.zeros(
+        self.values = torch.zeros(
             (n_roots, self.total_states, n_players),
-            dtype=torch.float32,
-            device=self.device,
-            requires_grad=False
-        )
-
-        self.env_states = torch.zeros(
-            (n_roots, self.total_states, *state_shape),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
@@ -116,8 +109,8 @@ class MCTS:
             requires_grad=False
         )
 
-        self.env_is_next = torch.zeros(
-            (n_roots, self.total_states, n_actions),
+        self.is_env = torch.zeros(
+            (n_roots, self.total_states,),
             dtype=torch.bool,
             device=self.device,
             requires_grad=False
@@ -144,19 +137,13 @@ class MCTS:
             requires_grad=False
         )
 
-        self.root_idx = torch.arange(n_roots, dtype=torch.long, device=self.device)
+        self.root_idx = torch.arange(n_roots, dtype=torch.long, device=self.device, requires_grad=False)
 
         self.cur_nodes = torch.ones((n_roots,), dtype=torch.long, device=self.device,
                                     requires_grad=False)
 
-        self.next_actions = torch.zeros((n_roots,), dtype=torch.long, device=self.device,
-                                        requires_grad=False)
-
         self.next_empty_nodes = 2 * torch.ones((n_roots,), dtype=torch.long,
                                                device=self.device, requires_grad=False)
-
-        self.next_empty_nodes_env = torch.ones((n_roots,), dtype=torch.long,
-                                                device=self.device, requires_grad=False)
 
         self.need_to_add_dirichlet_noise = torch.zeros((n_roots,), dtype=torch.bool,
                                                        device=self.device, requires_grad=False)
@@ -168,23 +155,29 @@ class MCTS:
         self.n[self.is_terminal[:, 1], 1] = 1
 
     def searchable_roots(self):
-        out_of_bounds = (self.next_empty_nodes >= self.total_states) | (self.next_empty_nodes_env > self.total_states)
+        out_of_bounds = (self.next_empty_nodes >= self.total_states)
         return (~out_of_bounds
                 & ~self.only_one_action)
 
     def search(self):
-        not_leaves_or_terminal = (~self.is_leaf[self.root_idx, self.cur_nodes]
-                               & ~self.is_terminal[self.root_idx, self.cur_nodes])
-        cur_searchable = not_leaves_or_terminal & self.searchable_roots()
+        not_leaves_terminal_env = (~self.is_leaf[self.root_idx, self.cur_nodes]
+                                   & ~self.is_terminal[self.root_idx, self.cur_nodes]
+                                   & ~self.is_env[self.root_idx, self.cur_nodes])
+        cur_searchable = not_leaves_terminal_env & self.searchable_roots()
 
-        cur_nodes = self.cur_nodes[cur_searchable]
         idx = self.root_idx[cur_searchable]
+        cur_nodes = self.cur_nodes[cur_searchable]
 
         # If we're at a terminal state, reset back to the root
         self.handle_terminal_states()
 
         # Expand leaf nodes
         self.expand()
+
+        # Advance env nodes
+        idx_env = self.root_idx[self.is_env[self.root_idx, self.cur_nodes]]
+        cur_nodes_env = self.cur_nodes[self.is_env[self.root_idx, self.cur_nodes]]
+        self.advance_to_next_states_from_env_states(idx_env, cur_nodes_env)
 
         # For the other nodes, choose best action and search down
         N = self.n[idx, cur_nodes]
@@ -220,66 +213,46 @@ class MCTS:
         # If the next idx is not zero then it has already been filled in
         mask = (next_idx != 0)
 
-        # If the next idx is not an env state, we can go right to it
-        is_env = self.env_is_next[idx[mask], nodes[mask], next_actions[mask]]
-        self.cur_nodes[idx[mask][~is_env]] = next_idx[mask][~is_env]
+        # Advance to the already filled-in nodes
+        self.cur_nodes[idx[mask]] = next_idx[mask]
 
         # If the next idx is zero then we need to fill it in
         self.fill_in_next_states(idx[~mask], nodes[~mask], next_actions[~mask])
-
-        # Now we have a valid next_idx for everybody
-        # If the next idx is an env state, we need to get the next player state
-        is_env = self.env_is_next[idx, nodes, next_actions]
-        next_idx_env = self.next_idx[idx, nodes, next_actions][is_env]
-        self.advance_to_player_states_from_env_states(idx[is_env], next_idx_env, nodes[is_env])
-
-        # Set the action
-        self.actions[idx, self.cur_nodes[idx]] = next_actions
 
     def fill_in_next_states(self, idx, cur_nodes, next_actions):
         # Get the next states
         next_states, rewards, is_env, is_terminal = self.game.get_next_states(self.states[idx, cur_nodes], next_actions)
 
-        self.env_is_next[idx, cur_nodes, next_actions] = is_env
+        next_nodes = self.next_empty_nodes[idx]
+        self.states[idx, next_nodes] = next_states
+        self.rewards[idx, next_nodes] = rewards
+        self.is_terminal[idx, next_nodes] = is_terminal
+        self.next_idx[idx, cur_nodes, next_actions] = next_nodes
+        self.parent_nodes[idx, next_nodes] = cur_nodes.clone()
+        self.is_env[idx, next_nodes] = is_env
+        self.actions[idx, next_nodes] = next_actions
+        self.cur_nodes[idx] = next_nodes
 
-        # For non-env next states, put them in the states variable
-        non_env = torch.logical_not(is_env)
-        idx_non_env = idx[non_env]
-        next_nodes = self.next_empty_nodes[idx_non_env]
-        self.states[idx_non_env, next_nodes] = next_states[non_env]
-        self.rewards[idx_non_env, next_nodes] = rewards[non_env]
-        self.is_terminal[idx_non_env, next_nodes] = is_terminal[non_env]
-        self.next_idx[idx_non_env, cur_nodes[non_env], next_actions[non_env]] = next_nodes
-        self.parent_nodes[idx_non_env, next_nodes] = cur_nodes[non_env].clone()
-        self.cur_nodes[idx_non_env] = next_nodes
-        self.next_empty_nodes[idx_non_env] += 1
+        # Set the action
+        self.next_empty_nodes[idx] += 1
 
-        # For env states store them in the env_states variable
-        idx_env = idx[is_env]
-        next_nodes_env = self.next_empty_nodes_env[idx_env]
-        self.env_states[idx_env, next_nodes_env] = next_states[is_env]
-        self.env_state_rewards[idx_env, next_nodes_env] = rewards[is_env]
-        self.next_idx[idx_env, cur_nodes[is_env], next_actions[is_env]] = next_nodes_env
-
-        self.next_empty_nodes_env[idx_env] += 1
-
-    def advance_to_player_states_from_env_states(self, idx, env_nodes, parent_nodes):
+    def advance_to_next_states_from_env_states(self, idx, nodes):
         # Now get the next player state for the env states
-        next_player_states, env_action_idx, is_terminal = self.game.get_next_states_from_env(self.env_states[idx, env_nodes])
+        next_player_states, env_action_idx, is_terminal = self.game.get_next_states_from_env(self.states[idx, nodes])
 
-        next_node_idx = self.next_idx_env[idx, env_nodes, env_action_idx]
+        next_node_idx = self.next_idx_env[idx, nodes, env_action_idx]
 
         # If the next node idx is zero then we need to fill it in
         empty_mask = (next_node_idx == 0)
         empty_idx = idx[empty_mask]
-        empty_nodes = env_nodes[empty_mask]
+        empty_nodes = nodes[empty_mask]
+
         next_nodes = self.next_empty_nodes[empty_idx]
         self.states[empty_idx, next_nodes] = next_player_states[empty_mask]
-        self.rewards[empty_idx, next_nodes] = self.env_state_rewards[empty_idx, empty_nodes]
         self.is_terminal[empty_idx, next_nodes] = is_terminal[empty_mask]
         self.next_idx_env[empty_idx, empty_nodes, env_action_idx[empty_mask]] = next_nodes
         self.cur_nodes[empty_idx] = next_nodes
-        self.parent_nodes[empty_idx, next_nodes] = parent_nodes[empty_mask].clone()
+        self.parent_nodes[empty_idx, next_nodes] = empty_nodes
         self.next_empty_nodes[empty_idx] += 1
 
         # If the next node idx is not zero then we've already been there, just advance to it
@@ -296,6 +269,7 @@ class MCTS:
 
         states = self.states[idx, nodes]
         self.pi[idx, nodes], values = self.evaluator.evaluate(states)
+        self.values[idx, nodes] = values
         legal_actions_mask = self.game.get_legal_action_masks(states)
         self.pi[idx, nodes] *= legal_actions_mask
         # re-normalize pi
@@ -312,7 +286,7 @@ class MCTS:
         # back up values
         if nodesp.shape[0] > 0:
             self.backup(idxp, self.parent_nodes[idxp, nodesp], self.actions[idxp, nodesp],
-                        values + self.rewards[idxp, nodesp])
+                        self.hyperparams.discount * (values + self.rewards[idxp, nodesp]))
 
         # no longer leaves
         self.is_leaf[idx, nodes] = False
@@ -373,6 +347,8 @@ class MCTS:
 
         :param new_roots: The new states to start the new tree from
         """
+        return
+        # TODO : fix this for new style
         mcts = MCTS(self.game, self.evaluator, self.hyperparams, new_roots)
         mcts.next_empty_nodes[:] = 1  # For convenience, we're just going to overwrite the root
 
