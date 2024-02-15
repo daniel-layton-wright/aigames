@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from .alpha_training_manager import *
 import pytorch_lightning as pl
 import torch.utils.data
@@ -7,20 +8,18 @@ from ..agent.alpha_agent_multi import AlphaAgentHyperparametersMulti, AlphaAgent
 from ..game.game_multi import GameMulti
 
 
+@dataclass(kw_only=True, slots=True)
 class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
-    __slots__ = ['n_parallel_games', 'value_weight_in_loss', 'batch_size', 'device', 'max_data_size', 'min_data_size',
-                 'game_listeners', 'lr', 'weight_decay', 'self_play_every_n_epochs']
-
-    def __init__(self):
-        super().__init__()
-        self.n_parallel_games = 1000
-        self.value_weight_in_loss = 1.0
-        self.batch_size = 32
-        self.device = 'cpu'
-        self.game_listeners = []
-        self.lr = 0.01
-        self.weight_decay = 1e-5
-        self.self_play_every_n_epochs = 10
+    n_parallel_games: int = 1000
+    value_weight_in_loss: float = 1.0
+    batch_size: int = 32
+    device: str = 'cpu'
+    game_listeners: list = field(default_factory=list)
+    lr: float = 0.01
+    weight_decay: float = 1e-5
+    self_play_every_n_epochs: int = 10
+    max_data_size: int = 10000000
+    min_data_size: int = 1
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):

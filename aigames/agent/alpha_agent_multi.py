@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from .agent import AgentMulti
 from typing import Type, List
 import torch
@@ -57,16 +58,11 @@ class TrainingTau:
             return self.tau_schedule_function(move_number)
 
 
-class AlphaAgentHyperparametersMulti:
-    __slots__ = ['mcts_hyperparams', 'discount_rate', 'training_tau', 'use_dirichlet_noise_in_eval',
-                 'reuse_mcts_tree']
-
-    def __init__(self):
-        self.mcts_hyperparams = MCTSHyperparameters()
-        self.discount_rate = 0.99
-        self.training_tau = TrainingTau(1.0)
-        self.use_dirichlet_noise_in_eval = False  # the AlphaGo paper is unclear about this
-        self.reuse_mcts_tree = False  # Initial testing showed this was actually slower (on G2048Multi) :/
+@dataclass(kw_only=True, slots=True)
+class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
+    training_tau: TrainingTau = TrainingTau(1.0)
+    use_dirichlet_noise_in_eval: bool = False  # the AlphaGo paper is unclear about this
+    reuse_mcts_tree: bool = False  # Initial testing showed this was actually slower (on G2048Multi) :/
 
 
 # noinspection PyBroadException
@@ -93,25 +89,24 @@ class AlphaAgentMulti(AgentMulti):
 
     def get_actions(self, states, mask):
         n_parallel_games = states.shape[0]
-        self.hyperparams.mcts_hyperparams.n_roots = n_parallel_games
 
         if self.hyperparams.reuse_mcts_tree and self.mcts is not None:
             self.mcts = self.mcts.get_next_mcts(states)
         else:
-            self.mcts = MCTS(self.game, self.evaluator, self.hyperparams.mcts_hyperparams, states)
+            self.mcts = MCTS(self.game, self.evaluator, self.hyperparams, states)
 
         # Add Dirichlet noise to the root node
         if self.training or self.hyperparams.use_dirichlet_noise_in_eval:
             self.mcts.add_dirichlet_noise()
 
-        self.mcts.search_for_n_iters(self.hyperparams.mcts_hyperparams.n_iters)
+        self.mcts.search_for_n_iters(self.hyperparams.n_iters)
 
         if self.training:
             tau = self.hyperparams.training_tau.get_tau(self.move_number_in_current_game)
         else:
             tau = 0.0
 
-        if self.hyperparams.mcts_hyperparams.n_iters > 1:
+        if self.hyperparams.n_iters > 1:
             action_distribution = self.mcts.n[:, 1]
         else:
             self.mcts.expand()
@@ -172,7 +167,7 @@ class AlphaAgentMulti(AgentMulti):
 
         for data in episode_history:
             if isinstance(data, RewardData):
-                cum_rewards = (data.reward_value.nan_to_num(0) + self.hyperparams.discount_rate * cum_rewards)
+                cum_rewards = (data.reward_value.nan_to_num(0) + self.hyperparams.discount * cum_rewards)
             elif isinstance(data, TimestepData):
                 mask = data.player_index >= 0
                 reward = cum_rewards[torch.arange(self.game.n_parallel_games, device=mask.device)[mask], :]

@@ -1,16 +1,15 @@
+from dataclasses import dataclass
 import torch
 from aigames.game.game_multi import GameMulti
 
 
+@dataclass(kw_only=True, slots=True)
 class MCTSHyperparameters:
-    __slots__ = ['n_roots', 'n_iters', 'c_puct', 'dirichlet_alpha', 'dirichlet_epsilon']
-
-    def __init__(self):
-        self.n_roots = 10
-        self.n_iters = 1200
-        self.c_puct = 1.0
-        self.dirichlet_alpha = 0.3
-        self.dirichlet_epsilon = 0.25
+    n_iters: int = 1200
+    c_puct: float = 1.0
+    dirichlet_alpha: float = 0.3
+    dirichlet_epsilon: float = 0.25
+    discount: float = 1.0
 
 
 class MCTS:

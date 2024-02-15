@@ -53,8 +53,13 @@ def get_all_slots(obj):
     For an object with a __slots__ variable which may inherit from other classes with __slots__ variables, this
     function collects all the slots into a single iterable.
     """
-    from itertools import chain
-    return chain.from_iterable(getattr(cls, '__slots__', []) for cls in type(obj).__mro__)
+    import dataclasses
+
+    if dataclasses.is_dataclass(obj):
+        return getattr(obj, '__slots__', [])
+    else:
+        from itertools import chain
+        return chain.from_iterable(getattr(cls, '__slots__', []) for cls in type(obj).__mro__)
 
 
 def add_all_slots_to_arg_parser(parser, obj):
