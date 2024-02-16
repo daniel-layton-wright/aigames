@@ -140,7 +140,7 @@ class AlphaAgentMulti(AgentMulti):
     def before_env_move(self, states: torch.Tensor, mask: torch.Tensor):
         # Put this in the episode history because we're gonna learn the value for these states. pi will be nans
         num_actions = self.game_class.get_n_actions()
-        self.record_pi(mask, torch.ones((states.shape[0], num_actions)) * torch.nan, states)
+        self.record_pi(mask, torch.ones((states.shape[0], num_actions), dtype=torch.float32, device=states.device) * torch.nan, states)
 
     def train(self):
         self.training = True
