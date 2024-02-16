@@ -3,6 +3,7 @@ from ..game.game_multi import GameListenerMulti
 from ..game import SequentialGame
 from tqdm.auto import tqdm
 import torch
+import json_fix
 
 
 class RewardListener(GameListener):
@@ -73,6 +74,9 @@ class ActionCounterProgressBar(GameListenerMulti):
     def on_game_end(self, game):
         self.tqdm.close()
         self.tqdm = None
+
+    def __json__(self):
+        return {}  # Why do you need a JSON of this wandb?
 
 
 class AverageRewardListener(RewardListener):
