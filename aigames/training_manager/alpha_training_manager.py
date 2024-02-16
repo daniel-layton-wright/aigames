@@ -116,15 +116,6 @@ class AlphaNetworkEvaluator(BaseAlphaEvaluator):
     def process_state(self, state):
         raise NotImplementedError()
 
-    # TODO : fix these (maybe just remove) doesn't make sense for batch norm stuff
-    def eval(self):
-        # Switch to eval mode
-        self.network.eval()
-
-    def train(self):
-        # Switch to train mode
-        self.network.train()
-
 
 class AlphaNetworkOptimizerMonitor:
     def on_optimizer_step(self, loss):

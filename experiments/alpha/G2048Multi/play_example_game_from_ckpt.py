@@ -48,7 +48,7 @@ def main():
     hyperparams.n_parallel_games = 1
     hyperparams.max_data_size = 200000
     hyperparams.min_data_size = 512
-    hyperparams.n_iters = 250
+    hyperparams.n_mcts_iters = 250
     hyperparams.dirichlet_alpha = 1.0
     hyperparams.dirichlet_epsilon = 0.25
     hyperparams.c_puct = 250

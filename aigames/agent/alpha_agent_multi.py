@@ -99,14 +99,14 @@ class AlphaAgentMulti(AgentMulti):
         if self.training or self.hyperparams.use_dirichlet_noise_in_eval:
             self.mcts.add_dirichlet_noise()
 
-        self.mcts.search_for_n_iters(self.hyperparams.n_iters)
+        self.mcts.search_for_n_iters(self.hyperparams.n_mcts_iters)
 
         if self.training:
             tau = self.hyperparams.training_tau.get_tau(self.move_number_in_current_game)
         else:
             tau = 0.0
 
-        if self.hyperparams.n_iters > 1:
+        if self.hyperparams.n_mcts_iters > 1:
             action_distribution = self.mcts.n[:, 1]
         else:
             self.mcts.expand()
@@ -148,11 +148,9 @@ class AlphaAgentMulti(AgentMulti):
         self.episode_history.append(RewardData(full_rewards))
 
     def train(self):
-        self.evaluator.train()
         self.training = True
 
     def eval(self):
-        self.evaluator.eval()
         self.training = False
 
     def before_game_start(self, game: GameMulti):

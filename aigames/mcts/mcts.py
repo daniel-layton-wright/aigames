@@ -5,7 +5,7 @@ from aigames.game.game_multi import GameMulti
 
 @dataclass(kw_only=True, slots=True)
 class MCTSHyperparameters:
-    n_iters: int = 1200
+    n_mcts_iters: int = 1200
     c_puct: float = 1.0
     dirichlet_alpha: float = 0.3
     dirichlet_epsilon: float = 0.25
@@ -21,7 +21,7 @@ class MCTS:
         self.hyperparams = hyperparams
         self.evaluator = evaluator
         self.game = game
-        self.total_states = 2 + self.hyperparams.n_iters  # node 0 is dummy, 1 for the root, 1 for each iter
+        self.total_states = 2 + self.hyperparams.n_mcts_iters  # node 0 is dummy, 1 for the root, 1 for each iter
         self.device = root_states.device
 
         # The network's pi value for each root, state (outputs a policy size)

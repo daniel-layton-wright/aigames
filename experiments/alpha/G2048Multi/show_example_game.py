@@ -12,7 +12,7 @@ import argparse
 
 def main():
     hyperparams = AlphaAgentHyperparametersMulti()
-    hyperparams.mcts_hyperparams.n_iters = 100
+    hyperparams.mcts_hyperparams.n_mcts_iters = 100
 
     # Set up an argparser
     parser = argparse.ArgumentParser()

@@ -1,32 +1,43 @@
 import argparse
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint
-from aigames import CommandLineGame
 from aigames.agent.alpha_agent import TrainingTau
-from aigames.game.game_multi import GameListenerMulti
 from aigames.training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
 from aigames.utils.listeners import ActionCounterProgressBar
 from .network_architectures import G2048MultiNetwork, G2048MultiEvaluator
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
-from aigames.utils.utils import get_all_slots, add_all_slots_to_arg_parser
+from aigames.utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
 import os
-import torch
 from aigames.game.G2048_multi import get_G2048Multi_game_class
 
 
-class G2048BestTileListener(GameListenerMulti):
-    def __init__(self, training_run):
-        super().__init__()
-        self.training_run = training_run
-
-    def on_game_end(self, game):
+class G2048TrainingRun(AlphaMultiTrainingRunLightning):
+    def log_game_results(self, game, suffix):
         max_tiles = game.states.amax(dim=(1, 2))
         avg_max_tile = max_tiles.mean()
 
+        fraction_reached_1024 = (max_tiles >= 10).float().mean()
+        fraction_reached_2048 = (max_tiles >= 11).float().mean()
+
         # Log this
-        self.training_run.logger.experiment.log({'best_tile_train': avg_max_tile})
+        self.logger.experiment.log({f'best_tile_{suffix}': avg_max_tile})
+        self.logger.experiment.log({f'fraction_reached_1024_{suffix}': fraction_reached_1024})
+        self.logger.experiment.log({f'fraction_reached_2048_{suffix}': fraction_reached_2048})
+
+    def on_fit_start(self):
+        super().on_fit_start()
+        self.log_game_results(self.game, 'train')
+
+    def after_self_play_game(self):
+        self.log_game_results(self.game, 'train')
+
+    def after_eval_game(self):
+        self.log_game_results(self.eval_game, 'eval')
+
+    def after_eval_game_network_only(self):
+        self.log_game_results(self.eval_game, 'eval_network_only')
 
 
 def main():
@@ -35,33 +46,29 @@ def main():
     hyperparams = AlphaMultiTrainingHyperparameters()
     hyperparams.self_play_every_n_epochs = 10
     hyperparams.n_parallel_games = 1000
-    hyperparams.max_data_size = 200000
-    hyperparams.min_data_size = 512
-    hyperparams.mcts_hyperparams.n_iters = 250
-    hyperparams.mcts_hyperparams.dirichlet_alpha = 1.0
-    hyperparams.mcts_hyperparams.dirichlet_epsilon = 0.25
-    hyperparams.mcts_hyperparams.c_puct = 250
-    hyperparams.lr = 0.1
-    hyperparams.weight_decay = 1e-4
+    hyperparams.max_data_size = 3000000
+    hyperparams.min_data_size = 1024
+    hyperparams.n_mcts_iters = 250
+    hyperparams.dirichlet_alpha = 1.0
+    hyperparams.dirichlet_epsilon = 0.25
+    hyperparams.c_puct = 1000
+    hyperparams.lr = 0.001
+    hyperparams.weight_decay = 1e-5
     hyperparams.training_tau = TrainingTau(fixed_tau_value=1)
-    hyperparams.batch_size = 512
+    hyperparams.batch_size = 1024
     hyperparams.game_listeners = [ActionCounterProgressBar(500)]
+    hyperparams.discount = 0.999
 
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
     add_all_slots_to_arg_parser(parser, hyperparams)
-    add_all_slots_to_arg_parser(parser, hyperparams.mcts_hyperparams)
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/G2048Multi/')
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
     parser.add_argument('--max_epochs', type=int, default=100, help='Max epochs')
 
     # Parse the args and set the hyperparams
     args = parser.parse_args()
-    for slot in get_all_slots(hyperparams):
-        setattr(hyperparams, slot, getattr(args, slot))
-
-    for slot in get_all_slots(hyperparams.mcts_hyperparams):
-        setattr(hyperparams.mcts_hyperparams, slot, getattr(args, slot))
+    load_from_arg_parser(args, hyperparams)
 
     # Start wandb run
     wandb_kwargs = dict(
@@ -77,8 +84,7 @@ def main():
     evaluator = G2048MultiEvaluator(network, device=hyperparams.device)
     G2048Multi = get_G2048Multi_game_class(hyperparams.device)
 
-    training_run = AlphaMultiTrainingRunLightning(G2048Multi, network, evaluator, hyperparams)
-    training_run.game.listeners.append(G2048BestTileListener(training_run))
+    training_run = G2048TrainingRun(G2048Multi, network, evaluator, hyperparams)
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=hyperparams.self_play_every_n_epochs,
                          logger=pl_loggers.WandbLogger(**wandb_kwargs),

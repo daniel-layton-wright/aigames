@@ -58,16 +58,21 @@ class AvgRewardListenerMulti(GameListenerMulti):
 
 
 class ActionCounterProgressBar(GameListenerMulti):
-    def __init__(self, progress_bar_max):
+    def __init__(self, progress_bar_max, description='Game action count'):
         self.progress_bar_max = progress_bar_max
         self.tqdm = None
+        self.description = description
 
     def before_game_start(self, game):
-        self.tqdm = tqdm(total=self.progress_bar_max)
-        self.tqdm.set_description('Game action count')
+        self.tqdm = tqdm(total=self.progress_bar_max, leave=False)
+        self.tqdm.set_description(self.description)
 
     def on_action(self, game, actions):
         self.tqdm.update(1)
+
+    def on_game_end(self, game):
+        self.tqdm.close()
+        self.tqdm = None
 
 
 class AverageRewardListener(RewardListener):

@@ -20,6 +20,9 @@ class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
     self_play_every_n_epochs: int = 10
     max_data_size: int = 10000000
     min_data_size: int = 1
+    n_parallel_eval_games: int = 100
+    eval_game_every_n_epochs: int = 10
+    eval_game_network_only_every_n_epoch: int = 10
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
@@ -62,6 +65,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, self.hyperparams)
         self.agent = AlphaAgentMulti(self.game_class, self.alpha_evaluator, self.hyperparams, listeners=[self.dataset])
         self.game = self.game_class(self.hyperparams.n_parallel_games, self.agent, listeners=hyperparams.game_listeners)
+        self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent, listeners=hyperparams.game_listeners)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)
@@ -73,15 +77,22 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def loss(self, processed_states, action_distns, values):
         pred_distns, pred_values = self.network(processed_states)
-        losses = (self.hyperparams.value_weight_in_loss * ((values - pred_values) ** 2).sum(dim=1)
-                  - torch.sum(action_distns * torch.log(pred_distns), dim=1))
-        mean_loss = losses.mean()
-        return mean_loss
+
+        nan_distns = torch.isnan(action_distns).any(dim=1)
+
+        value_loss = (self.hyperparams.value_weight_in_loss * ((values - pred_values) ** 2).sum(dim=1)).mean()
+        distn_loss = (-torch.sum(action_distns[~nan_distns] * torch.log(pred_distns[~nan_distns]), dim=1)).mean()
+        mean_loss = value_loss + distn_loss
+        return mean_loss, value_loss, distn_loss
 
     def on_fit_start(self):
-        # Do first self-play
+        # Do first self-play. Always put network in eval mode when playing games (for batch norm stuff)
         self.network.eval()
         self.game.play()
+        self.after_self_play_game()
+
+        # Put network back in train mode
+        self.network.train()
 
     def on_train_batch_start(self, batch, batch_idx: int):
         pass  # In the parent class, it does self play here
@@ -89,19 +100,57 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
     def on_train_start(self):
         pass  # In the parent class, it does self play here
 
+    def time_to_play_game(self):
+        return self.current_epoch > 0 and self.current_epoch % self.hyperparams.self_play_every_n_epochs == 0
+
+    def time_to_play_eval_game(self):
+        return self.current_epoch > 0 and self.current_epoch % self.hyperparams.eval_game_every_n_epochs == 0
+
+    def time_to_play_eval_game_network_only(self):
+        return self.current_epoch > 0 and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epoch == 0
+
     def on_train_epoch_start(self) -> None:
-        if self.current_epoch > 0 and self.current_epoch % self.hyperparams.self_play_every_n_epochs == 0:
+        if self.time_to_play_game():
             self.network.eval()
             self.game.play()
+            self.after_self_play_game()
 
+        if self.time_to_play_eval_game():
+            self.agent.eval()
+            self.network.eval()
+            self.eval_game.play()
+            self.after_eval_game()
+
+        if self.time_to_play_eval_game_network_only():
+            # Temporarily set n_iters to 0 so we just use the network result
+            tmp = self.agent.hyperparams.n_mcts_iters
+            self.agent.hyperparams.n_mcts_iters = 0
+            self.agent.eval()
+            self.network.eval()
+            self.eval_game.play()
+            self.after_eval_game_network_only()
+            self.agent.hyperparams.n_mcts_iters = tmp
+
+        self.agent.train()
         self.network.train()
+
+    def after_self_play_game(self):
+        pass
+
+    def after_eval_game(self):
+        pass
+
+    def after_eval_game_network_only(self):
+        pass
 
     def on_train_epoch_end(self) -> None:
         pass
 
     def training_step(self, batch, nb_batch) -> dict:
-        loss = self.loss(*batch)
+        loss, value_loss, distn_loss = self.loss(*batch)
         self.log('loss', loss)
+        self.log('value_loss', value_loss)
+        self.log('distn_loss', distn_loss)
         return loss
 
     def train_dataloader(self):
