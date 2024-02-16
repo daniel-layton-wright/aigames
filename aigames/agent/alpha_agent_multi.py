@@ -4,6 +4,7 @@ from typing import Type, List
 import torch
 from ..game.game_multi import GameMulti
 from ..mcts.mcts import MCTS, MCTSHyperparameters
+import json_fix
 
 
 class BaseAlphaEvaluator:
@@ -57,7 +58,7 @@ class TrainingTau:
         else:
             return self.tau_schedule_function(move_number)
 
-    def to_json(self):
+    def __json__(self):
         return self.__dict__
 
 
