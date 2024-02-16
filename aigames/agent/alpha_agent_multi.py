@@ -57,6 +57,9 @@ class TrainingTau:
         else:
             return self.tau_schedule_function(move_number)
 
+    def to_json(self):
+        return self.__dict__
+
 
 @dataclass(kw_only=True, slots=True)
 class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
