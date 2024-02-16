@@ -31,5 +31,5 @@ class AgentMulti:
     def on_game_end(self):
         pass
 
-    def on_action(self, state, action, next_state):
+    def before_env_move(self, states: torch.Tensor, mask: torch.Tensor):
         pass

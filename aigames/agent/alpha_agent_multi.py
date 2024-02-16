@@ -132,20 +132,15 @@ class AlphaAgentMulti(AgentMulti):
 
     def record_pi(self, mask, pi, states):
         # Record this for training, set the root node to the next node now and forget the parent
-        full_pi = torch.ones((mask.shape[0], *pi.shape[1:]), dtype=pi.dtype, device=pi.device) * torch.nan
-        full_states = torch.ones((mask.shape[0], *states.shape[1:]), dtype=states.dtype,
-                                 device=states.device) * torch.nan
-        player_index = torch.ones((mask.shape[0],), dtype=torch.long, device=states.device) * -1
-        full_states[mask] = states
-        player_index[mask] = self.game.get_cur_player_index(states)
-        full_pi[mask] = pi
-        self.episode_history.append(TimestepData(full_states, full_pi, player_index))
+        self.episode_history.append(TimestepData(states, pi, mask))
 
     def on_rewards(self, rewards: torch.Tensor, mask: torch.Tensor):
-        full_rewards = (torch.ones((mask.shape[0], *rewards.shape[1:]), dtype=rewards.dtype, device=rewards.device)
-                        * torch.nan)
-        full_rewards[mask] = rewards
-        self.episode_history.append(RewardData(full_rewards))
+        self.episode_history.append(RewardData(rewards, mask))
+
+    def before_env_move(self, states: torch.Tensor, mask: torch.Tensor):
+        # Put this in the episode history because we're gonna learn the value for these states. pi will be nans
+        num_actions = self.game_class.get_n_actions()
+        self.record_pi(mask, torch.ones((states.shape[0], num_actions)) * torch.nan, states)
 
     def train(self):
         self.training = True
@@ -168,30 +163,34 @@ class AlphaAgentMulti(AgentMulti):
 
         for data in episode_history:
             if isinstance(data, RewardData):
-                cum_rewards = (data.reward_value.nan_to_num(0) + self.hyperparams.discount * cum_rewards)
+                full_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
+                                           dtype=torch.float32, device=data.reward_value.device)
+                full_rewards[data.mask] = data.reward_value
+                cum_rewards = (full_rewards + self.hyperparams.discount * cum_rewards)
             elif isinstance(data, TimestepData):
-                mask = data.player_index >= 0
+                mask = data.mask
                 reward = cum_rewards[torch.arange(self.game.n_parallel_games, device=mask.device)[mask], :]
                 for data_listener in self.listeners:
-                    data_listener.on_data_point(data.states[mask], data.pis[mask], reward)
+                    data_listener.on_data_point(data.states, data.pis, reward)
 
 
 class TimestepData:
-    def __init__(self, states, pis, player_index):
+    def __init__(self, states, pis, mask):
         self.states = states
         self.pis = pis
-        self.player_index = player_index
+        self.mask = mask
 
     def __repr__(self):
-        return f'(state: {self.states}, pi={self.pis}, i={self.player_index})'
+        return f'(state: {self.states}, pi={self.pis}, mask={self.mask})'
 
 
 class RewardData:
-    def __init__(self, reward_value):
+    def __init__(self, reward_value, mask):
         self.reward_value = reward_value
+        self.mask = mask
 
     def __repr__(self):
-        return f'(r: {self.reward_value})'
+        return f'(r: {self.reward_value}, mask={self.mask})'
 
 
 class DummyAlphaEvaluatorMulti(BaseAlphaEvaluator):
