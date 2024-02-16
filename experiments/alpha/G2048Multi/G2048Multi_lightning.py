@@ -1,7 +1,7 @@
 import argparse
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint
-from aigames.agent.alpha_agent import TrainingTau
+from aigames.agent.alpha_agent_multi import TrainingTau
 from aigames.training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
 from aigames.utils.listeners import ActionCounterProgressBar
