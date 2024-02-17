@@ -97,11 +97,8 @@ class AlphaAgentMulti(AgentMulti):
         if self.hyperparams.reuse_mcts_tree and self.mcts is not None:
             self.mcts = self.mcts.get_next_mcts(states)
         else:
-            self.mcts = MCTS(self.game, self.evaluator, self.hyperparams, states)
-
-        # Add Dirichlet noise to the root node
-        if self.training or self.hyperparams.use_dirichlet_noise_in_eval:
-            self.mcts.add_dirichlet_noise()
+            self.mcts = MCTS(self.game, self.evaluator, self.hyperparams, states,
+                             add_dirichlet_noise=(self.training or self.hyperparams.use_dirichlet_noise_in_eval))
 
         self.mcts.search_for_n_iters(self.hyperparams.n_mcts_iters)
 

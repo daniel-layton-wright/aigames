@@ -11,6 +11,7 @@ class MCTSHyperparameters:
     dirichlet_epsilon: float = 0.25
     discount: float = 1.0
     expand_simultaneous_fraction: float = 1.0  # The fraction of trees that need to be at a leaf to be expanded
+    scaleQ: bool = True  # Whether to scale Q values to be between 0 and 1 my the min and max Q values in the tree
 
 
 class MCTS:
@@ -18,7 +19,8 @@ class MCTS:
     Implementation of MCTS, trying to do simultaneous roll-outs of different nodes and use GPU as much as possible
     """
 
-    def __init__(self, game: GameMulti, evaluator, hyperparams, root_states: torch.Tensor):
+    def __init__(self, game: GameMulti, evaluator, hyperparams, root_states: torch.Tensor,
+                 add_dirichlet_noise: bool = True):
         self.hyperparams = hyperparams
         self.evaluator = evaluator
         self.game = game
@@ -137,6 +139,9 @@ class MCTS:
             requires_grad=False
         )
 
+        self.maxQ = torch.zeros((n_roots, 1), dtype=torch.float32, device=self.device, requires_grad=False)
+        self.minQ = torch.zeros((n_roots, 1), dtype=torch.float32, device=self.device, requires_grad=False)
+
         self.root_idx = torch.arange(n_roots, dtype=torch.long, device=self.device, requires_grad=False)
 
         self.cur_nodes = torch.ones((n_roots,), dtype=torch.long, device=self.device,
@@ -153,6 +158,9 @@ class MCTS:
         self.is_terminal[:, 1] = game.is_terminal(self.states[:, 1])
         self.pi[self.is_terminal[:, 1], 1, :] = 1.0 / n_actions
         self.n[self.is_terminal[:, 1], 1] = 1
+
+        if add_dirichlet_noise:
+            self.add_dirichlet_noise()
 
     def searchable_roots(self):
         out_of_bounds = (self.next_empty_nodes >= self.total_states) & (~self.is_leaf[self.root_idx, self.cur_nodes])
@@ -188,12 +196,24 @@ class MCTS:
         idx = self.root_idx[~leaves_or_terminal & ~env & searchable_roots]
         cur_nodes = self.cur_nodes[~leaves_or_terminal & ~env & searchable_roots]
 
+        # Return if no trees to operate on
+        if idx.shape[0] == 0:
+            return
+
         # For the other nodes, choose best action and search down
         N = self.n[idx, cur_nodes]
         U = (self.hyperparams.c_puct * self.pi[idx, cur_nodes] *
              torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N))
 
-        Q = self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]] / (N + (N == 0))  # If N == 0 -> we make it 1 to avoid dividing by zero
+        if self.hyperparams.scaleQ:
+            allQ = self.w[idx] / (self.n[idx] + (self.n[idx] == 0)).unsqueeze(-1)
+            Q = allQ[torch.arange(allQ.shape[0]), cur_nodes, :, self.player_index[idx, cur_nodes]]
+            maxQ = allQ.amax(dim=(1, 2, 3)).unsqueeze(-1)
+            minQ = allQ.amin(dim=(1, 2, 3)).unsqueeze(-1)
+
+            Q = (Q - minQ) / (maxQ - minQ + (maxQ == minQ))
+        else:
+            Q = self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]] / (N + (N == 0))
 
         next_actions = torch.argmax(Q + U, dim=1)
 
@@ -353,7 +373,7 @@ class MCTS:
         self.pi[idx, 1] = ((1 - self.hyperparams.dirichlet_epsilon) * self.pi[idx, 1]
                            + self.hyperparams.dirichlet_epsilon * dirichlet)
 
-    def get_next_mcts(self, new_roots: torch.Tensor):
+    def get_next_mcts(self, new_roots: torch.Tensor, add_dirichlet_noise=True):
         """
         Preserve as much of the current tree as possible with a new tree whose roots are new_states
 
