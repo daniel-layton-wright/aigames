@@ -14,82 +14,99 @@ def get_random_new_value():
 
 
 def get_next_states_core(states: torch.Tensor, actions: torch.Tensor, move_left_map: torch.Tensor,
-                         move_right_map: torch.Tensor, reward_map: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    lookup_tensor: Final = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32, device=states.device).unsqueeze(1)
+                         move_right_map: torch.Tensor, reward_map: torch.Tensor, ind: torch.Tensor, indT: torch.Tensor)\
+        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     new_states = torch.zeros_like(states)
     rewards = torch.zeros((states.shape[0], 1), dtype=torch.float32, device=states.device)
+
     left_mask = (actions == 0)
     right_mask = (actions == 1)
     up_mask = (actions == 2)
     down_mask = (actions == 3)
 
-    left_lookup_idx = states[left_mask, :, :].matmul(lookup_tensor).flatten().to(int)
+    left_lookup_idx = ind[left_mask].flatten()
     new_states[left_mask, :, :] = (move_left_map[left_lookup_idx, :].reshape((left_mask.sum(), 4, 4)))
     rewards[left_mask, :] = reward_map[left_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True)
 
-    right_lookup_idx = states[right_mask, :, :].matmul(lookup_tensor).flatten().to(int)
+    right_lookup_idx = ind[right_mask].flatten()
     new_states[right_mask, :, :] = (move_right_map[right_lookup_idx, :].reshape((right_mask.sum(), 4, 4)))
     rewards[right_mask, :] = reward_map[right_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True)
 
-    up_lookup_idx = lookup_tensor.T.matmul(states[up_mask, :, :]).flatten().to(int)
+    up_lookup_idx = indT[up_mask].flatten()
     new_states[up_mask, :, :] = (move_left_map[up_lookup_idx, :].reshape((up_mask.sum(), 4, 4))).transpose(1, 2)
     rewards[up_mask, :] = reward_map[up_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True)
 
-    down_lookup_idx = lookup_tensor.T.matmul(states[down_mask, :, :]).flatten().to(int)
+    down_lookup_idx = indT[down_mask].flatten()
     new_states[down_mask, :, :] = (
         move_right_map[down_lookup_idx, :].reshape((down_mask.sum(), 4, 4))).transpose(1, 2)
     rewards[down_mask, :] = reward_map[down_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True)
 
-    # This can be used to give a reward for keeping highest tile in bottom left. 512 is the reward value
-    # rewards += ((new_states[:, 3, 0] == new_states.amax(dim=(1, 2))) * 512).unsqueeze(1)
+    new_ind, new_indT = get_ind_core(new_states)
 
-    return new_states, rewards
+    return new_states, rewards, new_ind, new_indT
+
+
+def get_ind_core(new_states):
+    lookup_tensor: Final = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32,
+                                        device=new_states.device).unsqueeze(1)
+    new_ind = new_states.matmul(lookup_tensor).to(int)
+    new_indT = lookup_tensor.T.matmul(new_states).to(int)
+    return new_ind, new_indT
+
+
+def get_ind(states):
+    if hasattr(states, 'ind') and hasattr(states, 'indT'):
+        return states.ind, states.indT
+    else:
+        return get_ind_core(states)
 
 
 def get_next_states_full(states: torch.Tensor, actions: torch.Tensor, move_left_map: torch.Tensor,
-                         move_right_map: torch.Tensor, reward_map: torch.Tensor, legal_move_mask: torch.Tensor)\
-        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    new_states, rewards = get_next_states_core(states, actions, move_left_map, move_right_map, reward_map)
+                         move_right_map: torch.Tensor, reward_map: torch.Tensor, legal_move_mask: torch.Tensor,
+                         ind: torch.Tensor, indT: torch.Tensor)\
+        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    new_states, rewards, new_ind, new_indT = get_next_states_core(states, actions, move_left_map, move_right_map,
+                                                                  reward_map, ind, indT)
 
     # Set is terminal
-    is_terminal = is_terminal_core(new_states, legal_move_mask)
+    is_terminal = is_terminal_core(new_states, legal_move_mask, new_ind, new_indT)
 
     env_is_next = torch.ones((states.shape[0],), dtype=torch.bool, device=states.device) & ~is_terminal
 
-    return new_states, rewards, env_is_next, is_terminal
+    return new_states, rewards, env_is_next, is_terminal, new_ind, new_indT
 
 
-def is_terminal_core(states: torch.Tensor, legal_move_mask: torch.Tensor) -> torch.Tensor:
-    legal_action_masks = get_legal_action_masks_core(states, legal_move_mask)
+def is_terminal_core(states: torch.Tensor, legal_move_mask: torch.Tensor, ind: torch.Tensor, indT: torch.Tensor)\
+        -> torch.Tensor:
+    legal_action_masks = get_legal_action_masks_core(states, legal_move_mask, ind, indT)
     return legal_action_masks.sum(dim=1) == 0
 
 
-def get_legal_action_masks_core(states, legal_move_mask):
-    lookup_tensor: Final = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32, device=states.device).unsqueeze(1)
-    ind = states.matmul(lookup_tensor).flatten().to(int)
+def get_legal_action_masks_core(states, legal_move_mask, ind, indT):
     mask = legal_move_mask[ind, :].reshape(states.shape[0], 4, 2).any(dim=1)
-
-    ind = lookup_tensor.T.matmul(states).flatten().to(int)
-    return torch.cat([mask, legal_move_mask[ind, :].reshape(states.shape[0], 4, 2).any(dim=1)], dim=1)
+    return torch.cat([mask, legal_move_mask[indT, :].reshape(states.shape[0], 4, 2).any(dim=1)], dim=1)
 
 
 def get_next_states_from_env_core(states: torch.Tensor, random_values: torch.Tensor, legal_move_mask)\
-        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    base_progressions = torch.tensor(torch.concat([
+        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    base_progressions = torch.concat([
         torch.eye(16, dtype=states.dtype).view(16, 4, 4),
         torch.eye(16, dtype=states.dtype).view(16, 4, 4) * 2
-    ], dim=0).to(states.device))
-    base_probabilities = torch.tensor(torch.concat([
+    ], dim=0).to(states.device)
+    base_probabilities = torch.concat([
         torch.full((16,), 0.9),
         torch.full((16,), 0.1)
-    ], dim=0).to(states.device))
+    ], dim=0).to(states.device)
     valid_progressions = torch.logical_not(torch.any((states.unsqueeze(1) * base_progressions).view(-1, 32, 16), dim=2))
     probs = base_probabilities * valid_progressions
     probs /= probs.sum(dim=1, keepdim=True)
     idx = select_indices(probs, random_values)
     next_states = states + base_progressions[idx]
-    is_terminal = is_terminal_core(next_states, legal_move_mask)
-    return next_states, idx, is_terminal
+
+    next_ind, next_indT = get_ind_core(next_states)
+
+    is_terminal = is_terminal_core(next_states, legal_move_mask, next_ind, next_indT)
+    return next_states, idx, is_terminal, next_ind, next_indT
 
 
 def select_indices(probs, random_values):
@@ -213,21 +230,27 @@ class G2048Multi(GameMulti):
                         torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
                         torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
                         torch.randint(0, 2, (16 ** 4, 1), dtype=torch.float32, device=device),
-                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=device))
+                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=device),
+                        torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
+                        torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
     )
 
     get_legal_action_masks_jit = torch.jit.trace(
         get_legal_action_masks_core,
         example_inputs=(
             torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
-            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
+            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
+            torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
+            torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
     )
 
     is_terminal_jit = torch.jit.trace(
         is_terminal_core,
         example_inputs=(
             torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
-            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
+            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
+            torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
+            torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
     )
 
     get_next_states_from_env_jit = torch.jit.trace(
@@ -267,18 +290,27 @@ class G2048Multi(GameMulti):
         # If any zeros, not terminal, else if no legal actions, terminal
         # The shape of states is N x state shape so N x 4 x 4
         # We need to return bools of size (N,)
-        return cls.is_terminal_jit(states, cls.LEGAL_MOVE_MASK)
+        return cls.is_terminal_jit(states, cls.LEGAL_MOVE_MASK, *get_ind(states))
 
     def get_cur_player_index(self, states) -> torch.Tensor:
         return torch.zeros((states.shape[0],), dtype=torch.long, device=states.device)
 
-    def get_next_states(self, states: torch.Tensor, actions: torch.Tensor):
+    @classmethod
+    def get_next_states(cls, states: torch.Tensor, actions: torch.Tensor):
         """
         :param states: A tensor of size (N, 4, 4) representing the states
         :param actions: A tensor of size (N,) representing the actions
         """
-        return self.get_next_states_jit(states, actions, self.MOVE_LEFT_MAP, self.MOVE_RIGHT_MAP,
-                                        self.REWARD_MAP, self.LEGAL_MOVE_MASK)
+        new_states, rewards, env_is_next, is_terminal, new_ind, new_indT = (
+            cls.get_next_states_jit(states, actions, cls.MOVE_LEFT_MAP, cls.MOVE_RIGHT_MAP,
+                                    cls.REWARD_MAP, cls.LEGAL_MOVE_MASK, *get_ind(states))
+        )
+
+        new_states.ind = new_ind
+        new_states.new_indT = new_indT
+
+        return new_states, rewards, env_is_next, is_terminal
+
 
     @classmethod
     def get_next_states_from_env(cls, states: torch.Tensor):
@@ -288,7 +320,13 @@ class G2048Multi(GameMulti):
         :param states: A tensor of size (N, 4, 4) representing the states
         """
         random_values = torch.rand(states.shape[0], dtype=torch.float32, device=states.device)
-        return cls.get_next_states_from_env_jit(states, random_values, cls.LEGAL_MOVE_MASK)
+        next_states, idx, is_terminal, next_ind, next_indT = cls.get_next_states_from_env_jit(states, random_values,
+                                                                                              cls.LEGAL_MOVE_MASK)
+
+        next_states.ind = next_ind
+        next_states.indT = next_indT
+
+        return next_states, idx, is_terminal
 
     @classmethod
     def shift_row_left(cls, row) -> int:
@@ -327,11 +365,12 @@ class G2048Multi(GameMulti):
 
         return states
 
-    def get_legal_action_masks(self, states: torch.FloatTensor):
+    @classmethod
+    def get_legal_action_masks(cls, states: torch.FloatTensor):
         """
         :param states: A tensor of size (N, 4, 4) representing the states
         """
-        return self.get_legal_action_masks_jit(states, self.LEGAL_MOVE_MASK)
+        return cls.get_legal_action_masks_jit(states, cls.LEGAL_MOVE_MASK, *get_ind(states))
 
     @classmethod
     def delete_jit_methods(cls):
@@ -403,21 +442,27 @@ class G2048MultiCuda(G2048Multi):
                         torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
                         torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
                         torch.randint(0, 2, (16 ** 4, 1), dtype=torch.float32, device=device),
-                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=device))
+                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=device),
+                        torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
+                        torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
     )
 
     get_legal_action_masks_jit = torch.jit.trace(
         get_legal_action_masks_core,
         example_inputs=(
             torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
-            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
+            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
+            torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
+            torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
     )
 
     is_terminal_jit = torch.jit.trace(
         is_terminal_core,
         example_inputs=(
             torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
-            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
+            torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
+            torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
+            torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
     )
 
     get_next_states_from_env_jit = torch.jit.trace(
