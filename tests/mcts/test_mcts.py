@@ -18,6 +18,7 @@ class TestMCTS(unittest.TestCase):
         hyperparams.dirichlet_epsilon = 0.25
         hyperparams.discount = 0.99
         hyperparams.expand_simultaneous_fraction = 1.0
+        hyperparams.dirichlet_epsilon = 0.
 
         dummy_evaluator = DummyAlphaEvaluatorMulti(4, 1, 'cpu')
         agent = AlphaAgentMulti(G2048Multi, dummy_evaluator, hyperparams)
