@@ -12,7 +12,7 @@ import argparse
 
 def main():
     hyperparams = AlphaAgentHyperparametersMulti()
-    hyperparams.mcts_hyperparams.n_mcts_iters = 100
+    hyperparams.n_mcts_iters = 100
 
     # Set up an argparser
     parser = argparse.ArgumentParser()
@@ -26,13 +26,11 @@ def main():
     parser.add_argument('--pickle_history_path', type=str, default=None)
 
     add_all_slots_to_arg_parser(parser, hyperparams)
-    add_all_slots_to_arg_parser(parser, hyperparams.mcts_hyperparams)
 
     # Parse the args
     args = parser.parse_args()
 
     load_from_arg_parser(args, hyperparams)
-    load_from_arg_parser(args, hyperparams.mcts_hyperparams)
 
     G2048Multi = get_G2048Multi_game_class(args.device)
 
@@ -51,7 +49,7 @@ def main():
         listeners = [CommandLineGame(pause_time=0.1)]
 
     if args.show_avg_score:
-        listeners.append(AvgRewardListenerMulti(hyperparams.discount_rate, 0, show_tqdm=True, tqdm_total=20000))
+        listeners.append(AvgRewardListenerMulti(hyperparams.discount, 0, show_tqdm=True, tqdm_total=20000))
 
     if args.show_action_counter:
         listeners.append(ActionCounterProgressBar(500))

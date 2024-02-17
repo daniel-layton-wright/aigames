@@ -6,7 +6,7 @@ from aigames.agent.alpha_agent import TrainingTau
 from aigames.agent.alpha_agent_multi import AlphaAgentMultiListener
 from aigames.training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
-from aigames.utils.listeners import ActionCounterProgressBar
+from aigames.utils.listeners import ActionCounterProgressBar, MaxActionGameKiller
 from .network_architectures import G2048MultiNetwork, G2048MultiEvaluator
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
@@ -65,6 +65,7 @@ def main():
     parser.add_argument('--agent_eval_mode', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--show_game', action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument('--show_action_counter', action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument('--max_actions', type=int, default=None)
 
     # Parse the args and set the hyperparams
     args = parser.parse_args()
@@ -83,6 +84,9 @@ def main():
 
     if args.show_action_counter:
         training_run.game.listeners.append(ActionCounterProgressBar(500))
+
+    if args.max_actions:
+        training_run.game.listeners.append(MaxActionGameKiller(args.max_actions))
 
     if args.agent_eval_mode:
         training_run.agent.eval()
