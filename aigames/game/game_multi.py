@@ -45,6 +45,7 @@ class GameMulti:
     def is_terminal(cls, states):
         raise NotImplementedError()
 
+    @classmethod
     def get_legal_action_masks(self, states):
         raise NotImplementedError()
 
