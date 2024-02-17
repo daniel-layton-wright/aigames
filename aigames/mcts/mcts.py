@@ -10,7 +10,7 @@ class MCTSHyperparameters:
     dirichlet_alpha: float = 0.3
     dirichlet_epsilon: float = 0.25
     discount: float = 1.0
-    expand_simultaneously: bool = True  # If true, MCTS will wait until all trees are at a leaf to expand simultaneously (more efficient use of NN)
+    expand_simultaneous_fraction: float = 1.0  # The fraction of trees that need to be at a leaf to be expanded
 
 
 class MCTS:
@@ -156,7 +156,9 @@ class MCTS:
 
     def searchable_roots(self):
         out_of_bounds = (self.next_empty_nodes >= self.total_states) & (~self.is_leaf[self.root_idx, self.cur_nodes])
+        done = self.n[:, 1].sum(dim=1) >= self.hyperparams.n_mcts_iters
         return (~out_of_bounds
+                & ~done
                 & ~self.only_one_action)
 
     def search(self):
@@ -170,16 +172,12 @@ class MCTS:
         idx_env = self.root_idx[env & ~leaves_or_terminal & searchable_roots]
         cur_nodes_env = self.cur_nodes[env & ~leaves_or_terminal & searchable_roots]
 
-        # Expand leaf nodes
-        # Idea: expand very expensive, try to do all at once
-        if self.hyperparams.expand_simultaneously:
-            if (leaves_or_terminal | ~searchable_roots).all():
-                self.expand()
-        else:
+        # Expand leaf nodes if enough trees are at a leaf (can set the fraction to 0 to always expand)
+        if leaves_or_terminal[searchable_roots].float().mean() >= self.hyperparams.expand_simultaneous_fraction:
             self.expand()
 
-        # If we're at a terminal state, reset back to the root
-        self.handle_terminal_states()
+            # If we're at a terminal state, reset back to the root
+            self.handle_terminal_states()
 
         # Advance env nodes, if searchable
         self.advance_to_next_states_from_env_states(idx_env, cur_nodes_env)
