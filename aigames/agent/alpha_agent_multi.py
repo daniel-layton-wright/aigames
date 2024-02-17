@@ -46,7 +46,7 @@ class TrainingTau:
                          tau_schedule_function is not None])) != 1:
             raise ValueError('Please pass exactly one of fixed_tau_value, tau_schedule_list, tau_schedule_function')
 
-        self.fixed_tau_value = fixed_tau_value
+        self.fixed_tau_value = float(fixed_tau_value)
         self.tau_schedule_list = tau_schedule_list
         self.tau_schedule_function = tau_schedule_function
 
