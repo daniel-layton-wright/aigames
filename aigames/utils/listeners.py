@@ -1,4 +1,4 @@
-from ..game.game import GameListener
+from ..game.game import GameListener, AbortGameException
 from ..game.game_multi import GameListenerMulti
 from ..game import SequentialGame
 from tqdm.auto import tqdm
@@ -77,6 +77,20 @@ class ActionCounterProgressBar(GameListenerMulti):
 
     def __json__(self):
         return {}  # Why do you need a JSON of this wandb?
+
+
+class MaxActionGameKiller(GameListenerMulti):
+    def __init__(self, max_actions):
+        self.max_actions = max_actions
+        self.n_actions = 0
+
+    def before_game_start(self, game):
+        self.n_actions = 0
+
+    def on_action(self, game, actions):
+        self.n_actions += 1
+        if self.n_actions >= self.max_actions:
+            raise AbortGameException()
 
 
 class AverageRewardListener(RewardListener):
