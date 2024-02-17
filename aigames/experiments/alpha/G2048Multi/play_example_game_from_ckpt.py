@@ -1,19 +1,13 @@
 import argparse
-import wandb
-from pytorch_lightning.callbacks import ModelCheckpoint
-from aigames import CommandLineGame
-from aigames.agent.alpha_agent import TrainingTau
-from aigames.agent.alpha_agent_multi import AlphaAgentMultiListener
-from aigames.training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
+from .... import CommandLineGame
+from ....agent.alpha_agent import TrainingTau
+from ....agent.alpha_agent_multi import AlphaAgentMultiListener
+from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
-from aigames.utils.listeners import ActionCounterProgressBar, MaxActionGameKiller
-from .network_architectures import G2048MultiNetwork, G2048MultiEvaluator
-import pytorch_lightning as pl
-import pytorch_lightning.loggers as pl_loggers
-from aigames.utils.utils import get_all_slots, add_all_slots_to_arg_parser, load_from_arg_parser
-import os
-import torch
-from aigames.game.G2048_multi import get_G2048Multi_game_class
+from ....utils.listeners import ActionCounterProgressBar, MaxActionGameKiller
+from .network_architectures import G2048MultiNetwork
+from ....utils.utils import get_all_slots, add_all_slots_to_arg_parser, load_from_arg_parser
+from ....game.G2048_multi import get_G2048Multi_game_class
 
 
 class NetworkMCTSMonitor(AlphaAgentMultiListener):

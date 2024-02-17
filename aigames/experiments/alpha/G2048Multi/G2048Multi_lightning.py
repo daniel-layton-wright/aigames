@@ -1,16 +1,16 @@
 import argparse
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint
-from aigames.agent.alpha_agent_multi import TrainingTau
-from aigames.training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
+from ....agent.alpha_agent_multi import TrainingTau
+from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
-from aigames.utils.listeners import ActionCounterProgressBar
+from ....utils.listeners import ActionCounterProgressBar
 from .network_architectures import G2048MultiNetwork, G2048MultiEvaluator
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
-from aigames.utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
+from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
 import os
-from aigames.game.G2048_multi import get_G2048Multi_game_class
+from ....game.G2048_multi import get_G2048Multi_game_class
 
 
 class G2048TrainingRun(AlphaMultiTrainingRunLightning):

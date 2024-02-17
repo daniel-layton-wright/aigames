@@ -1,12 +1,12 @@
 """
 Prints out a game between to naive MCTS players (dummy alpha evaluator)
 """
-from aigames.game import CommandLineGame
-from aigames.game.G2048_multi import get_G2048Multi_game_class
-from aigames.agent.alpha_agent_multi import AlphaAgentMulti, AlphaAgentHyperparametersMulti as AlphaAgentHyperparametersMulti, DummyAlphaEvaluatorMulti
-from aigames.utils.listeners import AvgRewardListenerMulti, ActionCounterProgressBar
+from ....game import CommandLineGame
+from ....game.G2048_multi import get_G2048Multi_game_class
+from ....agent.alpha_agent_multi import AlphaAgentMulti, AlphaAgentHyperparametersMulti as AlphaAgentHyperparametersMulti, DummyAlphaEvaluatorMulti
+from ....utils.listeners import AvgRewardListenerMulti, ActionCounterProgressBar
 from .network_architectures import G2048MultiNetwork, G2048MultiEvaluator
-from aigames.utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
+from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
 import argparse
 
 

@@ -1,8 +1,8 @@
 import torch
 from torch import nn
-from aigames.training_manager.alpha_training_manager import AlphaNetworkEvaluator
+from ....training_manager.alpha_training_manager import AlphaNetworkEvaluator
 from torchvision.models.resnet import BasicBlock
-from aigames import Flatten
+from .... import Flatten
 
 
 class G2048MultiEvaluator(AlphaNetworkEvaluator):
