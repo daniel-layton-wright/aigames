@@ -140,9 +140,10 @@ class AlphaAgent(Agent):
         legal_action_index = legal_actions.index(action)
         child_index = self.cur_node.actions.index(action)
 
-        # Record this for training, set the root node to the next node now and forget the parent
-        player_index = self.game_class.get_cur_player_index(state)
-        self.episode_history.append(TimestepData(state, pi, player_index))
+        if self.training:
+            # Record this for training, set the root node to the next node now and forget the parent
+            player_index = self.game_class.get_cur_player_index(state)
+            self.episode_history.append(TimestepData(state, pi, player_index))
 
         self.cur_node = self.cur_node.children[child_index]
         self.cur_node.parent = None

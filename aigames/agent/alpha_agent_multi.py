@@ -130,7 +130,8 @@ class AlphaAgentMulti(AgentMulti):
         for listener in self.listeners:
             listener.after_mcts_search(self.mcts, pi, actions)
 
-        self.record_pi(mask, pi, states)
+        if self.training:
+            self.record_pi(mask, pi, states)
 
         return actions
 
