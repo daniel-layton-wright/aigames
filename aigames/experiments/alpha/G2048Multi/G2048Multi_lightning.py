@@ -51,8 +51,9 @@ def main():
     hyperparams.n_mcts_iters = 250
     hyperparams.dirichlet_alpha = 1.0
     hyperparams.dirichlet_epsilon = 0.25
-    hyperparams.c_puct = 1000
-    hyperparams.lr = 0.001
+    hyperparams.scaleQ = True
+    hyperparams.c_puct = 4  # Can be low/normal when scaleQ is True
+    hyperparams.lr = 0.002
     hyperparams.weight_decay = 1e-5
     hyperparams.training_tau = TrainingTau(fixed_tau_value=1)
     hyperparams.batch_size = 1024
