@@ -4,7 +4,7 @@ from aigames.agent.alpha_agent import *
 from aigames.game.game import AbortGameException
 from ctypes import c_bool, c_int
 from aigames.game import CommandLineGame
-from experiments.alpha_connect4 import Connect4Gui
+from aigames.experiments import Connect4Gui
 import queue
 from aigames import Flatten
 import wandb

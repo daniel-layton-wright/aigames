@@ -2,12 +2,8 @@
 Run a tournament between the naive (untrained) alpha network and itself (useful for profiling purposes)
 """
 import argparse
-from experiments.alpha.connect4.network_architectures import Connect4Network
-from .network_architectures import Connect4Evaluator, Connect4EvaluatorV2, Connect4NetworkV2
-from aigames.agent.alpha_agent import AlphaAgent, AlphaAgentHyperparameters
+from aigames.agent.alpha_agent import AlphaAgent
 from aigames.utils.utils import play_tournament_old, load_from_arg_parser, add_all_slots_to_arg_parser
-from aigames.game.connect4 import Connect4, Connect4V2
-from aigames.game.command_line_game import CommandLineGame
 from aigames.training_manager.alpha_training_manager_lightning import AlphaTrainingRunLightning, AlphaTrainingHyperparametersLightning
 import sys
 

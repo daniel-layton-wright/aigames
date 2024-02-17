@@ -2,7 +2,7 @@
 Run a game between a model checkpoint and the manual agent
 """
 import argparse
-from experiments.alpha.connect4.connect4_lightning import AlphaTrainingRunLightningConnect4, Connect4Evaluator
+from aigames.experiments.alpha.connect4 import AlphaTrainingRunLightningConnect4
 from aigames.agent.manual_agent import ManualAgent
 from aigames.game.connect4 import Connect4
 from aigames.game.command_line_game import CommandLineGame

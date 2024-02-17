@@ -3,7 +3,7 @@ from aigames.training_manager.alpha_training_manager_lightning import AlphaTrain
 from aigames.utils.listeners import GameHistoryListener, RewardListener
 from aigames.agent import MinimaxAgent
 from aigames.game.tictactoe import FastTicTacToe
-from experiments.alphatoe import TicTacToeNetwork, FastTicTacToeEvaluator
+from aigames.experiments import TicTacToeNetwork, FastTicTacToeEvaluator
 
 
 def main():

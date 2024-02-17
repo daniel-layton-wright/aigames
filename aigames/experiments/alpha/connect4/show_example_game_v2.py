@@ -3,8 +3,8 @@ Prints out a game between to naive MCTS players (dummy alpha evaluator)
 """
 from aigames.game import CommandLineGame
 from aigames.game.connect4 import Connect4V2
-from aigames.agent.alpha_agent import AlphaAgent, DummyAlphaEvaluator, AlphaAgentHyperparameters
-from experiments.alpha.connect4.network_architectures import Connect4NetworkV2, Connect4EvaluatorV2
+from aigames.agent.alpha_agent import AlphaAgent, AlphaAgentHyperparameters
+from aigames.experiments.alpha.connect4 import Connect4NetworkV2, Connect4EvaluatorV2
 
 
 def main():

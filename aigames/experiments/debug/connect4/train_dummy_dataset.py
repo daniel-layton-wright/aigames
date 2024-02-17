@@ -1,5 +1,5 @@
 from aigames.game.connect4 import *
-from experiments.mp_alpha_connect4 import Connect4Network, Connect4Evaluator
+from aigames.experiments import Connect4Network, Connect4Evaluator
 from aigames.training_manager.alpha_training_manager import *
 import pickle
 import wandb

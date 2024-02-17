@@ -4,7 +4,7 @@ import sys
 top_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../'))
 sys.path.insert(0, top_dir)
 from aigames import *
-from experiments.tictactoe.alpha.train import TicTacToeAlphaModel
+from aigames.experiments import TicTacToeAlphaModel
 
 
 class DebuggingMonitor:

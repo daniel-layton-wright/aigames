@@ -1,7 +1,6 @@
 import argparse
 from aigames.training_manager.alpha_training_manager_lightning import AlphaTrainingRunLightning
 from aigames.game.tictactoe import board_string_to_array, FastTicTacToeState
-from experiments.alphatoe import TicTacToeNetwork, FastTicTacToeEvaluator  # Need these for model checkpoint loading
 
 
 def main():

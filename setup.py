@@ -9,7 +9,7 @@ setup(
     author='Daniel Wright',
     author_email='dlwright@alumni.stanford.edu',
     license='MIT',
-    packages=find_packages(),
+    packages=['aigames'],
     package_data={
         'aigames': [
         ]
