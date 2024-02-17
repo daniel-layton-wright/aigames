@@ -10,6 +10,7 @@ class MCTSHyperparameters:
     dirichlet_alpha: float = 0.3
     dirichlet_epsilon: float = 0.25
     discount: float = 1.0
+    expand_simultaneously: bool = True  # If true, MCTS will wait until all trees are at a leaf to expand simultaneously (more efficient use of NN)
 
 
 class MCTS:
@@ -154,28 +155,33 @@ class MCTS:
         self.n[self.is_terminal[:, 1], 1] = 1
 
     def searchable_roots(self):
-        out_of_bounds = (self.next_empty_nodes >= self.total_states)
+        out_of_bounds = (self.next_empty_nodes >= self.total_states) & (~self.is_leaf[self.root_idx, self.cur_nodes])
         return (~out_of_bounds
                 & ~self.only_one_action)
 
     def search(self):
-        not_leaves_terminal_env = (~self.is_leaf[self.root_idx, self.cur_nodes]
-                                   & ~self.is_terminal[self.root_idx, self.cur_nodes]
-                                   & ~self.is_env[self.root_idx, self.cur_nodes])
-        cur_searchable = not_leaves_terminal_env & self.searchable_roots()
+        searchable_roots = self.searchable_roots()  # These are the roots we can do anything on
+        leaves_or_terminal = self.is_leaf[self.root_idx, self.cur_nodes] | self.is_terminal[self.root_idx, self.cur_nodes]
+        env = self.is_env[self.root_idx, self.cur_nodes]
 
-        idx = self.root_idx[cur_searchable]
-        cur_nodes = self.cur_nodes[cur_searchable]
+        idx = self.root_idx[~leaves_or_terminal & ~env & searchable_roots]
+        cur_nodes = self.cur_nodes[~leaves_or_terminal & ~env & searchable_roots]
+
+        idx_env = self.root_idx[env & ~leaves_or_terminal & searchable_roots]
+        cur_nodes_env = self.cur_nodes[env & ~leaves_or_terminal & searchable_roots]
+
+        # Expand leaf nodes
+        # Idea: expand very expensive, try to do all at once
+        if self.hyperparams.expand_simultaneously:
+            if (leaves_or_terminal | ~searchable_roots).all():
+                self.expand()
+        else:
+            self.expand()
 
         # If we're at a terminal state, reset back to the root
         self.handle_terminal_states()
 
-        # Expand leaf nodes
-        self.expand()
-
-        # Advance env nodes
-        idx_env = self.root_idx[self.is_env[self.root_idx, self.cur_nodes]]
-        cur_nodes_env = self.cur_nodes[self.is_env[self.root_idx, self.cur_nodes]]
+        # Advance env nodes, if searchable
         self.advance_to_next_states_from_env_states(idx_env, cur_nodes_env)
 
         # For the other nodes, choose best action and search down
@@ -190,8 +196,11 @@ class MCTS:
         self.advance_to_next_states(idx, cur_nodes, next_actions)
 
     def search_for_n_iters(self, n_iters):
-        while any(self.searchable_roots()) and self.n[self.searchable_roots(), 1].sum(dim=1).min() < n_iters:
+        searchable = self.searchable_roots()
+
+        while searchable.any().item() and self.n[searchable, 1].sum(dim=1).min() < n_iters:
             self.search()
+            searchable = self.searchable_roots()
 
     def handle_terminal_states(self):
         """
