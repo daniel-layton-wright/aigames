@@ -166,14 +166,12 @@ class MCTS:
         leaves_or_terminal = self.is_leaf[self.root_idx, self.cur_nodes] | self.is_terminal[self.root_idx, self.cur_nodes]
         env = self.is_env[self.root_idx, self.cur_nodes]
 
-        idx = self.root_idx[~leaves_or_terminal & ~env & searchable_roots]
-        cur_nodes = self.cur_nodes[~leaves_or_terminal & ~env & searchable_roots]
-
         idx_env = self.root_idx[env & ~leaves_or_terminal & searchable_roots]
         cur_nodes_env = self.cur_nodes[env & ~leaves_or_terminal & searchable_roots]
 
         # Expand leaf nodes if enough trees are at a leaf (can set the fraction to 0 to always expand)
         if leaves_or_terminal[searchable_roots].float().mean() >= self.hyperparams.expand_simultaneous_fraction:
+            # Expand leaves
             self.expand()
 
             # If we're at a terminal state, reset back to the root
@@ -181,6 +179,14 @@ class MCTS:
 
         # Advance env nodes, if searchable
         self.advance_to_next_states_from_env_states(idx_env, cur_nodes_env)
+
+        # Refresh just in case we can be more efficient and do these all together now
+        searchable_roots = self.searchable_roots()  # These are the roots we can do anything on
+        leaves_or_terminal = self.is_leaf[self.root_idx, self.cur_nodes] | self.is_terminal[self.root_idx, self.cur_nodes]
+        env = self.is_env[self.root_idx, self.cur_nodes]
+
+        idx = self.root_idx[~leaves_or_terminal & ~env & searchable_roots]
+        cur_nodes = self.cur_nodes[~leaves_or_terminal & ~env & searchable_roots]
 
         # For the other nodes, choose best action and search down
         N = self.n[idx, cur_nodes]
