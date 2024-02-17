@@ -110,17 +110,6 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         return self.current_epoch > 0 and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epoch == 0
 
     def on_train_epoch_start(self) -> None:
-        if self.time_to_play_game():
-            self.network.eval()
-            self.game.play()
-            self.after_self_play_game()
-
-        if self.time_to_play_eval_game():
-            self.agent.eval()
-            self.network.eval()
-            self.eval_game.play()
-            self.after_eval_game()
-
         if self.time_to_play_eval_game_network_only():
             # Temporarily set n_iters to 0 so we just use the network result
             tmp = self.agent.hyperparams.n_mcts_iters
@@ -130,6 +119,18 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.eval_game.play()
             self.after_eval_game_network_only()
             self.agent.hyperparams.n_mcts_iters = tmp
+
+        if self.time_to_play_eval_game():
+            self.agent.eval()
+            self.network.eval()
+            self.eval_game.play()
+            self.after_eval_game()
+
+        if self.time_to_play_game():
+            self.agent.train()
+            self.network.eval()
+            self.game.play()
+            self.after_self_play_game()
 
         self.agent.train()
         self.network.train()
