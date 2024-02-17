@@ -169,8 +169,8 @@ class MCTS:
         idx_env = self.root_idx[env & ~leaves_or_terminal & searchable_roots]
         cur_nodes_env = self.cur_nodes[env & ~leaves_or_terminal & searchable_roots]
 
-        # Expand leaf nodes if enough trees are at a leaf (can set the fraction to 0 to always expand)
-        if leaves_or_terminal[searchable_roots].float().mean() >= self.hyperparams.expand_simultaneous_fraction:
+        # Expand leaf nodes if enough trees are at a leaf (can set the fraction to 0 to always expand). 1e-3 is a tolerance for equality
+        if leaves_or_terminal[searchable_roots].float().mean() + 1e-3 >= self.hyperparams.expand_simultaneous_fraction:
             # Expand leaves
             self.expand()
 
