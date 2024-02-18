@@ -54,7 +54,7 @@ def main():
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
     add_all_slots_to_arg_parser(parser, hyperparams)
-    parser.add_argument('--ckpt_path', required=False)
+    parser.add_argument('--ckpt_path', required=True)
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
     parser.add_argument('--agent_eval_mode', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--show_game', action=argparse.BooleanOptionalAction, default=False)
@@ -66,10 +66,7 @@ def main():
 
     load_from_arg_parser(args, hyperparams)
 
-    G2048Multi = get_G2048Multi_game_class(hyperparams.device)
-
-    training_run = AlphaMultiTrainingRunLightning.load_from_checkpoint(args.ckpt_path, map_location=args.device,
-                                                                       game_class=G2048Multi, hyperparams=hyperparams)
+    training_run = AlphaMultiTrainingRunLightning.load_from_checkpoint(args.ckpt_path, map_location=args.device)
     training_run.alpha_evaluator.device = args.device
 
     if args.show_game:

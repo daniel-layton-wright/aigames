@@ -23,6 +23,7 @@ class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
     n_parallel_eval_games: int = 100
     eval_game_every_n_epochs: int = 10
     eval_game_network_only_every_n_epoch: int = 10
+    clear_dataset_before_self_play_rounds: list = field(default_factory=list)
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
@@ -66,6 +67,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.agent = AlphaAgentMulti(self.game_class, self.alpha_evaluator, self.hyperparams, listeners=[self.dataset])
         self.game = self.game_class(self.hyperparams.n_parallel_games, self.agent, listeners=hyperparams.game_listeners)
         self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent, listeners=hyperparams.game_listeners)
+        self.n_self_play_rounds = 0
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)
@@ -87,12 +89,20 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def on_fit_start(self):
         # Do first self-play. Always put network in eval mode when playing games (for batch norm stuff)
-        self.network.eval()
-        self.game.play()
-        self.after_self_play_game()
+        self.self_play()
 
         # Put network back in train mode
         self.network.train()
+
+    def self_play(self):
+        if self.n_self_play_rounds in self.hyperparams.clear_dataset_before_self_play_rounds:
+            self.dataset.clear()
+
+        self.agent.train()
+        self.network.eval()
+        self.game.play()
+        self.n_self_play_rounds += 1
+        self.after_self_play_game()
 
     def on_train_batch_start(self, batch, batch_idx: int):
         pass  # In the parent class, it does self play here
@@ -127,13 +137,12 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.after_eval_game()
 
         if self.time_to_play_game():
-            self.agent.train()
-            self.network.eval()
-            self.game.play()
-            self.after_self_play_game()
+            self.self_play()
 
         self.agent.train()
         self.network.train()
+
+        self.log('dataset/size', self.dataset.states.shape[0] if self.dataset.states is not None else 0)
 
     def after_self_play_game(self):
         pass
@@ -149,9 +158,9 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def training_step(self, batch, nb_batch) -> dict:
         loss, value_loss, distn_loss = self.loss(*batch)
-        self.log('loss', loss)
-        self.log('value_loss', value_loss)
-        self.log('distn_loss', distn_loss)
+        self.log('loss/loss', loss)
+        self.log('loss/value_loss', value_loss)
+        self.log('loss/distn_loss', distn_loss)
         return loss
 
     def train_dataloader(self):

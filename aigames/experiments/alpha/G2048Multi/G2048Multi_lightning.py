@@ -22,9 +22,9 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
         fraction_reached_2048 = (max_tiles >= 11).float().mean()
 
         # Log this
-        self.logger.experiment.log({f'best_tile_{suffix}': avg_max_tile})
-        self.logger.experiment.log({f'fraction_reached_1024_{suffix}': fraction_reached_1024})
-        self.logger.experiment.log({f'fraction_reached_2048_{suffix}': fraction_reached_2048})
+        self.logger.experiment.log({f'best_tile/{suffix}': avg_max_tile})
+        self.logger.experiment.log({f'fraction_reached_1024/{suffix}': fraction_reached_1024})
+        self.logger.experiment.log({f'fraction_reached_2048/{suffix}': fraction_reached_2048})
 
     def on_fit_start(self):
         super().on_fit_start()
@@ -48,17 +48,18 @@ def main():
     hyperparams.n_parallel_games = 1000
     hyperparams.max_data_size = 3000000
     hyperparams.min_data_size = 1024
-    hyperparams.n_mcts_iters = 250
+    hyperparams.n_mcts_iters = 100
     hyperparams.dirichlet_alpha = 1.0
     hyperparams.dirichlet_epsilon = 0.25
     hyperparams.scaleQ = True
-    hyperparams.c_puct = 4  # Can be low/normal when scaleQ is True
+    hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
     hyperparams.lr = 0.002
     hyperparams.weight_decay = 1e-5
     hyperparams.training_tau = TrainingTau(fixed_tau_value=1)
     hyperparams.batch_size = 1024
-    hyperparams.game_listeners = [ActionCounterProgressBar(500)]
+    hyperparams.game_listeners = [ActionCounterProgressBar(1000)]
     hyperparams.discount = 0.999
+    hyperparams.clear_dataset_before_self_play_rounds = [1, 2, 3, 4, 5]
 
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()

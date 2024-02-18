@@ -51,6 +51,11 @@ class BasicAlphaDatasetMulti(AlphaDatasetMulti):
         dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=batch_size)
         return next(iter(dataloader))
 
+    def clear(self):
+        self.states = None
+        self.pis = None
+        self.rewards = None
+
 
 class TensorDataset(torch.utils.data.Dataset):
     """Dataset wrapping tensors.

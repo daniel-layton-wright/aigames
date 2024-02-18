@@ -15,7 +15,7 @@ setup(
         ]
     },
     install_requires=[
-        'torch',
+        'torch', 'torchvision',
         'pandas',
         'numpy',
         'google-cloud-storage',
