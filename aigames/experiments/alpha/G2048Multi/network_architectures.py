@@ -75,8 +75,8 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         self.n_channels = n_channels
         self.n_blocks = n_blocks
         self.n_value_buckets = n_value_buckets
-        self.buckets = torch.linspace(bucket_min, bucket_max, n_value_buckets)
-        self.value_scale_epsilon = value_scale_epsilon
+        self.register_buffer('buckets', torch.linspace(bucket_min, bucket_max, n_value_buckets))
+        self.register_buffer('value_scale_epsilon', torch.FloatTensor([value_scale_epsilon]))
 
         self.base = nn.Sequential(
             nn.Conv2d(in_channels=16, out_channels=n_channels, kernel_size=4, stride=1, padding=0),
@@ -113,6 +113,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         value_bucket_softmax = self.value_head(base)
         return policy, value_bucket_softmax
 
+    @torch.no_grad()
     def evaluate(self, state):
         pi, value_bucket_softmax = self.forward(self.process_state(state))
         scaled_value = self.digitize(value_bucket_softmax)

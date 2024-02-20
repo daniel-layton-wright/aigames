@@ -93,6 +93,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         return mean_loss, value_loss, distn_loss
 
     def on_fit_start(self):
+        # Idea: play game for 1 move then abort for minimal datset for lightning to do its sanity checks then do the
+        # full play in on_train_epoch_start
         if self.hyperparams.self_play_every_n_epochs > 0:
             # Do first self-play.
             self.self_play()
