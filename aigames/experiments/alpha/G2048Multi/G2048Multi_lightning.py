@@ -59,7 +59,7 @@ def main():
     hyperparams.batch_size = 1024
     hyperparams.game_listeners = [ActionCounterProgressBar(1000)]
     hyperparams.discount = 0.999
-    hyperparams.clear_dataset_before_self_play_rounds = [1, 2, 3, 4, 5]
+    hyperparams.clear_dataset_before_self_play_rounds = []
 
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
