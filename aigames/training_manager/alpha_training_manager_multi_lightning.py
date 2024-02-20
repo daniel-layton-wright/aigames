@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field
+from typing import Tuple, Dict, Any
+
 from .alpha_training_manager import *
 import pytorch_lightning as pl
 import torch.utils.data
@@ -21,9 +23,10 @@ class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
     max_data_size: int = 10000000
     min_data_size: int = 1
     n_parallel_eval_games: int = 100
-    eval_game_every_n_epochs: int = 10
+    eval_game_every_n_epochs: int = 10  # Set to -1 for never
     eval_game_network_only_every_n_epoch: int = 10
     clear_dataset_before_self_play_rounds: list = field(default_factory=list)
+    save_dataset_in_checkpoint: bool = False
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
@@ -45,9 +48,18 @@ class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
         n = self.states.shape[0] if self.states is not None else 0
         return math.ceil(n / self.hyperparams.batch_size)
 
+    def enforce_max_size(self):
+        while self.states is not None and self.states.shape[0] > self.hyperparams.max_data_size:
+            self.pop()
+
+
+class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
+    def loss(self, states, pis, values) -> Tuple[torch.Tensor, torch.Tensor]:
+        raise NotImplementedError()
+
 
 class AlphaMultiTrainingRunLightning(pl.LightningModule):
-    def __init__(self, game_class: Type[GameMulti], network: nn.Module, evaluator: BaseAlphaEvaluator,
+    def __init__(self, game_class: Type[GameMulti], network: AlphaMultiNetwork,
                  hyperparams: AlphaMultiTrainingHyperparameters):
         """
 
@@ -61,10 +73,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.hyperparams = hyperparams
         self.game_class = game_class
         self.network = network
-        self.alpha_evaluator = copy.deepcopy(evaluator)
-        self.alpha_evaluator.network = self.network
-        self.dataset = BasicAlphaDatasetLightning(self.alpha_evaluator, self.hyperparams)
-        self.agent = AlphaAgentMulti(self.game_class, self.alpha_evaluator, self.hyperparams, listeners=[self.dataset])
+        self.dataset = BasicAlphaDatasetLightning(self.network, self.hyperparams)
+        self.agent = AlphaAgentMulti(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
         self.game = self.game_class(self.hyperparams.n_parallel_games, self.agent, listeners=hyperparams.game_listeners)
         self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent, listeners=hyperparams.game_listeners)
         self.n_self_play_rounds = 0
@@ -78,18 +88,14 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         return [optimizer]
 
     def loss(self, processed_states, action_distns, values):
-        pred_distns, pred_values = self.network(processed_states)
-
-        nan_distns = torch.isnan(action_distns).any(dim=1)
-
-        value_loss = (self.hyperparams.value_weight_in_loss * ((values - pred_values) ** 2).sum(dim=1)).mean()
-        distn_loss = (-torch.sum(action_distns[~nan_distns] * torch.log(pred_distns[~nan_distns]), dim=1)).mean()
-        mean_loss = value_loss + distn_loss
+        value_loss, distn_loss = self.network.loss(processed_states, action_distns, values)
+        mean_loss = self.hyperparams.value_weight_in_loss * value_loss + distn_loss
         return mean_loss, value_loss, distn_loss
 
     def on_fit_start(self):
-        # Do first self-play. Always put network in eval mode when playing games (for batch norm stuff)
-        self.self_play()
+        if self.hyperparams.self_play_every_n_epochs > 0:
+            # Do first self-play.
+            self.self_play()
 
         # Put network back in train mode
         self.network.train()
@@ -98,6 +104,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         if self.n_self_play_rounds in self.hyperparams.clear_dataset_before_self_play_rounds:
             self.dataset.clear()
 
+        # Always put network in eval mode when playing games (for batch norm stuff)
         self.agent.train()
         self.network.eval()
         self.game.play()
@@ -111,13 +118,17 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         pass  # In the parent class, it does self play here
 
     def time_to_play_game(self):
-        return self.current_epoch > 0 and self.current_epoch % self.hyperparams.self_play_every_n_epochs == 0
+        return (self.hyperparams.self_play_every_n_epochs > 0
+                and self.current_epoch > 0 and self.current_epoch % self.hyperparams.self_play_every_n_epochs == 0)
 
     def time_to_play_eval_game(self):
-        return self.current_epoch > 0 and self.current_epoch % self.hyperparams.eval_game_every_n_epochs == 0
+        return (self.hyperparams.eval_game_every_n_epochs > 0
+                and self.current_epoch > 0 and self.current_epoch % self.hyperparams.eval_game_every_n_epochs == 0)
 
     def time_to_play_eval_game_network_only(self):
-        return self.current_epoch > 0 and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epoch == 0
+        return (self.hyperparams.eval_game_network_only_every_n_epoch > 0
+                and self.current_epoch > 0
+                and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epoch == 0)
 
     def on_train_epoch_start(self) -> None:
         if self.time_to_play_eval_game_network_only():
@@ -165,3 +176,11 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def train_dataloader(self):
         return self.dataset
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        if self.hyperparams.save_dataset_in_checkpoint:
+            checkpoint['dataset'] = self.dataset
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        if 'dataset' in checkpoint:
+            self.dataset = checkpoint['dataset']

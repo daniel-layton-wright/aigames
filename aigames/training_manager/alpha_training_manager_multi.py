@@ -34,6 +34,9 @@ class BasicAlphaDatasetMulti(AlphaDatasetMulti):
             self.pis = torch.cat((self.pis, pis))
             self.rewards = torch.cat((self.rewards, rewards))
 
+        self.enforce_max_size()
+
+    def enforce_max_size(self):
         while len(self) > self.max_size:
             self.pop()
 
