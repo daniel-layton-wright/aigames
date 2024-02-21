@@ -67,6 +67,9 @@ class ValueTargetCalculationMethod(enum.Enum):
     DISCOUNTED_REWARDS = 'discounted_rewards'
     TD = 'td'
 
+    def __json__(self):
+        return self.value
+
 
 @dataclass(kw_only=True, slots=True)
 class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
