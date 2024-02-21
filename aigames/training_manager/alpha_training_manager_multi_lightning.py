@@ -8,6 +8,7 @@ import math
 from .alpha_training_manager_multi import BasicAlphaDatasetMulti, TensorDataset
 from ..agent.alpha_agent_multi import AlphaAgentHyperparametersMulti, AlphaAgentMulti
 from ..game.game_multi import GameMulti
+from ..utils.listeners import MaxActionGameKiller
 
 
 @dataclass(kw_only=True, slots=True)
@@ -93,11 +94,16 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         return mean_loss, value_loss, distn_loss
 
     def on_fit_start(self):
+        game_killer = MaxActionGameKiller(2)
+        self.game.listeners.append(game_killer)
+
         # Idea: play game for 1 move then abort for minimal datset for lightning to do its sanity checks then do the
         # full play in on_train_epoch_start
         if self.hyperparams.self_play_every_n_epochs > 0:
             # Do first self-play.
             self.self_play()
+
+        self.game.listeners.remove(game_killer)
 
         # Put network back in train mode
         self.network.train()
@@ -121,7 +127,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def time_to_play_game(self):
         return (self.hyperparams.self_play_every_n_epochs > 0
-                and self.current_epoch > 0 and self.current_epoch % self.hyperparams.self_play_every_n_epochs == 0)
+                and self.current_epoch % self.hyperparams.self_play_every_n_epochs == 0)
 
     def time_to_play_eval_game(self):
         return (self.hyperparams.eval_game_every_n_epochs > 0
@@ -151,6 +157,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
         if self.time_to_play_game():
             self.self_play()
+
 
         self.agent.train()
         self.network.train()

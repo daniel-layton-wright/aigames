@@ -318,7 +318,7 @@ class MCTS:
         # back up values
         if nodesp.shape[0] > 0:
             self.backup(idxp, self.parent_nodes[idxp, nodesp], self.actions[idxp, nodesp],
-                        self.hyperparams.discount * (values + self.rewards[idxp, nodesp]))
+                        self.rewards[idxp, nodesp] + (self.hyperparams.discount * values))
 
         # no longer leaves
         self.is_leaf[idx, nodes] = False
@@ -348,7 +348,7 @@ class MCTS:
 
         parents = self.parent_nodes[idx, nodes]
         actions = self.actions[idx, nodes]
-        q = values + self.rewards[idx, nodes]
+        q = self.rewards[idx, nodes] + self.hyperparams.discount * values
         mask = (parents != 0)
         self.backup(idx[mask], parents[mask], actions[mask], q[mask])
 

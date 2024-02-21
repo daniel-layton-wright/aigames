@@ -1,3 +1,4 @@
+import enum
 from dataclasses import dataclass
 from .agent import AgentMulti
 from typing import Type, List
@@ -62,11 +63,18 @@ class TrainingTau:
         return self.__dict__
 
 
+class ValueTargetCalculationMethod(enum.Enum):
+    DISCOUNTED_REWARDS = 'discounted_rewards'
+    TD = 'td'
+
+
 @dataclass(kw_only=True, slots=True)
 class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
     training_tau: TrainingTau = TrainingTau(1.0)
     use_dirichlet_noise_in_eval: bool = False  # the AlphaGo paper is unclear about this
     reuse_mcts_tree: bool = False  # Initial testing showed this was actually slower (on G2048Multi) :/
+    value_target_calculation_method: ValueTargetCalculationMethod = ValueTargetCalculationMethod.DISCOUNTED_REWARDS
+    td_lambda: float = 0.5  # only used if value_target_calculation_method is TD
 
 
 # noinspection PyBroadException
@@ -124,17 +132,20 @@ class AlphaAgentMulti(AgentMulti):
             pi[torch.arange(n_parallel_games), action_distribution.argmax(dim=1)] = 1
             actions = action_distribution.argmax(dim=1).flatten()
 
+        mcts_value = self.mcts.w[:, 1].sum(dim=1) / self.mcts.n[:, 1].sum(dim=1)
+        network_value = self.mcts.values[:, 1]
+
         for listener in self.listeners:
             listener.after_mcts_search(self.mcts, pi, actions)
 
         if self.training:
-            self.record_pi(mask, pi, states)
+            self.record_pi(states, pi, mask, mcts_value, network_value)
 
         return actions
 
-    def record_pi(self, mask, pi, states):
+    def record_pi(self, states, pi, mask, mcts_value=None, network_value=None):
         # Record this for training, set the root node to the next node now and forget the parent
-        self.episode_history.append(TimestepData(states, pi, mask))
+        self.episode_history.append(TimestepData(states, pi, mask, mcts_value, network_value))
 
     def on_rewards(self, rewards: torch.Tensor, mask: torch.Tensor):
         self.episode_history.append(RewardData(rewards, mask))
@@ -142,7 +153,9 @@ class AlphaAgentMulti(AgentMulti):
     def before_env_move(self, states: torch.Tensor, mask: torch.Tensor):
         # Put this in the episode history because we're gonna learn the value for these states. pi will be nans
         num_actions = self.game_class.get_n_actions()
-        self.record_pi(mask, torch.ones((states.shape[0], num_actions), dtype=torch.float32, device=states.device) * torch.nan, states)
+        self.record_pi(states,
+                       torch.ones((states.shape[0], num_actions), dtype=torch.float32, device=states.device) * torch.nan,
+                       mask)
 
     def train(self):
         self.training = True
@@ -159,6 +172,12 @@ class AlphaAgentMulti(AgentMulti):
         if not self.training:
             return
 
+        if self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.DISCOUNTED_REWARDS:
+            self.generate_data_discounted_rewards_method()
+        elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD:
+            self.generated_data_td_method()
+
+    def generate_data_discounted_rewards_method(self):
         episode_history = reversed(self.episode_history)  # work backwards
         cum_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
                                   device=self.game.states.device)
@@ -169,21 +188,65 @@ class AlphaAgentMulti(AgentMulti):
                                            dtype=torch.float32, device=data.reward_value.device)
                 full_rewards[data.mask] = data.reward_value
                 cum_rewards = (full_rewards + self.hyperparams.discount * cum_rewards)
+
             elif isinstance(data, TimestepData):
                 mask = data.mask
                 reward = cum_rewards[torch.arange(self.game.n_parallel_games, device=mask.device)[mask], :]
+
                 for data_listener in self.listeners:
                     data_listener.on_data_point(data.states, data.pis, reward)
 
+    def generated_data_td_method(self):
+        episode_history = reversed(self.episode_history)  # work backwards
+
+        discounted_rewards_since_last_state = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
+                                                            dtype=torch.float32, device=self.game.states.device)
+
+        last_state_vals = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
+                                      dtype=torch.float32, device=self.game.states.device)
+
+        last_td_est = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
+                                  dtype=torch.float32, device=self.game.states.device)
+
+        for data in episode_history:
+            if isinstance(data, RewardData):
+                full_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
+                                           dtype=torch.float32, device=data.reward_value.device)
+                full_rewards[data.mask] = data.reward_value
+
+                discounted_rewards_since_last_state = (full_rewards + self.hyperparams.discount *
+                                                       discounted_rewards_since_last_state)
+            elif isinstance(data, TimestepData):
+                mask = data.mask
+
+                if data.network_value is not None:
+                    td_est = (discounted_rewards_since_last_state[mask]
+                              + (1 - self.hyperparams.td_lambda) * self.hyperparams.discount * last_state_vals[mask]
+                              + self.hyperparams.td_lambda * self.hyperparams.discount * last_td_est[mask])
+                else:
+                    td_est = last_td_est[mask]
+
+                for data_listener in self.listeners:
+                    data_listener.on_data_point(data.states, data.pis, td_est)
+
+                if data.network_value is not None:
+                    last_state_vals[mask] = data.network_value
+                    discounted_rewards_since_last_state[mask] = 0
+                    last_td_est[mask] = td_est
+
 
 class TimestepData:
-    def __init__(self, states, pis, mask):
+    def __init__(self, states, pis, mask, mcts_value=None, network_value=None):
         self.states = states
         self.pis = pis
         self.mask = mask
+        self.mcts_value = mcts_value
+        self.network_value = network_value
 
     def __repr__(self):
-        return f'(state: {self.states}, pi={self.pis}, mask={self.mask})'
+        return (f'(state: {self.states}, pi={self.pis}, mask={self.mask}'
+                f'{f", mcts_val={self.mcts_value}" if self.mcts_value is not None else ""}'
+                f'{f", net_val={self.network_value}" if self.network_value is not None else ""})')
 
 
 class RewardData:

@@ -91,7 +91,7 @@ def main():
 
     training_run = G2048TrainingRun(G2048Multi, network, hyperparams)
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
-    trainer = pl.Trainer(reload_dataloaders_every_n_epochs=hyperparams.self_play_every_n_epochs,
+    trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,  # hyperparams.self_play_every_n_epochs,
                          logger=pl_loggers.WandbLogger(**wandb_kwargs),
                          callbacks=[model_checkpoint], log_every_n_steps=1, max_epochs=args.max_epochs)
     trainer.fit(training_run)
