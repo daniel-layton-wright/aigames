@@ -15,6 +15,11 @@ class CommandLineGame(GameListenerMulti):
             os.system('cls' if os.name == 'nt' else 'clear')
         print(str(game))
 
+    def on_states_from_env(self, game):
+        if self.clear_screen:
+            os.system('cls' if os.name == 'nt' else 'clear')
+        print(str(game))
+
     def after_action(self, game):
         if self.clear_screen:
             os.system('cls' if os.name == 'nt' else 'clear')
@@ -27,6 +32,3 @@ class CommandLineGame(GameListenerMulti):
 
     def on_game_end(self, game):
         print('Game over.')
-
-    def on_states_from_env(self, game):
-        pass
