@@ -72,6 +72,7 @@ class ValueTargetCalculationMethod(enum.Enum):
     DISCOUNTED_REWARDS = 'discounted_rewards'
     TD = 'td'
     TD_MCTS = 'td_mcts'
+    TD_MCTS_NETWORK_FALLBACK = 'td_mcts_network_fallback'
 
     def __json__(self):
         return self.value
@@ -145,7 +146,7 @@ class AlphaAgentMulti(AgentMulti):
             self.mcts.expand()
             action_distribution = self.mcts.pi[:, 1]
 
-        pi = torch.zeros((n_parallel_games, self.game_class.get_n_actions()))
+        pi = torch.zeros((n_parallel_games, self.game_class.get_n_actions()), device=states.device, dtype=torch.float32)
 
         if tau > 0:
             pi = action_distribution ** (1. / tau)
@@ -207,6 +208,8 @@ class AlphaAgentMulti(AgentMulti):
             self.generate_data_td_method_network_value()
         elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD_MCTS:
             self.generate_data_td_method_mcts_value()
+        elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD_MCTS_NETWORK_FALLBACK:
+            self.generate_data_td_method(lambda data: data.mcts_value if data.mcts_value is not None else data.network_value)
 
     def generate_data_discounted_rewards_method(self):
         episode_history = reversed(self.episode_history)  # work backwards
