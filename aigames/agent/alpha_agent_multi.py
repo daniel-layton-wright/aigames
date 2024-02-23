@@ -118,7 +118,9 @@ class AlphaAgentMulti(AgentMulti):
         n_parallel_games = states.shape[0]
         doing_fast_mcts = False
 
-        if self.hyperparams.full_mcts_probability < 1.0 and torch.rand(1).item() > self.hyperparams.full_mcts_probability:
+        if (self.training  # Only do fast mcts in training mode; in eval mode, do the full mcts at every move
+                and self.hyperparams.full_mcts_probability < 1.0
+                and torch.rand(1).item() > self.hyperparams.full_mcts_probability):
             mcts_hypers = self.fast_mcts_hyperparams
             doing_fast_mcts = True
         else:
