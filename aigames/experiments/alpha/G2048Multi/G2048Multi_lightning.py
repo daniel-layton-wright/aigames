@@ -55,7 +55,7 @@ def main():
     hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
     hyperparams.lr = 0.002
     hyperparams.weight_decay = 1e-5
-    hyperparams.training_tau = TrainingTau(fixed_tau_value=1)
+    hyperparams.training_tau = TrainingTau(tau_schedule_function=lambda i, n: [1, 0.9, 0.7, 0.5, 0.3, 0.2, 0.1, 0][min(n, 7)])
     hyperparams.batch_size = 1024
     hyperparams.game_listeners = [ActionCounterProgressBar(1000)]
     hyperparams.discount = 0.999

@@ -47,9 +47,11 @@ class TrainingTau:
                          tau_schedule_function is not None])) != 1:
             raise ValueError('Please pass exactly one of fixed_tau_value, tau_schedule_list, tau_schedule_function')
 
-        self.fixed_tau_value = float(fixed_tau_value)
+        self.fixed_tau_value = float(fixed_tau_value) if fixed_tau_value else None
         self.tau_schedule_list = tau_schedule_list
         self.tau_schedule_function = tau_schedule_function
+
+        self.self_play_round_number = 0
 
     def get_tau(self, move_number):
         if self.fixed_tau_value is not None:
@@ -57,7 +59,10 @@ class TrainingTau:
         elif self.tau_schedule_list is not None:
             return self.tau_schedule_list[min(len(self.tau_schedule_list) - 1, move_number)]
         else:
-            return self.tau_schedule_function(move_number)
+            return self.tau_schedule_function(move_number, self.self_play_round_number)
+
+    def update_self_play_round(self, i):
+        self.self_play_round_number = i
 
     def __json__(self):
         return self.__dict__
@@ -66,6 +71,7 @@ class TrainingTau:
 class ValueTargetCalculationMethod(enum.Enum):
     DISCOUNTED_REWARDS = 'discounted_rewards'
     TD = 'td'
+    TD_MCTS = 'td_mcts'
 
     def __json__(self):
         return self.value
@@ -74,10 +80,12 @@ class ValueTargetCalculationMethod(enum.Enum):
 @dataclass(kw_only=True, slots=True)
 class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
     training_tau: TrainingTau = TrainingTau(1.0)
-    use_dirichlet_noise_in_eval: bool = False  # the AlphaGo paper is unclear about this
+    use_dirichlet_noise_in_eval: bool = False  # the AlphaGo paper is unclear about this -> defintely should be False just think about it, don't need no stinking paper
     reuse_mcts_tree: bool = False  # Initial testing showed this was actually slower (on G2048Multi) :/
-    value_target_calculation_method: ValueTargetCalculationMethod = ValueTargetCalculationMethod.DISCOUNTED_REWARDS
-    td_lambda: float = 0.5  # only used if value_target_calculation_method is TD
+    value_target_calculation_method: ValueTargetCalculationMethod = ValueTargetCalculationMethod.TD
+    td_lambda: float = 0.5  # only used if value_target_calculation_method is TD. Setting this to 1 is equivalent to discounted rewards
+    full_mcts_probability: float = 1.0  # The probability of doing a full MCTS search, otherwise use n_fast_mcts_iters
+    n_fast_mcts_iters: int = 20  # The number of MCTS iters to do when not doing a full MCTS search
 
 
 # noinspection PyBroadException
@@ -87,8 +95,7 @@ class AlphaAgentMulti(AgentMulti):
     version of MCTS). It's root parallelization.
     """
     def __init__(self, game_class: Type[GameMulti], evaluator: BaseAlphaEvaluator,
-                 hyperparams: AlphaAgentHyperparametersMulti, listeners: List[AlphaAgentMultiListener] = None,
-                 use_tqdm: bool = False):
+                 hyperparams: AlphaAgentHyperparametersMulti, listeners: List[AlphaAgentMultiListener] = None):
         super().__init__()
         self.game = None
         self.game_class = game_class
@@ -100,18 +107,30 @@ class AlphaAgentMulti(AgentMulti):
         self.move_number_in_current_game = 0
         self.n_players = 0
         self.listeners = listeners if listeners is not None else []
-        self.use_tqdm = use_tqdm
+
+        if self.hyperparams.full_mcts_probability < 1.0:
+            # Create a copy of the hyperparams with the fast_n_mcts_iters to use when doing fast mode
+            fast_mcts_args = {k: getattr(self.hyperparams, k) for k in MCTSHyperparameters.__slots__}
+            fast_mcts_args['n_mcts_iters'] = self.hyperparams.n_fast_mcts_iters
+            self.fast_mcts_hyperparams = MCTSHyperparameters(**fast_mcts_args)
 
     def get_actions(self, states, mask):
         n_parallel_games = states.shape[0]
+        doing_fast_mcts = False
+
+        if self.hyperparams.full_mcts_probability < 1.0 and torch.rand(1).item() > self.hyperparams.full_mcts_probability:
+            mcts_hypers = self.fast_mcts_hyperparams
+            doing_fast_mcts = True
+        else:
+            mcts_hypers = self.hyperparams
 
         if self.hyperparams.reuse_mcts_tree and self.mcts is not None:
             self.mcts = self.mcts.get_next_mcts(states)
         else:
-            self.mcts = MCTS(self.game, self.evaluator, self.hyperparams, states,
+            self.mcts = MCTS(self.game, self.evaluator, mcts_hypers, states,
                              add_dirichlet_noise=(self.training or self.hyperparams.use_dirichlet_noise_in_eval))
 
-        self.mcts.search_for_n_iters(self.hyperparams.n_mcts_iters)
+        self.mcts.search_for_n_iters(mcts_hypers.n_mcts_iters)
 
         if self.training:
             tau = self.hyperparams.training_tau.get_tau(self.move_number_in_current_game)
@@ -135,13 +154,18 @@ class AlphaAgentMulti(AgentMulti):
             pi[torch.arange(n_parallel_games), action_distribution.argmax(dim=1)] = 1
             actions = action_distribution.argmax(dim=1).flatten()
 
-        mcts_value = self.mcts.w[:, 1].sum(dim=1) / self.mcts.n[:, 1].sum(dim=1)
+        mcts_value = self.mcts.w[:, 1].sum(dim=1) / self.mcts.n[:, 1].sum(dim=1).unsqueeze(-1)
         network_value = self.mcts.values[:, 1]
 
         for listener in self.listeners:
             listener.after_mcts_search(self.mcts, pi, actions)
 
         if self.training:
+            if doing_fast_mcts:
+                # If doing fast MCTS, do not use the pi or mcts_value to train
+                pi *= torch.nan
+                mcts_value = None
+
             self.record_pi(states, pi, mask, mcts_value, network_value)
 
         return actions
@@ -178,7 +202,9 @@ class AlphaAgentMulti(AgentMulti):
         if self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.DISCOUNTED_REWARDS:
             self.generate_data_discounted_rewards_method()
         elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD:
-            self.generated_data_td_method()
+            self.generate_data_td_method_network_value()
+        elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD_MCTS:
+            self.generate_data_td_method_mcts_value()
 
     def generate_data_discounted_rewards_method(self):
         episode_history = reversed(self.episode_history)  # work backwards
@@ -199,7 +225,19 @@ class AlphaAgentMulti(AgentMulti):
                 for data_listener in self.listeners:
                     data_listener.on_data_point(data.states, data.pis, reward)
 
-    def generated_data_td_method(self):
+    def generate_data_td_method_network_value(self):
+        return self.generate_data_td_method(lambda data: data.network_value)
+
+    def generate_data_td_method_mcts_value(self):
+        return self.generate_data_td_method(lambda data: data.mcts_value)
+
+    def generate_data_td_method(self, value_fn):
+        """
+
+        :param value_fn: A function that takes a TimestepData and returns the value to use for training. If the value is
+        None, then the value is skipped in the TD summation
+
+        """
         episode_history = reversed(self.episode_history)  # work backwards
 
         discounted_rewards_since_last_state = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
@@ -222,7 +260,7 @@ class AlphaAgentMulti(AgentMulti):
             elif isinstance(data, TimestepData):
                 mask = data.mask
 
-                if data.network_value is not None:
+                if value_fn(data) is not None:
                     td_est = (discounted_rewards_since_last_state[mask]
                               + (1 - self.hyperparams.td_lambda) * self.hyperparams.discount * last_state_vals[mask]
                               + self.hyperparams.td_lambda * self.hyperparams.discount * last_td_est[mask])
@@ -232,8 +270,8 @@ class AlphaAgentMulti(AgentMulti):
                 for data_listener in self.listeners:
                     data_listener.on_data_point(data.states, data.pis, td_est)
 
-                if data.network_value is not None:
-                    last_state_vals[mask] = data.network_value
+                if value_fn(data) is not None:
+                    last_state_vals[mask] = value_fn(data)
                     discounted_rewards_since_last_state[mask] = 0
                     last_td_est[mask] = td_est
 
