@@ -46,7 +46,7 @@ def main():
     hyperparams = AlphaMultiTrainingHyperparameters()
     hyperparams.self_play_every_n_epochs = 10
     hyperparams.n_parallel_games = 1000
-    hyperparams.max_data_size = 3000000
+    hyperparams.max_data_size = 5000000
     hyperparams.min_data_size = 1024
     hyperparams.n_mcts_iters = 100
     hyperparams.dirichlet_alpha = 0.25
@@ -55,7 +55,7 @@ def main():
     hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
     hyperparams.lr = 0.002
     hyperparams.weight_decay = 1e-5
-    hyperparams.training_tau = TrainingTau(tau_schedule_function=lambda i, n: [1, 0.9, 0.7, 0.5, 0.3, 0.2, 0.1, 0][min(n, 7)])
+    hyperparams.training_tau = TrainingTau(tau_schedule_function=lambda i, n: [1, 1, 1, 1, 0.9, 0.7, 0.5, 0.3, 0.2, 0.1, 0][min(n, 10)])
     hyperparams.batch_size = 1024
     hyperparams.game_listeners = [ActionCounterProgressBar(1000)]
     hyperparams.discount = 0.999
