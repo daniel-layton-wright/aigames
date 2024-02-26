@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from typing import Tuple, Dict, Any
-
 from .alpha_training_manager import *
 import pytorch_lightning as pl
 import torch.utils.data
@@ -26,6 +25,7 @@ class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
     n_parallel_eval_games: int = 100
     eval_game_every_n_epochs: int = 10  # Set to -1 for never
     eval_game_network_only_every_n_epoch: int = 10
+    eval_game_listeners: list = field(default_factory=list)
     clear_dataset_before_self_play_rounds: list = field(default_factory=list)
     save_dataset_in_checkpoint: bool = False
 
@@ -77,18 +77,17 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
         :param game:
         :param network: Pass in a callable that returns a network
-        :param optimizer: Pass in a function that will do f( network ) -> optimizer
-        :param training_listeners:
         """
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters('game_class', 'hyperparams')
         self.hyperparams = hyperparams
         self.game_class = game_class
         self.network = network
         self.dataset = BasicAlphaDatasetLightning(self.network, self.hyperparams)
         self.agent = AlphaAgentMulti(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
         self.game = self.game_class(self.hyperparams.n_parallel_games, self.agent, listeners=hyperparams.game_listeners)
-        self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent, listeners=hyperparams.game_listeners)
+        self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent,
+                                         listeners=hyperparams.eval_game_listeners)
         self.n_self_play_rounds = 0
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -106,7 +105,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def on_fit_start(self):
         game_killer = MaxActionGameKiller(2)
-        self.game.listeners.append(game_killer)
+        listeners_tmp = self.game.listeners
+        self.game.listeners = [game_killer]
 
         # Idea: play game for 2 moves then abort for minimal datset for lightning to do its sanity checks then do the
         # full play in on_train_epoch_start
@@ -116,7 +116,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.network.eval()
             self.game.play()
 
-        self.game.listeners.remove(game_killer)
+        self.game.listeners = listeners_tmp
 
         # Put network back in train mode
         self.network.train()
@@ -125,7 +125,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         if self.n_self_play_rounds in self.hyperparams.clear_dataset_before_self_play_rounds:
             self.dataset.clear()
 
-        self.hyperparams.training_tau.update_self_play_round(self.n_self_play_rounds)
+        self.hyperparams.training_tau.update_metric('self_play_round', self.n_self_play_rounds)
         self.log('training_tau', self.hyperparams.training_tau.get_tau(0))
 
         # Always put network in eval mode when playing games (for batch norm stuff)

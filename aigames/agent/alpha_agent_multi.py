@@ -51,7 +51,7 @@ class TrainingTau:
         self.tau_schedule_list = tau_schedule_list
         self.tau_schedule_function = tau_schedule_function
 
-        self.self_play_round_number = 0
+        self.metrics = {}
 
     def get_tau(self, move_number):
         if self.fixed_tau_value is not None:
@@ -59,10 +59,10 @@ class TrainingTau:
         elif self.tau_schedule_list is not None:
             return self.tau_schedule_list[min(len(self.tau_schedule_list) - 1, move_number)]
         else:
-            return self.tau_schedule_function(move_number, self.self_play_round_number)
+            return self.tau_schedule_function(move_number, self.metrics)
 
-    def update_self_play_round(self, i):
-        self.self_play_round_number = i
+    def update_metric(self, key, val):
+        self.metrics[key] = val
 
     def __json__(self):
         return self.__dict__
