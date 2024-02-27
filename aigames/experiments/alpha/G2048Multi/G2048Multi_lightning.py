@@ -38,7 +38,11 @@ class GameProgressCallback(Callback, GameListenerMulti):
 
     def on_action(self, game, actions):
         self.cur_move += 1
-        self.pl_module.log(self.log_name, self.cur_move)
+        self.pl_module.logger.experiment.log({self.log_name: self.cur_move})
+
+    def on_game_end(self, game):
+        self.cur_move = 0
+        self.pl_module.logger.experiment.log({self.log_name: self.cur_move})
 
 
 class TrainingTauDecreaseOnPlateau(TrainingTau):
@@ -105,10 +109,17 @@ def main():
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
     parser.add_argument('--restore_ckpt_path', type=str, default=None, help='Path to a checkpoint to restore from')
+    parser.add_argument('--network_class', type=str, default='G2048MultiNetworkV2')
     ckpt_path_args, _ = parser.parse_known_args(sys.argv[1:])
 
+    network_class = getattr(sys.modules[__name__], ckpt_path_args.network_class)
+    network = network_class()
+
+    # game_progress_callback = GameProgressCallback()
+
     if ckpt_path_args.restore_ckpt_path is not None:
-        training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path, map_location='cpu')
+        training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path, network=network,
+                                                             map_location='cpu')
         hyperparams = training_run.hyperparams
     else:
         hyperparams = AlphaMultiTrainingHyperparameters()
@@ -123,15 +134,16 @@ def main():
         hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
         hyperparams.lr = 0.002
         hyperparams.weight_decay = 1e-5
-        hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1, 0.7, 0.5, 0.3, 0.1, 0],
+        hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
                                                                 'eval_game_avg_max_tile', 2)
         hyperparams.batch_size = 1024
-        hyperparams.game_listeners = [ActionCounterProgressBar(1000, description='Train game action count')]
+        hyperparams.game_listeners = [ActionCounterProgressBar(1000, description='Train game action count'),
+                                      # game_progress_callback
+                                      ]
         hyperparams.eval_game_listeners = [ActionCounterProgressBar(1000, description='Eval game action count')]
         hyperparams.discount = 0.999
         hyperparams.clear_dataset_before_self_play_rounds = []
 
-        parser.add_argument('--network_class', type=str, default='G2048MultiNetworkV2')
 
     add_all_slots_to_arg_parser(parser, hyperparams)
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/G2048Multi/')
@@ -156,14 +168,14 @@ def main():
     G2048Multi = get_G2048Multi_game_class(hyperparams.device)
 
     if ckpt_path_args.restore_ckpt_path is None:
-        network_class = getattr(sys.modules[__name__], args.network_class)
-        network = network_class()
         training_run = G2048TrainingRun(G2048Multi, network, hyperparams)
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,  # hyperparams.self_play_every_n_epochs,
                          logger=pl_loggers.WandbLogger(**wandb_kwargs),
-                         callbacks=[model_checkpoint], log_every_n_steps=1,
+                         callbacks=[model_checkpoint,
+                                    # game_progress_callback
+                                    ], log_every_n_steps=1,
                          max_epochs=args.max_epochs)
     trainer.fit(training_run)
 
