@@ -108,7 +108,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         listeners_tmp = self.game.listeners
         self.game.listeners = [game_killer]
 
-        # Idea: play game for 2 moves then abort for minimal datset for lightning to do its sanity checks then do the
+        # Idea: play game for 2 moves then abort for minimal dataset for lightning to do its sanity checks then do the
         # full play in on_train_epoch_start
         if self.hyperparams.self_play_every_n_epochs > 0:
             # Do first self-play.
@@ -143,20 +143,20 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def time_to_play_game(self):
         return (self.hyperparams.self_play_every_n_epochs > 0
-                and (self.current_epoch - 1) >= 0
-                and (self.current_epoch - 1) % self.hyperparams.self_play_every_n_epochs == 0)
+                and self.current_epoch >= 0
+                and self.current_epoch % self.hyperparams.self_play_every_n_epochs == 0)
 
     def time_to_play_eval_game(self):
         return (self.hyperparams.eval_game_every_n_epochs > 0
-                and (self.current_epoch - 1) > 0
-                and (self.current_epoch - 1) % self.hyperparams.eval_game_every_n_epochs == 0)
+                and self.current_epoch > 0
+                and self.current_epoch % self.hyperparams.eval_game_every_n_epochs == 0)
 
     def time_to_play_eval_game_network_only(self):
         return (self.hyperparams.eval_game_network_only_every_n_epoch > 0
-                and (self.current_epoch - 1) > 0
-                and (self.current_epoch - 1) % self.hyperparams.eval_game_network_only_every_n_epoch == 0)
+                and self.current_epoch > 0
+                and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epoch == 0)
 
-    def on_train_epoch_start(self) -> None:
+    def on_train_epoch_end(self) -> None:
         if self.time_to_play_eval_game_network_only():
             # Temporarily set n_iters to 0 so we just use the network result
             tmp = self.agent.hyperparams.n_mcts_iters
@@ -189,9 +189,6 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         pass
 
     def after_eval_game_network_only(self):
-        pass
-
-    def on_train_epoch_end(self) -> None:
         pass
 
     def training_step(self, batch, nb_batch) -> dict:
