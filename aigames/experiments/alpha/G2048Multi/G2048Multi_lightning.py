@@ -88,10 +88,6 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
         self.logger.experiment.log({f'fraction_reached_1024/{suffix}': fraction_reached_1024})
         self.logger.experiment.log({f'fraction_reached_2048/{suffix}': fraction_reached_2048})
 
-    def on_fit_start(self):
-        super().on_fit_start()
-        self.log_game_results(self.game, 'train')
-
     def after_self_play_game(self):
         self.log_game_results(self.game, 'train')
 
