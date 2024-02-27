@@ -1,7 +1,6 @@
 import argparse
 from collections import defaultdict
 from typing import List
-
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from ....agent.alpha_agent_multi import TrainingTau
@@ -144,11 +143,11 @@ def main():
         hyperparams.discount = 0.999
         hyperparams.clear_dataset_before_self_play_rounds = []
 
-
     add_all_slots_to_arg_parser(parser, hyperparams)
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/G2048Multi/')
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
     parser.add_argument('--max_epochs', type=int, default=100, help='Max epochs')
+    parser.add_argument('--restore_wandb_run_id', type=str, default=None)
 
     # Parse the args and set the hyperparams
     args = parser.parse_args()
@@ -160,6 +159,10 @@ def main():
         group='G2048Multi_lightning',
         reinit=False,
     )
+
+    if args.restore_wandb_run_id is not None:
+        wandb_kwargs['id'] = args.restore_wandb_run_id
+        wandb_kwargs['resume'] = True
 
     # So we can get the name for model checkpointing
     wandb.init(**wandb_kwargs)
@@ -176,8 +179,9 @@ def main():
                          callbacks=[model_checkpoint,
                                     # game_progress_callback
                                     ], log_every_n_steps=1,
-                         max_epochs=args.max_epochs)
-    trainer.fit(training_run)
+                         max_epochs=args.max_epochs,
+                         )
+    trainer.fit(training_run, ckpt_path=args.restore_ckpt_path)
 
     if args.debug:
         import pdb
