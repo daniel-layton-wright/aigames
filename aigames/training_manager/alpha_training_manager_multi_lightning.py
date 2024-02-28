@@ -79,7 +79,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         :param network: Pass in a callable that returns a network
         """
         super().__init__()
-        self.save_hyperparameters('game_class', 'hyperparams')
+        self.save_hyperparameters('game_class', 'network', 'hyperparams')
         self.hyperparams = hyperparams
         self.game_class = game_class
         self.network = network
@@ -157,6 +157,10 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                 and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epoch == 0)
 
     def on_train_epoch_end(self) -> None:
+        # Save model checkpoint here, before self plays
+        for checkpoint_callback in self.trainer.checkpoint_callbacks:
+            checkpoint_callback.on_train_epoch_end(self.trainer, self)
+
         if self.time_to_play_eval_game_network_only():
             # Temporarily set n_iters to 0 so we just use the network result
             tmp = self.agent.hyperparams.n_mcts_iters
