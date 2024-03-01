@@ -24,7 +24,7 @@ class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
     min_data_size: int = 1
     n_parallel_eval_games: int = 100
     eval_game_every_n_epochs: int = 10  # Set to -1 for never
-    eval_game_network_only_every_n_epoch: int = 10
+    eval_game_network_only_every_n_epochs: int = 10
     eval_game_listeners: list = field(default_factory=list)
     clear_dataset_before_self_play_rounds: list = field(default_factory=list)
     save_dataset_in_checkpoint: bool = False
@@ -89,6 +89,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent,
                                          listeners=hyperparams.eval_game_listeners)
         self.n_self_play_rounds = 0
+        self.lr_save_tmp = []
+        self.doing_dummy_epoch = False
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)
@@ -104,22 +106,24 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         return mean_loss, value_loss, distn_loss
 
     def on_fit_start(self):
-        game_killer = MaxActionGameKiller(2)
-        listeners_tmp = self.game.listeners
-        self.game.listeners = [game_killer]
+        if len(self.dataset) == 0:
+            game_killer = MaxActionGameKiller(2)
+            listeners_tmp = self.game.listeners
+            self.game.listeners = [game_killer]
 
-        # Idea: play game for 2 moves then abort for minimal dataset for lightning to do its sanity checks then do the
-        # full play in on_train_epoch_start
-        if self.hyperparams.self_play_every_n_epochs > 0:
-            # Do first self-play.
-            self.agent.train()
-            self.network.eval()
-            self.game.play()
+            # Idea: play game for 2 moves then abort for minimal dataset for lightning to do its sanity checks then do the
+            # full play in on_train_epoch_start
+            if self.hyperparams.self_play_every_n_epochs > 0:
+                # Do first self-play.
+                self.agent.train()
+                self.network.eval()
+                self.game.play()
 
-        self.game.listeners = listeners_tmp
+            self.game.listeners = listeners_tmp
 
-        # Put network back in train mode
-        self.network.train()
+            # Put network back in train mode
+            self.network.train()
+            self.doing_dummy_epoch = True
 
     def self_play(self):
         if self.n_self_play_rounds in self.hyperparams.clear_dataset_before_self_play_rounds:
@@ -135,12 +139,6 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.n_self_play_rounds += 1
         self.after_self_play_game()
 
-    def on_train_batch_start(self, batch, batch_idx: int):
-        pass  # In the parent class, it does self play here
-
-    def on_train_start(self):
-        pass  # In the parent class, it does self play here
-
     def time_to_play_game(self):
         return (self.hyperparams.self_play_every_n_epochs > 0
                 and self.current_epoch >= 0
@@ -152,11 +150,29 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                 and self.current_epoch % self.hyperparams.eval_game_every_n_epochs == 0)
 
     def time_to_play_eval_game_network_only(self):
-        return (self.hyperparams.eval_game_network_only_every_n_epoch > 0
+        return (self.hyperparams.eval_game_network_only_every_n_epochs > 0
                 and self.current_epoch > 0
-                and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epoch == 0)
+                and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epochs == 0)
+
+    def on_train_epoch_start(self) -> None:
+        if self.doing_dummy_epoch:
+            # Set learning rate to 0 temporarily
+            for opt in self.trainer.optimizers:
+                for param_group in opt.param_groups:
+                    self.lr_save_tmp.append(param_group['lr'])
+                    param_group['lr'] = 0.0
 
     def on_train_epoch_end(self) -> None:
+        if self.doing_dummy_epoch:
+            for opt in self.trainer.optimizers:
+                # Set learning rate back
+                for param_group in opt.param_groups:
+                    param_group['lr'] = self.lr_save_tmp.pop()
+
+            self.dataset.clear()
+
+            self.doing_dummy_epoch = False  # Done with dummy epoch
+
         # Save model checkpoint here, before self plays
         for checkpoint_callback in self.trainer.checkpoint_callbacks:
             checkpoint_callback.on_train_epoch_end(self.trainer, self)

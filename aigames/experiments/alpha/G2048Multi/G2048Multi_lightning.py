@@ -104,17 +104,15 @@ def main():
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
     parser.add_argument('--restore_ckpt_path', type=str, default=None, help='Path to a checkpoint to restore from')
-    parser.add_argument('--network_class', type=str, default='G2048MultiNetworkV2')
-    ckpt_path_args, _ = parser.parse_known_args(sys.argv[1:])
-
-    network_class = getattr(sys.modules[__name__], ckpt_path_args.network_class)
-    network = network_class()
+    sysargv = sys.argv[1:]
+    if '--help' in sysargv:
+        sysargv.remove('--help')
+    ckpt_path_args, _ = parser.parse_known_args(sysargv)
 
     # game_progress_callback = GameProgressCallback()
 
     if ckpt_path_args.restore_ckpt_path is not None:
-        training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path, network=network,
-                                                             map_location='cpu')
+        training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path, map_location='cpu')
         hyperparams = training_run.hyperparams
     else:
         hyperparams = AlphaMultiTrainingHyperparameters()
@@ -143,6 +141,7 @@ def main():
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/G2048Multi/')
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
     parser.add_argument('--max_epochs', type=int, default=100, help='Max epochs')
+    parser.add_argument('--network_class', type=str, default='G2048MultiNetworkV2')
     parser.add_argument('--restore_wandb_run_id', type=str, default=None)
 
     # Parse the args and set the hyperparams
@@ -167,7 +166,13 @@ def main():
     G2048Multi = get_G2048Multi_game_class(hyperparams.device)
 
     if ckpt_path_args.restore_ckpt_path is None:
+        network_class = getattr(sys.modules[__name__], args.network_class)
+        network = network_class()
         training_run = G2048TrainingRun(G2048Multi, network, hyperparams)
+    else:
+        training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
+                                                             hyperparams=hyperparams,
+                                                             map_location='cpu')
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,  # hyperparams.self_play_every_n_epochs,

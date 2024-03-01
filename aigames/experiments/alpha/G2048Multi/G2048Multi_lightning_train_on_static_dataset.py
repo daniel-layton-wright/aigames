@@ -44,7 +44,7 @@ def main():
     wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
 
     training_run.hyperparams.self_play_every_n_epochs = -1
-    training_run.hyperparams.eval_game_network_only_every_n_epoch = -1
+    training_run.hyperparams.eval_game_network_only_every_n_epochs = -1
     training_run.hyperparams.eval_game_every_n_epochs = -1
     training_run.hyperparams.max_data_size = 10
     training_run.dataset.enforce_max_size()
