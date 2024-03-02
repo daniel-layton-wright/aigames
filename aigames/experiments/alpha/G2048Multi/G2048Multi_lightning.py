@@ -15,6 +15,37 @@ import os
 from ....game.G2048_multi import get_G2048Multi_game_class
 from ....game.game_multi import GameListenerMulti
 import sys
+from importlib import import_module
+
+
+def cached_import(module_path, class_name):
+    # Check whether module is loaded and fully initialized.
+    if not (
+        (module := sys.modules.get(module_path))
+        and (spec := getattr(module, "__spec__", None))
+        and getattr(spec, "_initializing", False) is False
+    ):
+        module = import_module(module_path)
+    return getattr(module, class_name)
+
+
+def import_string(dotted_path):
+    """
+    Import a dotted module path and return the attribute/class designated by the
+    last name in the path. Raise ImportError if the import failed.
+    """
+    try:
+        module_path, class_name = dotted_path.rsplit(".", 1)
+    except ValueError as err:
+        raise ImportError("%s doesn't look like a module path" % dotted_path) from err
+
+    try:
+        return cached_import(module_path, class_name)
+    except AttributeError as err:
+        raise ImportError(
+            'Module "%s" does not define a "%s" attribute/class'
+            % (module_path, class_name)
+        ) from err
 
 
 class GameProgressCallback(Callback, GameListenerMulti):
@@ -148,6 +179,17 @@ def main():
     args = parser.parse_args()
     load_from_arg_parser(args, hyperparams)
 
+    G2048Multi = get_G2048Multi_game_class(hyperparams.device)
+
+    if ckpt_path_args.restore_ckpt_path is None:
+        network_class = import_string(args.network_class)
+        network = network_class()
+        training_run = G2048TrainingRun(G2048Multi, network, hyperparams)
+    else:
+        training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
+                                                             hyperparams=hyperparams,
+                                                             map_location='cpu')
+
     # Start wandb run
     wandb_kwargs = dict(
         project='aigames2',
@@ -162,17 +204,6 @@ def main():
     # So we can get the name for model checkpointing
     wandb.init(**wandb_kwargs)
     wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
-
-    G2048Multi = get_G2048Multi_game_class(hyperparams.device)
-
-    if ckpt_path_args.restore_ckpt_path is None:
-        network_class = getattr(sys.modules[__name__], args.network_class)
-        network = network_class()
-        training_run = G2048TrainingRun(G2048Multi, network, hyperparams)
-    else:
-        training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
-                                                             hyperparams=hyperparams,
-                                                             map_location='cpu')
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,  # hyperparams.self_play_every_n_epochs,
