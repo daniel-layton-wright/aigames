@@ -163,16 +163,6 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                     param_group['lr'] = 0.0
 
     def on_train_epoch_end(self) -> None:
-        if self.doing_dummy_epoch:
-            for opt in self.trainer.optimizers:
-                # Set learning rate back
-                for param_group in opt.param_groups:
-                    param_group['lr'] = self.lr_save_tmp.pop()
-
-            self.dataset.clear()
-
-            self.doing_dummy_epoch = False  # Done with dummy epoch
-
         # Save model checkpoint here, before self plays
         for checkpoint_callback in self.trainer.checkpoint_callbacks:
             checkpoint_callback.on_train_epoch_end(self.trainer, self)
@@ -194,6 +184,16 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.after_eval_game()
 
         if self.time_to_play_game():
+            # Clear the dummy epoch only when we're going to play a real game right after to fill the datset
+            if self.doing_dummy_epoch:
+                for opt in self.trainer.optimizers:
+                    # Set learning rate back
+                    for param_group in opt.param_groups:
+                        param_group['lr'] = self.lr_save_tmp.pop()
+
+                self.dataset.clear()
+                self.doing_dummy_epoch = False  # Done with dummy epoch
+
             self.self_play()
 
         self.agent.train()
