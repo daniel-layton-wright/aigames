@@ -69,7 +69,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
     """
     This will use a categorical representation of the transformed value to train
     """
-    def __init__(self, n_blocks=4, n_channels=64, n_out_channels=32, n_value_buckets=251, bucket_min=0, bucket_max=250,
+    def __init__(self, n_blocks=8, n_channels=128, n_out_channels=32, n_value_buckets=251, bucket_min=0, bucket_max=250,
                  value_scale_epsilon=1e-3):
         super().__init__()
         self.n_channels = n_channels

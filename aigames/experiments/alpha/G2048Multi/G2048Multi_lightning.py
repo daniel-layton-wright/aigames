@@ -159,7 +159,7 @@ def main():
         hyperparams.lr = 0.002
         hyperparams.weight_decay = 1e-5
         hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
-                                                                'eval_game_avg_max_tile', 2)
+                                                                'eval_game_avg_max_tile', 4)
         hyperparams.batch_size = 1024
         hyperparams.game_listeners = [ActionCounterProgressBar(1000, description='Train game action count'),
                                       # game_progress_callback
@@ -172,7 +172,7 @@ def main():
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/G2048Multi/')
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
     parser.add_argument('--max_epochs', type=int, default=100, help='Max epochs')
-    parser.add_argument('--network_class', type=str, default='G2048MultiNetworkV2')
+    parser.add_argument('--network_class', type=str, default='aigames.experiments.alpha.G2048Multi.network_architectures.G2048MultiNetworkV2')
     parser.add_argument('--restore_wandb_run_id', type=str, default=None)
 
     # Parse the args and set the hyperparams
