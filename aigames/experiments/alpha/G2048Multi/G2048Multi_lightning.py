@@ -155,7 +155,7 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
              [0, 0, 0, 0]]
         ).unsqueeze(0)
 
-        pi, val = self.network.evaluate(example_state)
+        pi, val = self.network.evaluate(example_state.to(self.hyperparams.device))
         self.log('example_state/value', val.detach().item())
         self.log('example_state/policy_left', pi.flatten()[0].item())
 
