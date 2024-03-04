@@ -1,8 +1,9 @@
 import argparse
 from collections import defaultdict
-from typing import List
+from typing import List, Any
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
+from pytorch_lightning.utilities.types import STEP_OUTPUT
 from ....agent.alpha_agent_multi import TrainingTau
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
@@ -16,6 +17,7 @@ from ....game.G2048_multi import get_G2048Multi_game_class
 from ....game.game_multi import GameListenerMulti
 import sys
 from importlib import import_module
+import torch
 
 
 def cached_import(module_path, class_name):
@@ -122,6 +124,18 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
     def after_self_play_game(self):
         self.log_game_results(self.game, 'train')
 
+        # Log fraction of dataset that has highest tile in corner
+        tile_values_by_channel = (torch.ones(16, 16) * torch.arange(0, 16)).T.reshape(1, 16, 4, 4)
+        flattened_states = (self.dataset.states * tile_values_by_channel).sum(dim=1)
+
+        max_tiles = flattened_states.amax(dim=(1, 2))
+        states_minus_max = flattened_states - max_tiles.reshape(-1, 1, 1)
+        product_of_corners = states_minus_max[:, 0, 0] * states_minus_max[:, 0, 3] * states_minus_max[:, 3, 0] * states_minus_max[:, 3, 3]
+
+        max_is_in_corner = (product_of_corners == 0)
+        fraction_max_in_corner = max_is_in_corner.float().mean()
+        self.log('dataset/fraction_max_in_corner', fraction_max_in_corner)
+
     def after_eval_game(self):
         self.log_game_results(self.eval_game, 'eval')
 
@@ -129,6 +143,23 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
         self.log_game_results(self.eval_game, 'eval_network_only')
         self.hyperparams.training_tau.update_metric('eval_game_avg_max_tile',
                                                     self.eval_game.states.amax(dim=(1, 2)).mean().item())
+
+    def on_train_batch_end(self, outputs: STEP_OUTPUT, batch: Any, batch_idx: int) -> None:
+        self.network.eval()
+
+        # Log value of simple beginning state
+        example_state = torch.FloatTensor(
+            [[0, 0, 1, 0],
+             [0, 0, 0, 0],
+             [1, 0, 0, 0],
+             [0, 0, 0, 0]]
+        ).unsqueeze(0)
+
+        pi, val = self.network.evaluate(example_state)
+        self.log('example_state/value', val.detach().item())
+        self.log('example_state/policy_left', pi.flatten()[0].item())
+
+        self.network.train()
 
 
 def main():
