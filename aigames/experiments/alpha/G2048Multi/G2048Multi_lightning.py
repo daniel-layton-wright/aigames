@@ -125,7 +125,7 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
         self.log_game_results(self.game, 'train')
 
         # Log fraction of dataset that has highest tile in corner
-        tile_values_by_channel = (torch.ones(16, 16) * torch.arange(0, 16)).T.reshape(1, 16, 4, 4)
+        tile_values_by_channel = (torch.ones(16, 16) * torch.arange(0, 16)).T.reshape(1, 16, 4, 4).to(self.dataset.states.device)
         flattened_states = (self.dataset.states * tile_values_by_channel).sum(dim=1)
 
         max_tiles = flattened_states.amax(dim=(1, 2))
@@ -133,7 +133,7 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
         product_of_corners = states_minus_max[:, 0, 0] * states_minus_max[:, 0, 3] * states_minus_max[:, 3, 0] * states_minus_max[:, 3, 3]
 
         max_is_in_corner = (product_of_corners == 0)
-        fraction_max_in_corner = max_is_in_corner.float().mean()
+        fraction_max_in_corner = max_is_in_corner.float().mean().item()
         self.log('dataset/fraction_max_in_corner', fraction_max_in_corner)
 
     def after_eval_game(self):
