@@ -222,7 +222,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         return self.dataset
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        if self.hyperparams.save_dataset_in_checkpoint:
+        if self.hyperparams.save_dataset_in_checkpoint and not self.doing_dummy_epoch:
             checkpoint['dataset'] = self.dataset
 
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
