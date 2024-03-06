@@ -214,7 +214,7 @@ def main():
                                       ]
         hyperparams.eval_game_listeners = [ActionCounterProgressBar(1500, description='Eval game action count')]
         hyperparams.discount = 0.999
-        hyperparams.clear_dataset_before_self_play_rounds = []
+        hyperparams.clear_dataset_before_self_play_rounds = [0, 1, 2, 3, 4]
 
         network_class = import_string(ckpt_path_args.network_class)
         if hasattr(network_class, 'add_args_to_arg_parser'):
