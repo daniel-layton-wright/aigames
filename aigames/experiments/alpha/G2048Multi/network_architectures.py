@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Tuple
 import torch
 from torch import nn
@@ -6,6 +7,7 @@ from ....training_manager.alpha_training_manager import AlphaNetworkEvaluator
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiNetwork
 from torchvision.models.resnet import BasicBlock
 from .... import Flatten
+from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
 
 
 class G2048MultiNetwork(AlphaMultiNetwork, AlphaNetworkEvaluator):
@@ -69,25 +71,35 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
     """
     This will use a categorical representation of the transformed value to train
     """
-    def __init__(self, n_blocks=8, n_channels=128, n_out_channels=32, n_value_buckets=251, bucket_min=0, bucket_max=250,
-                 value_scale_epsilon=1e-3):
+
+    @dataclass(kw_only=True, slots=True)
+    class Hyperparameters:
+        n_blocks: int = 4
+        n_channels: int = 128
+        n_out_channels: int = 128
+        n_value_buckets: int = 251
+        bucket_min: int = 0
+        bucket_max: int = 250
+        value_scale_epsilon: float = 1e-3
+
+    def __init__(self, hyperparams: Hyperparameters = Hyperparameters()):
         super().__init__()
-        self.n_channels = n_channels
-        self.n_blocks = n_blocks
-        self.n_value_buckets = n_value_buckets
-        self.register_buffer('buckets', torch.linspace(bucket_min, bucket_max, n_value_buckets))
-        self.register_buffer('value_scale_epsilon', torch.FloatTensor([value_scale_epsilon]))
+        self.hyperparams = hyperparams
+        self.register_buffer('buckets', torch.linspace(self.hyperparams.bucket_min, self.hyperparams.bucket_max,
+                                                       self.hyperparams.n_value_buckets))
+        self.register_buffer('value_scale_epsilon', torch.FloatTensor([self.hyperparams.value_scale_epsilon]))
 
         self.base = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=n_channels, kernel_size=4, stride=1, padding=0),
-            nn.BatchNorm2d(n_channels),
+            nn.Conv2d(in_channels=16, out_channels=self.hyperparams.n_channels, kernel_size=4, stride=1, padding=0),
+            nn.BatchNorm2d(self.hyperparams.n_channels),
             nn.ReLU(),
-            *[BasicBlock(n_channels, n_channels) for _ in range(n_blocks)],
-            nn.Conv2d(in_channels=n_channels, out_channels=n_out_channels, kernel_size=1, stride=1, padding=0),
+            *[BasicBlock(self.hyperparams.n_channels, self.hyperparams.n_channels) for _ in range(self.hyperparams.n_blocks)],
+            nn.Conv2d(in_channels=self.hyperparams.n_channels, out_channels=self.hyperparams.n_out_channels,
+                      kernel_size=1, stride=1, padding=0),
             Flatten()
         )
 
-        self.n_base_out_features = n_out_channels
+        self.n_base_out_features = self.hyperparams.n_out_channels
 
         self.policy_head = nn.Sequential(
             nn.Linear(in_features=self.n_base_out_features, out_features=128),
@@ -103,7 +115,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
             nn.ReLU(),
             nn.Linear(in_features=128, out_features=128),
             nn.ReLU(),
-            nn.Linear(in_features=128, out_features=self.n_value_buckets),
+            nn.Linear(in_features=128, out_features=self.hyperparams.n_value_buckets),
             nn.Softmax(dim=1)
         )
 
@@ -124,17 +136,17 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         return torch.eye(16, dtype=torch.float32, device=state.device)[state.to(torch.long)].transpose(1, 3).transpose(2, 3)
 
     def scale_value(self, value):
-        return torch.sign(value) * (torch.sqrt(torch.abs(value) + 1) - 1 + self.value_scale_epsilon * value)
+        return torch.sign(value) * (torch.sqrt(torch.abs(value) + 1) - 1 + self.hyperparams.value_scale_epsilon * value)
 
     def bucketize(self, scaled_value):
-        bucketized = torch.clip(torch.bucketize(scaled_value, self.buckets), max=(self.n_value_buckets-1))
+        bucketized = torch.clip(torch.bucketize(scaled_value, self.buckets), max=(self.hyperparams.n_value_buckets-1))
         bucketized_low = torch.clip(bucketized - 1, min=0)
         bucket_values = self.buckets[bucketized]
         one_less_buckets = self.buckets[bucketized_low]
         bucket_weight = torch.clip((scaled_value - one_less_buckets)
                                    / (bucket_values - one_less_buckets + (bucket_values == one_less_buckets)),
                                    min=0.0, max=1.0)
-        out = torch.zeros((scaled_value.shape[0], self.n_value_buckets), device=scaled_value.device)
+        out = torch.zeros((scaled_value.shape[0], self.hyperparams.n_value_buckets), device=scaled_value.device)
         out[torch.arange(scaled_value.shape[0]), bucketized.flatten()] = bucket_weight.flatten()
         out[torch.arange(scaled_value.shape[0]), bucketized_low.flatten()] = 1 - bucket_weight.flatten()
         return out
@@ -150,7 +162,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
 
     def inverse_scale(self, scaled_value):
         hp = 1 + torch.abs(scaled_value)
-        e = self.value_scale_epsilon
+        e = self.hyperparams.value_scale_epsilon
         sgn = torch.sign(scaled_value)
 
         return (scaled_value != 0).float() * (
@@ -168,3 +180,15 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         value_loss = (-torch.sum(values * torch.log(pred_values), dim=1)).mean()
         distn_loss = (-torch.sum(pis[~nan_distns] * torch.log(pred_distns[~nan_distns]), dim=1)).mean()
         return value_loss, distn_loss
+
+    @classmethod
+    def add_args_to_arg_parser(cls, parser):
+        hypers = cls.Hyperparameters()
+        add_all_slots_to_arg_parser(parser, hypers)
+
+    @classmethod
+    def init_from_arg_parser(cls, args):
+        hypers = cls.Hyperparameters()
+        load_from_arg_parser(args, hypers)
+
+        return cls(hypers)

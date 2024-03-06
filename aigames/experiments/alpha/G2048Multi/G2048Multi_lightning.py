@@ -4,7 +4,7 @@ from typing import List, Any
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
-from ....agent.alpha_agent_multi import TrainingTau
+from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
 from ....utils.listeners import ActionCounterProgressBar
@@ -108,6 +108,17 @@ class TrainingTauDecreaseOnPlateau(TrainingTau):
             self.max_j = self.j
 
 
+class EpisodeHistoryCheckpoint(Callback):
+    def __init__(self, ckpt_dir, file_name='latest_episode_history.pkl'):
+        self.ckpt_dir = ckpt_dir
+        self.file_name = file_name
+
+    def on_train_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        os.makedirs(self.ckpt_dir, exist_ok=True)
+        # Save episode history for debugging purposes
+        torch.save(pl_module.agent.episode_history, os.path.join(self.ckpt_dir, self.file_name))
+
+
 class G2048TrainingRun(AlphaMultiTrainingRunLightning):
     def log_game_results(self, game, suffix):
         max_tiles = game.states.amax(dim=(1, 2))
@@ -166,6 +177,8 @@ def main():
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
     parser.add_argument('--restore_ckpt_path', type=str, default=None, help='Path to a checkpoint to restore from')
+    parser.add_argument('--network_class', type=str, default='aigames.experiments.alpha.G2048Multi.network_architectures.G2048MultiNetworkV2')
+
     sysargv = sys.argv[1:]
     if '--help' in sysargv:
         sysargv.remove('--help')
@@ -179,6 +192,8 @@ def main():
     else:
         hyperparams = AlphaMultiTrainingHyperparameters()
         hyperparams.self_play_every_n_epochs = 10
+        hyperparams.eval_game_every_n_epochs = 100
+        hyperparams.eval_game_network_only_every_n_epochs = 1
         hyperparams.n_parallel_games = 1000
         hyperparams.max_data_size = 4000000
         hyperparams.min_data_size = 1024
@@ -187,23 +202,28 @@ def main():
         hyperparams.dirichlet_epsilon = 0.1
         hyperparams.scaleQ = True
         hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
-        hyperparams.lr = 0.002
+        hyperparams.lr = 0.001
         hyperparams.weight_decay = 1e-5
         hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
-                                                                'eval_game_avg_max_tile', 4)
+                                                                'eval_game_avg_max_tile',
+                                                                4 * hyperparams.self_play_every_n_epochs)
+        hyperparams.td_lambda = TDLambdaByRound([1, 0.9, 0.8, 0.7, 0.6, 0.5])
         hyperparams.batch_size = 1024
-        hyperparams.game_listeners = [ActionCounterProgressBar(1000, description='Train game action count'),
+        hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count'),
                                       # game_progress_callback
                                       ]
-        hyperparams.eval_game_listeners = [ActionCounterProgressBar(1000, description='Eval game action count')]
+        hyperparams.eval_game_listeners = [ActionCounterProgressBar(1500, description='Eval game action count')]
         hyperparams.discount = 0.999
         hyperparams.clear_dataset_before_self_play_rounds = []
+
+        network_class = import_string(ckpt_path_args.network_class)
+        if hasattr(network_class, 'add_args_to_arg_parser'):
+            network_class.add_args_to_arg_parser(parser)
 
     add_all_slots_to_arg_parser(parser, hyperparams)
     parser.add_argument('--ckpt_dir', type=str, default=f'./ckpt/G2048Multi/')
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
-    parser.add_argument('--max_epochs', type=int, default=100, help='Max epochs')
-    parser.add_argument('--network_class', type=str, default='aigames.experiments.alpha.G2048Multi.network_architectures.G2048MultiNetworkV2')
+    parser.add_argument('--max_epochs', type=int, default=1000, help='Max epochs')
     parser.add_argument('--restore_wandb_run_id', type=str, default=None)
 
     # Parse the args and set the hyperparams
@@ -213,8 +233,11 @@ def main():
     G2048Multi = get_G2048Multi_game_class(hyperparams.device)
 
     if ckpt_path_args.restore_ckpt_path is None:
-        network_class = import_string(args.network_class)
-        network = network_class()
+        if hasattr(network_class, 'init_from_arg_parser'):
+            network = network_class.init_from_arg_parser(args)
+        else:
+            network = network_class()
+
         training_run = G2048TrainingRun(G2048Multi, network, hyperparams)
     else:
         training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
@@ -237,9 +260,10 @@ def main():
     wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
+    episode_history_checkpoint = EpisodeHistoryCheckpoint(os.path.join(args.ckpt_dir, wandb_run))
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,  # hyperparams.self_play_every_n_epochs,
                          logger=pl_loggers.WandbLogger(**wandb_kwargs),
-                         callbacks=[model_checkpoint,
+                         callbacks=[model_checkpoint, episode_history_checkpoint
                                     # game_progress_callback
                                     ], log_every_n_steps=1,
                          max_epochs=args.max_epochs,

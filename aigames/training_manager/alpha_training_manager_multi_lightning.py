@@ -187,6 +187,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.after_eval_game()
 
         if self.time_to_play_game():
+            # TODO: see if something weird is going on here when loading from checkpoint
             # Clear the dummy epoch only when we're going to play a real game right after to fill the dataset
             if self.doing_dummy_epoch:
                 for opt in self.trainer.optimizers:
