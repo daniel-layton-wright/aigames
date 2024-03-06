@@ -78,13 +78,40 @@ class ValueTargetCalculationMethod(enum.Enum):
         return self.value
 
 
+class TDLambda:
+    def __init__(self, td_lambda):
+        self.td_lambda = td_lambda
+
+    def get_lambda(self):
+        return self.td_lambda
+
+    def update_self_play_round(self, self_play_round):
+        pass
+
+
+class TDLambdaByRound(TDLambda):
+    def __init__(self, td_lambda_schedule_list):
+        super().__init__(None)
+        self.td_lambda_schedule_list = td_lambda_schedule_list
+        self.self_play_round = 0
+
+    def get_lambda(self):
+        return self.td_lambda_schedule_list[min(len(self.td_lambda_schedule_list) - 1, self.self_play_round)]
+
+    def update_self_play_round(self, self_play_round):
+        self.self_play_round = self_play_round
+
+    def __json__(self):
+        return self.td_lambda_schedule_list
+
+
 @dataclass(kw_only=True, slots=True)
 class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
     training_tau: TrainingTau = TrainingTau(1.0)
     use_dirichlet_noise_in_eval: bool = False  # the AlphaGo paper is unclear about this -> defintely should be False just think about it, don't need no stinking paper
     reuse_mcts_tree: bool = False  # Initial testing showed this was actually slower (on G2048Multi) :/
     value_target_calculation_method: ValueTargetCalculationMethod = ValueTargetCalculationMethod.TD
-    td_lambda: float = 0.5  # only used if value_target_calculation_method is TD. Setting this to 1 is equivalent to discounted rewards
+    td_lambda: TDLambda = TDLambda(0.5)  # only used if value_target_calculation_method is TD. Setting this to 1 is equivalent to discounted rewards
     full_mcts_probability: float = 1.0  # The probability of doing a full MCTS search, otherwise use n_fast_mcts_iters
     n_fast_mcts_iters: int = 20  # The number of MCTS iters to do when not doing a full MCTS search
 
@@ -267,8 +294,8 @@ class AlphaAgentMulti(AgentMulti):
 
                 if value_fn(data) is not None:
                     td_est = (discounted_rewards_since_last_state[mask]
-                              + (1 - self.hyperparams.td_lambda) * self.hyperparams.discount * last_state_vals[mask]
-                              + self.hyperparams.td_lambda * self.hyperparams.discount * last_td_est[mask])
+                              + (1 - self.hyperparams.td_lambda.get_lambda()) * self.hyperparams.discount * last_state_vals[mask]
+                              + self.hyperparams.td_lambda.get_lambda() * self.hyperparams.discount * last_td_est[mask])
                 else:
                     td_est = last_td_est[mask]
 

@@ -132,6 +132,9 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.hyperparams.training_tau.update_metric('self_play_round', self.n_self_play_rounds)
         self.log('training_tau', self.hyperparams.training_tau.get_tau(0))
 
+        self.hyperparams.td_lambda.update_self_play_round(self.n_self_play_rounds)
+        self.log('td_lambda', self.hyperparams.td_lambda.get_lambda())
+
         # Always put network in eval mode when playing games (for batch norm stuff)
         self.agent.train()
         self.network.eval()
@@ -184,7 +187,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.after_eval_game()
 
         if self.time_to_play_game():
-            # Clear the dummy epoch only when we're going to play a real game right after to fill the datset
+            # Clear the dummy epoch only when we're going to play a real game right after to fill the dataset
             if self.doing_dummy_epoch:
                 for opt in self.trainer.optimizers:
                     # Set learning rate back
