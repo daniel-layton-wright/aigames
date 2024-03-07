@@ -18,7 +18,7 @@ class CustomG2048Evaluator(BaseAlphaEvaluator):
         return state
 
     def evaluate(self, states):
-        pis = torch.tensor([0.4, 0.2, 0.3, 0.1], dtype=torch.float32, device=states.device)
+        pis = torch.tensor([0.27, 0.24, 0.23, 0.26], dtype=torch.float32, device=states.device)
         pis = pis.repeat(states.shape[0], 1)
 
         scores = torch.zeros((states.shape[0],), dtype=torch.float32, device=states.device)
@@ -34,16 +34,21 @@ class CustomG2048Evaluator(BaseAlphaEvaluator):
         max_tile_in_corner[states[:, -1, -1] == max_tile] = True
         scores += max_tile_in_corner * self.max_in_corner_bonus
 
-        # Check for tiles one away from each other
-        tiles_one_away = torch.zeros((states.shape[0],), dtype=torch.bool, device=states.device)
-
-        padded_states = F.pad(states, (1, 1, 1, 1), 'constant', -1)
+        padded_states = F.pad(states, (1, 1, 1, 1), 'constant', -200)
         # Replace zeros with -2 -- no bonus for any zero tiles
-        padded_states[padded_states == 0] = -1
+        padded_states[padded_states == 0] = -50
+
+        min_neighbor_diff = torch.zeros_like(states, dtype=torch.float32, device=states.device)
 
         for roll_amt, roll_dim in [(1, -1), (-1, -1), (1, -2), (-1, -2)]:
-            one_way = ((padded_states == padded_states.roll(roll_amt, roll_dim)) == 1).sum(dim=(1,2))
-            scores += one_way * self.bonus_for_tiles_one_away
+            diff = (padded_states - padded_states.roll(roll_amt, roll_dim)).abs()
+            diff[(diff > 50) & (diff < 100)] = 0
+            min_neighbor_diff = torch.minimum(min_neighbor_diff, diff[:, 1:-1, 1:-1])
+
+        min_neighbor_diff *= (min_neighbor_diff > 0).float()
+
+        # Give a penalty per min neighbor diff
+        scores -= min_neighbor_diff.sum(dim=(1, 2)) * 100
 
         return pis, scores.reshape(-1, 1)
 
