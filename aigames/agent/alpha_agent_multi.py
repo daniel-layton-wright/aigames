@@ -241,7 +241,7 @@ class AlphaAgentMulti(AgentMulti):
         # Choose the action according to the distribution pi
         actions[non_zero] = torch.multinomial(pi[non_zero], num_samples=1).flatten()
 
-        pi[torch.arange(n_parallel_games)[~non_zero], action_distribution[~non_zero].argmax(dim=1)] = 1
+        pi[torch.arange(n_parallel_games, device=non_zero.device)[~non_zero], action_distribution[~non_zero].argmax(dim=1)] = 1
         actions[~non_zero] = action_distribution[~non_zero].argmax(dim=1).flatten()
 
         return actions, pi
