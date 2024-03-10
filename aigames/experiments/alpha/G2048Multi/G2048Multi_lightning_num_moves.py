@@ -85,37 +85,6 @@ class G2048TrainingRunNumMoves(G2048TrainingRun):
         self.log('loss/num_moves_loss', num_moves_loss)
         return loss
 
-    def on_train_batch_end(self, outputs: STEP_OUTPUT, batch: Any, batch_idx: int) -> None:
-        self.network.eval()
-
-        # Log value of simple states: a beginning state, a good intermediate state, and a state probably close to losing
-        example_states = torch.FloatTensor(
-             [[[0, 0, 1, 0],
-               [0, 0, 0, 0],
-               [1, 0, 0, 0],
-               [0, 0, 0, 0]],
-
-              [[2, 1, 0, 0],
-               [5, 4, 0, 0],
-               [6, 5, 1, 0],
-               [7, 6, 5, 2]],
-
-              [[3, 1, 4, 0],
-               [1, 5, 3, 0],
-               [6, 3, 1, 5],
-               [1, 10, 5, 1]]]
-        )
-
-        pi, val, num_moves = self.network.evaluate(example_states.to(self.hyperparams.device))
-
-        for i in range(len(example_states)):
-            self.log(f'example_state{i}/value', val[i].detach().item())
-            self.log(f'example_state{i}/policy_left', pi[i].flatten()[0].item())
-            self.log(f'example_state{i}/num_moves', num_moves[i].flatten()[0].item())
-
-        self.network.train()
-
-
 def main():
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
