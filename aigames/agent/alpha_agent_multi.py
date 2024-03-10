@@ -144,6 +144,9 @@ class TDLambda:
     def update_self_play_round(self, self_play_round):
         pass
 
+    def __json__(self):
+        return self.td_lambda
+
 
 class TDLambdaByRound(TDLambda):
     def __init__(self, td_lambda_schedule_list):
@@ -298,7 +301,10 @@ class AlphaAgentMulti(AgentMulti):
         if not self.training:
             return
 
-        self.generate_trajectories()
+        trajectories = self.get_trajectories()
+
+        for data_listener in self.listeners:
+            data_listener.on_trajectories(trajectories)
 
         if self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.DISCOUNTED_REWARDS:
             self.generate_data_discounted_rewards_method()
@@ -309,7 +315,7 @@ class AlphaAgentMulti(AgentMulti):
         elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD_MCTS_NETWORK_FALLBACK:
             self.generate_data_td_method(lambda data: data.mcts_value if data.mcts_value is not None else data.network_value)
 
-    def generate_trajectories(self):
+    def get_trajectories(self):
         state_trajectories = torch.zeros((0, self.game.n_parallel_games, *self.game_class.get_state_shape()),
                                          device=self.game.states.device, dtype=torch.float32)
 
@@ -351,8 +357,7 @@ class AlphaAgentMulti(AgentMulti):
         for i in range(state_trajectories.shape[0]):
             trajectories.append(Trajectory(state_trajectories[i][mask[i]], rewards[i][mask[i]], pis[i][mask[i]]))
 
-        for data_listener in self.listeners:
-            data_listener.on_trajectories(trajectories)
+        return trajectories
 
     def generate_data_discounted_rewards_method(self):
         episode_history = reversed(self.episode_history)  # work backwards
