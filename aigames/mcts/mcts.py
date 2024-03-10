@@ -300,7 +300,8 @@ class MCTS:
             return
 
         states = self.states[idx, nodes]
-        self.pi[idx, nodes], values = self.evaluator.evaluate(states)
+        network_result = self.evaluator.evaluate(states)
+        self.pi[idx, nodes], values = network_result[0], network_result[1]
         self.values[idx, nodes] = values
         legal_actions_mask = self.game.get_legal_action_masks(states)
         self.pi[idx, nodes] *= legal_actions_mask

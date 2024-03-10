@@ -42,21 +42,21 @@ class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
         self.datapoints_seen_since_last_sample = 0
 
     def __iter__(self):
-        dataset = TensorDataset(self.states, self.pis, self.rewards)
+        dataset = TensorDataset(*(self.data[key] for key in self.data))
         sampler = torch.utils.data.RandomSampler(dataset, replacement=False)
         dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=self.hyperparams.batch_size)
         return iter(dataloader)
 
     def __len__(self):
-        n = self.states.shape[0] if self.states is not None else 0
+        n = self.data['states'].shape[0] if self.data['states'] is not None else 0
         return math.ceil(n / self.hyperparams.batch_size)
 
     def enforce_max_size(self):
-        while self.states is not None and self.states.shape[0] > self.hyperparams.max_data_size:
+        while self.data['states'] is not None and self.data['states'].shape[0] > self.hyperparams.max_data_size:
             self.pop()
 
-    def on_data_point(self, states: torch.Tensor, pis: torch.Tensor, rewards: torch.Tensor):
-        super().on_data_point(states, pis, rewards)
+    def on_data_point(self, states: torch.Tensor, pis: torch.Tensor, rewards: torch.Tensor, *args, **kwargs):
+        super().on_data_point(states, pis, rewards, *args, **kwargs)
         self.total_datapoints_seen += states.shape[0]
         self.datapoints_seen_since_last_sample += states.shape[0]
 
@@ -65,14 +65,26 @@ class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
         self.datapoints_seen_since_last_sample = 0
 
 
+class BasicAlphaDatasetMultiNumMoves(BasicAlphaDatasetLightning):
+    def __init__(self, evaluator: BaseAlphaEvaluator = None, hyperparams: AlphaMultiTrainingHyperparameters = None,
+                 process_state=True):
+        super().__init__(evaluator, hyperparams, process_state)
+        self.data['num_moves'] = None
+
+    def get_data_names_and_values(self, states, pis, rewards, num_moves=None, *args, **kwargs):
+        data = super().get_data_names_and_values(states, pis, rewards, *args, **kwargs)
+        data.append(('num_moves', num_moves))
+        return data
+
+
 class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
-    def loss(self, states, pis, values) -> Tuple[torch.Tensor, torch.Tensor]:
+    def loss(self, states, pis, values, *args, **kwargs) -> Tuple[torch.Tensor, ...]:
         raise NotImplementedError()
 
 
 class AlphaMultiTrainingRunLightning(pl.LightningModule):
     def __init__(self, game_class: Type[GameMulti], network: AlphaMultiNetwork,
-                 hyperparams: AlphaMultiTrainingHyperparameters):
+                 hyperparams: AlphaMultiTrainingHyperparameters, agent_class=AlphaAgentMulti, dataset=None):
         """
 
         :param game:
@@ -83,8 +95,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.hyperparams = hyperparams
         self.game_class = game_class
         self.network = network
-        self.dataset = BasicAlphaDatasetLightning(self.network, self.hyperparams)
-        self.agent = AlphaAgentMulti(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
+        self.dataset = BasicAlphaDatasetLightning(self.network, self.hyperparams) if dataset is None else dataset
+        self.agent = agent_class(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
         self.game = self.game_class(self.hyperparams.n_parallel_games, self.agent, listeners=hyperparams.game_listeners)
         self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent,
                                          listeners=hyperparams.eval_game_listeners)
@@ -195,6 +207,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                     for param_group in opt.param_groups:
                         param_group['lr'] = self.lr_save_tmp.pop()
 
+                self.hyperparams.training_tau.update_metric('avg_total_num_moves', None)
                 self.dataset.clear()
                 self.doing_dummy_epoch = False  # Done with dummy epoch
 
@@ -216,6 +229,9 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         pass
 
     def training_step(self, batch, nb_batch) -> dict:
+        if self.doing_dummy_epoch:
+            self.network.eval()  # don't update batchnorm statistics from dummy data
+
         loss, value_loss, distn_loss = self.loss(*batch)
         self.log('loss/loss', loss)
         self.log('loss/value_loss', value_loss)

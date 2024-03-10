@@ -4,6 +4,8 @@ from typing import List, Any
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
+
+from aigames.training_manager.alpha_training_manager_multi import TrajectoryDataset
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
@@ -90,7 +92,7 @@ class TrainingTauDecreaseOnPlateau(TrainingTau):
         self.max_metric = None
 
     def get_tau(self, move_number):
-        return self.tau_schedule[min(self.i, len(self.tau_schedule) - 1)]
+        return self.tau_schedule[self.i]
 
     def update_metric(self, key, val):
         if key != self.plateau_metric:
@@ -103,7 +105,7 @@ class TrainingTauDecreaseOnPlateau(TrainingTau):
             self.max_j = self.j
 
         if self.j - self.max_j >= self.plateau_patience:
-            self.i += 1
+            self.i = min(self.i + 1, len(self.tau_schedule) - 1)
             self.max_metric = None
             self.max_j = self.j
 
@@ -191,7 +193,7 @@ def main():
         hyperparams = training_run.hyperparams
     else:
         hyperparams = AlphaMultiTrainingHyperparameters()
-        hyperparams.self_play_every_n_epochs = 10
+        hyperparams.self_play_every_n_epochs = 1
         hyperparams.eval_game_every_n_epochs = 100
         hyperparams.eval_game_network_only_every_n_epochs = 1
         hyperparams.n_parallel_games = 1000
@@ -207,7 +209,7 @@ def main():
         hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
                                                                 'eval_game_avg_max_tile',
                                                                 4 * hyperparams.self_play_every_n_epochs)
-        hyperparams.td_lambda = TDLambdaByRound([1, 0.9, 0.8, 0.7, 0.6, 0.5])
+        hyperparams.td_lambda = TDLambdaByRound([1.0])  # [1, 0.9, 0.8, 0.7, 0.6, 0.5])
         hyperparams.batch_size = 1024
         hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count'),
                                       # game_progress_callback
@@ -238,7 +240,8 @@ def main():
         else:
             network = network_class()
 
-        training_run = G2048TrainingRun(G2048Multi, network, hyperparams)
+        training_run = G2048TrainingRun(G2048Multi, network, hyperparams, dataset=TrajectoryDataset(evaluator=network,
+                                                                                                    hyperparams=hyperparams))
     else:
         training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
                                                              hyperparams=hyperparams,
