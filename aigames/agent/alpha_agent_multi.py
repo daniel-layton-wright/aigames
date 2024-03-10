@@ -167,7 +167,7 @@ class TDLambdaByRound(TDLambda):
 @dataclass(kw_only=True, slots=True)
 class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
     training_tau: TrainingTau = TrainingTau(1.0)
-    n_mcts_iters_schedule: MCTSItersSchedule = ConstantMCTSIters(100)
+    n_mcts_iters: MCTSItersSchedule = ConstantMCTSIters(100)
     use_dirichlet_noise_in_eval: bool = False  # the AlphaGo paper is unclear about this -> defintely should be False just think about it, don't need no stinking paper
     reuse_mcts_tree: bool = False  # Initial testing showed this was actually slower (on G2048Multi) :/
     value_target_calculation_method: ValueTargetCalculationMethod = ValueTargetCalculationMethod.TD_MCTS_NETWORK_FALLBACK
@@ -265,7 +265,7 @@ class AlphaAgentMulti(AgentMulti):
                              add_dirichlet_noise=(self.training or self.hyperparams.use_dirichlet_noise_in_eval))
 
     def update_mcts_hyperparams(self):
-        self.mcts_hyperparams.n_mcts_iters, use_to_train_network = self.hyperparams.n_mcts_iters_schedule.get_n_mcts_iters()
+        self.mcts_hyperparams.n_mcts_iters, use_to_train_network = self.hyperparams.n_mcts_iters.get_n_mcts_iters()
         return use_to_train_network
 
     def record_pi(self, states, pi, mask, mcts_value=None, network_value=None, env_state=False):
@@ -286,11 +286,11 @@ class AlphaAgentMulti(AgentMulti):
 
     def train(self):
         self.training = True
-        self.hyperparams.n_mcts_iters_schedule.update_value('training', True)
+        self.hyperparams.n_mcts_iters.update_value('training', True)
 
     def eval(self):
         self.training = False
-        self.hyperparams.n_mcts_iters_schedule.update_value('training', False)
+        self.hyperparams.n_mcts_iters.update_value('training', False)
 
     def before_game_start(self, game: GameMulti):
         self.game = game

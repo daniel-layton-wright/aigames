@@ -8,7 +8,8 @@ from pytorch_lightning.utilities.types import STEP_OUTPUT
 
 from aigames.agent.alpha_agent_multi_adaptive import AlphaAgentMultiAdaptive
 from aigames.training_manager.alpha_training_manager_multi import NumMovesTrajectoryDataset
-from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, TDLambda, AlphaAgentHyperparametersMulti
+from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, TDLambda, AlphaAgentHyperparametersMulti, \
+    ConstantMCTSIters
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters, BasicAlphaDatasetMultiNumMoves
 from ....utils.listeners import ActionCounterProgressBar
@@ -137,14 +138,14 @@ def main():
         hyperparams.eval_game_every_n_epochs = 100
         hyperparams.eval_game_network_only_every_n_epochs = 1
         hyperparams.n_parallel_games = 1000
-        hyperparams.max_data_size = 4000000
+        hyperparams.max_data_size = 3500000
         hyperparams.min_data_size = 1024
-        hyperparams.n_mcts_iters = 100
+        hyperparams.n_mcts_iters = ConstantMCTSIters(100)
         hyperparams.dirichlet_alpha = 0.25
         hyperparams.dirichlet_epsilon = 0.1
         hyperparams.scaleQ = True
         hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
-        hyperparams.lr = 0.001
+        hyperparams.lr = 0.0005
         hyperparams.weight_decay = 1e-5
         hyperparams.training_tau = AdaptiveTrainingTauDecreaseOnPlateau(
             [(1.0, 0.5), (0.7, 0.2), (0.5, 0.1), (0.3, 0.0), (0.1, 0.0), (0.0, 0.0)],

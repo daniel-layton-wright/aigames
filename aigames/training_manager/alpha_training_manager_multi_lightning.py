@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 import torch.utils.data
 import math
 from .alpha_training_manager_multi import BasicAlphaDatasetMulti, TensorDataset
-from ..agent.alpha_agent_multi import AlphaAgentHyperparametersMulti, AlphaAgentMulti
+from ..agent.alpha_agent_multi import AlphaAgentHyperparametersMulti, AlphaAgentMulti, ConstantMCTSIters
 from ..game.game_multi import GameMulti
 from ..utils.listeners import MaxActionGameKiller
 
@@ -185,7 +185,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         if self.time_to_play_eval_game_network_only():
             # Temporarily set n_iters to 0 so we just use the network result
             tmp = self.agent.hyperparams.n_mcts_iters
-            self.agent.hyperparams.n_mcts_iters = 0
+            self.agent.hyperparams.n_mcts_iters = ConstantMCTSIters(0)
             self.agent.eval()
             self.network.eval()
             self.eval_game.play()

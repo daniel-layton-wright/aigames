@@ -6,7 +6,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 
 from aigames.training_manager.alpha_training_manager_multi import TrajectoryDataset
-from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound
+from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
 from ....utils.listeners import ActionCounterProgressBar
@@ -197,26 +197,26 @@ def main():
         hyperparams.eval_game_every_n_epochs = 100
         hyperparams.eval_game_network_only_every_n_epochs = 1
         hyperparams.n_parallel_games = 1000
-        hyperparams.max_data_size = 4000000
+        hyperparams.max_data_size = 3500000
         hyperparams.min_data_size = 1024
-        hyperparams.n_mcts_iters = 100
+        hyperparams.n_mcts_iters = ConstantMCTSIters(100)
         hyperparams.dirichlet_alpha = 0.25
         hyperparams.dirichlet_epsilon = 0.1
         hyperparams.scaleQ = True
         hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
-        hyperparams.lr = 0.001
+        hyperparams.lr = 0.0001
         hyperparams.weight_decay = 1e-5
         hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
                                                                 'eval_game_avg_max_tile',
                                                                 4 * hyperparams.self_play_every_n_epochs)
-        hyperparams.td_lambda = TDLambdaByRound([1.0])  # [1, 0.9, 0.8, 0.7, 0.6, 0.5])
+        hyperparams.td_lambda = TDLambdaByRound([1.0, 0.5])  # [1, 0.9, 0.8, 0.7, 0.6, 0.5])
         hyperparams.batch_size = 1024
         hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count'),
                                       # game_progress_callback
                                       ]
         hyperparams.eval_game_listeners = [ActionCounterProgressBar(1500, description='Eval game action count')]
         hyperparams.discount = 0.999
-        hyperparams.clear_dataset_before_self_play_rounds = [0, 1, 2, 3, 4]
+        hyperparams.clear_dataset_before_self_play_rounds = []
 
         network_class = import_string(ckpt_path_args.network_class)
         if hasattr(network_class, 'add_args_to_arg_parser'):
