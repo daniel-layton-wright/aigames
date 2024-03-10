@@ -178,12 +178,11 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
                [1, 10, 5, 1]]]
         )
 
-        pi, val, num_moves = self.network.evaluate(example_states.to(self.hyperparams.device))
+        pi, val = self.network.evaluate(example_states.to(self.hyperparams.device))
 
         for i in range(len(example_states)):
             self.log(f'example_state{i}/value', val[i].detach().item())
             self.log(f'example_state{i}/policy_left', pi[i].flatten()[0].item())
-            self.log(f'example_state{i}/num_moves', num_moves[i].flatten()[0].item())
 
         self.network.train()
 
