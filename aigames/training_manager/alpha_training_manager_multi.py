@@ -113,20 +113,25 @@ class TrajectoryDataset(AlphaDatasetMulti):
     num_items = 3
 
     class DataBuffer:
-        def __init__(self, num_items, batch_size):
+        def __init__(self, num_items, batch_size, full_size=None):
             self.data = [None for _ in range(num_items)]
             self.batch_size = batch_size
+            self.full_size = max(full_size, batch_size) if full_size is not None else batch_size
 
         def add_to_buffer(self, *args):
             for i, arg in enumerate(args):
                 self.data[i] = arg if self.data[i] is None else torch.cat((self.data[i], arg))
 
         def full(self):
-            return self.data[0].shape[0] >= self.batch_size
+            return self.data[0].shape[0] >= self.full_size
 
         def yield_data(self):
-            out = tuple(self.data[i][:self.batch_size] for i in range(len(self.data)))
-            self.data = [self.data[i][self.batch_size:] for i in range(len(self.data))]
+            # Yield a random subset of the data of size self.batch_size
+            batch_size = min(self.batch_size, self.data[0].shape[0])
+            random_order = np.random.permutation(self.data[0].shape[0])
+
+            out = tuple(self.data[i][random_order[:batch_size]] for i in range(len(self.data)))
+            self.data = [self.data[i][random_order[batch_size:]] for i in range(len(self.data))]
 
             return out
 
@@ -154,7 +159,8 @@ class TrajectoryDataset(AlphaDatasetMulti):
 
     def __iter__(self):
         random_order_of_trajectories = np.random.permutation(self.trajectories)
-        data_buffer = self.DataBuffer(num_items=self.num_items, batch_size=self.hyperparams.batch_size)
+        data_buffer = self.DataBuffer(num_items=self.num_items, batch_size=self.hyperparams.batch_size,
+                                      full_size=self.hyperparams.data_buffer_full_size)
 
         for cur_traj in random_order_of_trajectories:
             data_buffer.add_to_buffer(*self.get_data(cur_traj))
@@ -162,8 +168,8 @@ class TrajectoryDataset(AlphaDatasetMulti):
             while data_buffer.full():
                 yield data_buffer.yield_data()
 
-        if len(data_buffer) > 0:
-            data_buffer.yield_data()
+        while len(data_buffer) > 0:
+            yield data_buffer.yield_data()
 
     def get_data(self, cur_traj):
         self.evaluator.eval()

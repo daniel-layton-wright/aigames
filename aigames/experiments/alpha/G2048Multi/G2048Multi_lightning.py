@@ -216,16 +216,15 @@ def main():
         hyperparams.dirichlet_epsilon = 0.1
         hyperparams.scaleQ = True
         hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
-        hyperparams.lr = 0.001
+        hyperparams.lr = 0.0003
         hyperparams.weight_decay = 1e-5
         hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
                                                                 'eval_game_avg_max_tile',
                                                                 4 * hyperparams.self_play_every_n_epochs)
         hyperparams.td_lambda = TDLambdaByRound([1.0, 0.5])  # [1, 0.9, 0.8, 0.7, 0.6, 0.5])
         hyperparams.batch_size = 1024
-        hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count'),
-                                      # game_progress_callback
-                                      ]
+        hyperparams.data_buffer_full_size = 16_384  # stabilize things by doing 16 steps before using new network for next TD estimates
+        hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count')]
         hyperparams.eval_game_listeners = [ActionCounterProgressBar(1500, description='Eval game action count')]
         hyperparams.discount = 0.999
         hyperparams.clear_dataset_before_self_play_rounds = []
@@ -275,6 +274,8 @@ def main():
     wandb.init(**wandb_kwargs)
     wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
     wandb.run.watch(training_run.network)
+
+    torch.autograd.set_detect_anomaly(True)
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     episode_history_checkpoint = EpisodeHistoryCheckpoint(os.path.join(args.ckpt_dir, wandb_run))

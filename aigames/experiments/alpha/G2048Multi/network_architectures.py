@@ -101,36 +101,38 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
 
         self.n_base_out_features = self.hyperparams.n_out_channels
 
-        self.policy_head = nn.Sequential(
+        self.policy_logits_head = nn.Sequential(
             nn.Linear(in_features=self.n_base_out_features, out_features=128),
             nn.ReLU(),
             nn.Linear(in_features=128, out_features=32),
             nn.ReLU(),
-            nn.Linear(in_features=32, out_features=4),
-            nn.Softmax(dim=1)
+            nn.Linear(in_features=32, out_features=4)
         )
 
-        self.value_head = nn.Sequential(
+        self.value_logits_head = nn.Sequential(
             nn.Linear(in_features=self.n_base_out_features, out_features=128),
             nn.ReLU(),
             nn.Linear(in_features=128, out_features=128),
             nn.ReLU(),
-            nn.Linear(in_features=128, out_features=self.hyperparams.n_value_buckets),
-            nn.Softmax(dim=1)
+            nn.Linear(in_features=128, out_features=self.hyperparams.n_value_buckets)
         )
 
     def forward(self, processed_state):
         base = self.base(processed_state)
-        policy = self.policy_head(base).squeeze()
-        value_bucket_softmax = self.value_head(base)
-        return policy, value_bucket_softmax
+        policy_logits = self.policy_logits_head(base)
+        value_bucket_logits = self.value_logits_head(base)
+        return policy_logits, value_bucket_logits
 
     @torch.no_grad()
     def evaluate(self, state):
         if state.shape[1] != 16:
             state = self.process_state(state)
 
-        pi, value_bucket_softmax = self.forward(state)
+        pi_logits, value_bucket_logits = self.forward(state)
+
+        pi = torch.softmax(pi_logits, dim=1)
+        value_bucket_softmax = torch.softmax(value_bucket_logits, dim=1)
+
         scaled_value = self.digitize(value_bucket_softmax)
         value = self.inverse_scale(scaled_value).unsqueeze(1)
         return pi, value
@@ -174,14 +176,15 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
                 - sgn*torch.sqrt(sgn*hp/e + 1/(4*e*e) + 1)/e)
 
     def loss(self, states, pis, values, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
-        pred_distns, pred_values = self.forward(states)
+        pred_distn_logits, pred_value_logits = self.forward(states)
 
         nan_distns = torch.isnan(pis).any(dim=1)
 
         values = self.scale_and_bucketize(values)
 
-        value_loss = (-torch.sum(values * torch.log(pred_values), dim=1)).mean()
-        distn_loss = (-torch.sum(pis[~nan_distns] * torch.log(pred_distns[~nan_distns]), dim=1)).mean()
+        value_loss = nn.functional.cross_entropy(pred_value_logits, values)
+        distn_loss = nn.functional.cross_entropy(pred_distn_logits[~nan_distns], pis[~nan_distns])
+
         return value_loss, distn_loss
 
     @classmethod
@@ -198,6 +201,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
 
 
 class G2048MultiNetworkV3(G2048MultiNetworkV2):
+    # TODO : fix this to use logit method for more stable loss same as V2
     def __init__(self, hyperparams: G2048MultiNetworkV2.Hyperparameters = G2048MultiNetworkV2.Hyperparameters()):
         super().__init__(hyperparams)
         self.num_moves_head = nn.Sequential(
@@ -210,8 +214,8 @@ class G2048MultiNetworkV3(G2048MultiNetworkV2):
 
     def forward(self, processed_state):
         base = self.base(processed_state)
-        policy = self.policy_head(base).squeeze()
-        value_bucket_softmax = self.value_head(base)
+        policy = self.policy_logits_head(base).squeeze()
+        value_bucket_softmax = self.value_logits_head(base)
         num_moves = self.num_moves_head(base)
         return policy, value_bucket_softmax, num_moves
 

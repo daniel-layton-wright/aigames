@@ -28,6 +28,7 @@ class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
     eval_game_listeners: list = field(default_factory=list)
     clear_dataset_before_self_play_rounds: list = field(default_factory=list)
     save_dataset_in_checkpoint: bool = False
+    data_buffer_full_size: int = 32
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
@@ -113,7 +114,18 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         return [optimizer]
 
     def loss(self, processed_states, action_distns, values):
+        # If any of the inputs are nan, start pdb
+        if torch.isnan(processed_states).any() or torch.isnan(values).any():
+            import pdb
+            pdb.set_trace()
+
         value_loss, distn_loss = self.network.loss(processed_states, action_distns, values)
+
+        # If any of the loss are nan, start pdb
+        if torch.isnan(value_loss).any() or torch.isnan(distn_loss).any():
+            import pdb
+            pdb.set_trace()
+
         mean_loss = self.hyperparams.value_weight_in_loss * value_loss + distn_loss
         return mean_loss, value_loss, distn_loss
 
@@ -233,6 +245,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.network.eval()  # don't update batchnorm statistics from dummy data
 
         loss, value_loss, distn_loss = self.loss(*batch)
+
         self.log('loss/loss', loss)
         self.log('loss/value_loss', value_loss)
         self.log('loss/distn_loss', distn_loss)
