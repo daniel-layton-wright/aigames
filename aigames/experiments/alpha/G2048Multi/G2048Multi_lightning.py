@@ -80,7 +80,8 @@ class GameProgressCallback(Callback, GameListenerMulti):
 
 
 class TrainingTauDecreaseOnPlateau(TrainingTau):
-    def __init__(self, tau_schedule: List[float], plateau_metric, plateau_patience):
+    def __init__(self, tau_schedule: List[float], plateau_metric, plateau_patience,
+                 max_optimizer_steps_before_tau_decrease: int = -1):
         super().__init__(0)
         self.tau_schedule = tau_schedule
         self.i = 0
@@ -90,11 +91,31 @@ class TrainingTauDecreaseOnPlateau(TrainingTau):
         self.j = -1
         self.max_j = -1
         self.max_metric = None
+        self.max_optimizer_steps_before_tau_decrease = max_optimizer_steps_before_tau_decrease
+        self.last_self_optimizer_step_tau_decrease = 0
+        self.optimizer_step = 0
 
     def get_tau(self, move_number):
         return self.tau_schedule[self.i]
 
+    def backwards_compatible_check(self):
+        if not hasattr(self, 'optimizer_step'):
+            self.optimizer_step = 0
+            self.last_self_optimizer_step_tau_decrease = 0
+            self.max_optimizer_steps_before_tau_decrease = -1
+
     def update_metric(self, key, val):
+        self.backwards_compatible_check()
+
+        if key == 'optimizer_step':
+            self.optimizer_step = val
+            print('optimizer_step', val)
+            if 0 < self.max_optimizer_steps_before_tau_decrease <= val - self.last_self_optimizer_step_tau_decrease:
+                self.i = min(self.i + 1, len(self.tau_schedule) - 1)
+                self.max_metric = None
+                self.max_j = self.j
+                self.last_self_optimizer_step_tau_decrease = val
+
         if key != self.plateau_metric:
             return
 
@@ -108,6 +129,7 @@ class TrainingTauDecreaseOnPlateau(TrainingTau):
             self.i = min(self.i + 1, len(self.tau_schedule) - 1)
             self.max_metric = None
             self.max_j = self.j
+            self.last_self_optimizer_step_tau_decrease = self.optimizer_step
 
 
 class EpisodeHistoryCheckpoint(Callback):
@@ -220,7 +242,8 @@ def main():
         hyperparams.weight_decay = 1e-5
         hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
                                                                 'eval_game_avg_max_tile',
-                                                                4 * hyperparams.self_play_every_n_epochs)
+                                                                4 * hyperparams.self_play_every_n_epochs,
+                                                                max_optimizer_steps_before_tau_decrease=int(50e3))
         hyperparams.td_lambda = TDLambdaByRound([1.0, 0.5])  # [1, 0.9, 0.8, 0.7, 0.6, 0.5])
         hyperparams.batch_size = 1024
         hyperparams.data_buffer_full_size = 16_384  # stabilize things by doing 16 steps before using new network for next TD estimates
@@ -279,11 +302,9 @@ def main():
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     episode_history_checkpoint = EpisodeHistoryCheckpoint(os.path.join(args.ckpt_dir, wandb_run))
-    trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,  # hyperparams.self_play_every_n_epochs,
+    trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,
                          logger=pl_loggers.WandbLogger(**wandb_kwargs),
-                         callbacks=[model_checkpoint, episode_history_checkpoint
-                                    # game_progress_callback
-                                    ], log_every_n_steps=1,
+                         callbacks=[model_checkpoint, episode_history_checkpoint], log_every_n_steps=1,
                          max_epochs=args.max_epochs,
                          gradient_clip_val=args.gradient_clip_val
                          )

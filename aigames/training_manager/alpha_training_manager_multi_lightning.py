@@ -154,6 +154,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.dataset.clear()
 
         self.hyperparams.training_tau.update_metric('self_play_round', self.n_self_play_rounds)
+        self.hyperparams.training_tau.update_metric('optimizer_step', self.trainer.global_step)
         self.log('training_tau', self.hyperparams.training_tau.get_tau(0))
 
         self.hyperparams.td_lambda.update_self_play_round(self.n_self_play_rounds)
