@@ -216,7 +216,7 @@ def main():
         hyperparams.dirichlet_epsilon = 0.1
         hyperparams.scaleQ = True
         hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
-        hyperparams.lr = 0.0001
+        hyperparams.lr = 0.001
         hyperparams.weight_decay = 1e-5
         hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
                                                                 'eval_game_avg_max_tile',
@@ -239,6 +239,7 @@ def main():
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
     parser.add_argument('--max_epochs', type=int, default=1000, help='Max epochs')
     parser.add_argument('--restore_wandb_run_id', type=str, default=None)
+    parser.add_argument('--gradient_clip_val', type=float, default=1.0)
 
     # Parse the args and set the hyperparams
     args = parser.parse_args()
@@ -273,6 +274,7 @@ def main():
     # So we can get the name for model checkpointing
     wandb.init(**wandb_kwargs)
     wandb_run = wandb.run.name or os.path.split(wandb.run.path)[-1]
+    wandb.run.watch(training_run.network)
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     episode_history_checkpoint = EpisodeHistoryCheckpoint(os.path.join(args.ckpt_dir, wandb_run))
@@ -282,6 +284,7 @@ def main():
                                     # game_progress_callback
                                     ], log_every_n_steps=1,
                          max_epochs=args.max_epochs,
+                         gradient_clip_val=args.gradient_clip_val
                          )
     trainer.fit(training_run, ckpt_path=args.restore_ckpt_path)
 
