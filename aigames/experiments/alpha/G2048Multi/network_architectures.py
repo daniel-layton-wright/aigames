@@ -133,7 +133,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         pi = torch.softmax(pi_logits, dim=1)
         value_bucket_softmax = torch.softmax(value_bucket_logits, dim=1)
 
-        scaled_value = self.digitize(value_bucket_softmax)
+        scaled_value = self.digitize(value_bucket_softmax, self.buckets)
         value = self.inverse_scale(scaled_value).unsqueeze(1)
         return pi, value
 
@@ -143,26 +143,28 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
     def scale_value(self, value):
         return torch.sign(value) * (torch.sqrt(torch.abs(value) + 1) - 1 + self.hyperparams.value_scale_epsilon * value)
 
-    def bucketize(self, scaled_value):
-        bucketized = torch.clip(torch.bucketize(scaled_value, self.buckets), max=(self.hyperparams.n_value_buckets-1))
+    @staticmethod
+    def bucketize(scaled_value, buckets, n_value_buckets):
+        bucketized = torch.clip(torch.bucketize(scaled_value, buckets), max=(n_value_buckets-1))
         bucketized_low = torch.clip(bucketized - 1, min=0)
-        bucket_values = self.buckets[bucketized]
-        one_less_buckets = self.buckets[bucketized_low]
+        bucket_values = buckets[bucketized]
+        one_less_buckets = buckets[bucketized_low]
         bucket_weight = torch.clip((scaled_value - one_less_buckets)
                                    / (bucket_values - one_less_buckets + (bucket_values == one_less_buckets)),
                                    min=0.0, max=1.0)
-        out = torch.zeros((scaled_value.shape[0], self.hyperparams.n_value_buckets), device=scaled_value.device)
+        out = torch.zeros((scaled_value.shape[0], n_value_buckets), device=scaled_value.device)
         out[torch.arange(scaled_value.shape[0]), bucketized.flatten()] = bucket_weight.flatten()
         out[torch.arange(scaled_value.shape[0]), bucketized_low.flatten()] = 1 - bucket_weight.flatten()
         return out
 
-    def digitize(self, bucketized_values):
-        return torch.sum(self.buckets * bucketized_values, dim=1)
+    @staticmethod
+    def digitize(bucketized_values, buckets):
+        return torch.sum(buckets * bucketized_values, dim=1)
 
-    def scale_and_bucketize(self, value):
+    def scale_and_bucketize_values(self, value):
         value = value.reshape(-1, 1)
         scaled_value = self.scale_value(value)
-        out = self.bucketize(scaled_value)
+        out = self.bucketize(scaled_value, self.buckets, self.hyperparams.n_value_buckets)
         return out
 
     def inverse_scale(self, scaled_value):
@@ -180,7 +182,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
 
         nan_distns = torch.isnan(pis).any(dim=1)
 
-        values = self.scale_and_bucketize(values)
+        values = self.scale_and_bucketize_values(values)
 
         value_loss = nn.functional.cross_entropy(pred_value_logits, values)
         distn_loss = nn.functional.cross_entropy(pred_distn_logits[~nan_distns], pis[~nan_distns])
@@ -201,42 +203,68 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
 
 
 class G2048MultiNetworkV3(G2048MultiNetworkV2):
-    # TODO : fix this to use logit method for more stable loss same as V2
-    def __init__(self, hyperparams: G2048MultiNetworkV2.Hyperparameters = G2048MultiNetworkV2.Hyperparameters()):
+    @dataclass(kw_only=True, slots=True)
+    class Hyperparameters(G2048MultiNetworkV2.Hyperparameters):
+        n_num_move_buckets: int = 101
+        num_move_bucket_min: int = 0
+        num_move_bucket_max: int = 100
+
+    def __init__(self, hyperparams: Hyperparameters = Hyperparameters()):
         super().__init__(hyperparams)
+        self.hyperparams = hyperparams
+        self.register_buffer('num_move_buckets',
+                             torch.linspace(self.hyperparams.num_move_bucket_min, self.hyperparams.num_move_bucket_max,
+                                            self.hyperparams.n_num_move_buckets))
         self.num_moves_head = nn.Sequential(
             nn.Linear(in_features=self.n_base_out_features, out_features=128),
             nn.ReLU(),
             nn.Linear(in_features=128, out_features=32),
             nn.ReLU(),
-            nn.Linear(in_features=32, out_features=1)
+            nn.Linear(in_features=32, out_features=self.hyperparams.n_num_move_buckets)
         )
 
     def forward(self, processed_state):
         base = self.base(processed_state)
-        policy = self.policy_logits_head(base).squeeze()
-        value_bucket_softmax = self.value_logits_head(base)
-        num_moves = self.num_moves_head(base)
-        return policy, value_bucket_softmax, num_moves
+        policy_logits = self.policy_logits_head(base)
+        value_bucket_logits = self.value_logits_head(base)
+        num_moves_logits = self.num_moves_head(base)
+        return policy_logits, value_bucket_logits, num_moves_logits
+
+    def scale_and_bucketize_num_moves(self, num_moves):
+        value = num_moves.reshape(-1, 1)
+        scaled_value = self.scale_value(num_moves)
+        out = self.bucketize(scaled_value, self.num_move_buckets, self.hyperparams.n_num_move_buckets)
+        return out
 
     @torch.no_grad()
     def evaluate(self, state):
         if state.shape[1] != 16:
             state = self.process_state(state)
 
-        pi, value_bucket_softmax, num_moves = self.forward(state)
-        scaled_value = self.digitize(value_bucket_softmax)
+        pi_logits, value_bucket_logits, num_moves_logits = self.forward(state)
+
+        pi = torch.softmax(pi_logits, dim=1)
+
+        value_bucket_softmax = torch.softmax(value_bucket_logits, dim=1)
+        scaled_value = self.digitize(value_bucket_softmax, self.buckets)
         value = self.inverse_scale(scaled_value).unsqueeze(1)
+
+        num_moves_softmax = torch.softmax(num_moves_logits, dim=1)
+        num_moves = self.digitize(num_moves_softmax, self.num_move_buckets)
+        num_moves = self.inverse_scale(num_moves).unsqueeze(1)
+
         return pi, value, num_moves
 
     def loss(self, states, pis, values, num_moves, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        pred_distns, pred_values, pred_num_moves = self.forward(states)
+        pred_distn_logits, pred_value_logits, num_moves_logits = self.forward(states)
+
+        values = self.scale_and_bucketize_values(values)
+        value_loss = nn.functional.cross_entropy(pred_value_logits, values)
 
         nan_distns = torch.isnan(pis).any(dim=1)
+        distn_loss = nn.functional.cross_entropy(pred_distn_logits[~nan_distns], pis[~nan_distns])
 
-        values = self.scale_and_bucketize(values)
+        num_moves = self.scale_and_bucketize_num_moves(num_moves)
+        num_moves_loss = nn.functional.cross_entropy(num_moves_logits, num_moves)
 
-        value_loss = (-torch.sum(values * torch.log(pred_values), dim=1)).mean()
-        distn_loss = (-torch.sum(pis[~nan_distns] * torch.log(pred_distns[~nan_distns]), dim=1)).mean()
-        num_moves_loss = ((num_moves - pred_num_moves) ** 2).sum(dim=1).mean()
         return value_loss, distn_loss, num_moves_loss

@@ -240,7 +240,7 @@ class AlphaAgentMulti(AgentMulti):
 
         non_zero = (tau > 0).flatten()
         pi[non_zero] = action_distribution[non_zero] ** (1. / tau[non_zero])
-        pi /= pi.sum(dim=1, keepdim=True)
+        pi[non_zero] /= pi[non_zero].sum(dim=1, keepdim=True)
         # Choose the action according to the distribution pi
         actions[non_zero] = torch.multinomial(pi[non_zero], num_samples=1).flatten()
 
