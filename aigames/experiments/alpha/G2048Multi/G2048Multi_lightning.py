@@ -261,7 +261,7 @@ def main():
         hyperparams.c_puct = 1.25 # Can be low/normal when scaleQ is True
         hyperparams.lr = 0.0003
         hyperparams.weight_decay = 1e-5
-        hyperparams.td_lambda = TDLambdaByRound([1.0, 0.5])  # [1, 0.9, 0.8, 0.7, 0.6, 0.5])
+        hyperparams.td_lambda = TDLambdaByRound([1, 0.9, 0.8, 0.7, 0.6, 0.5])
         hyperparams.training_tau = TrainingTauStepSchedule([(1.0, int(100e3)), (0.5, int(200e3)),
                                                             (0.1, int(300e3)), (0.0, None)])
         hyperparams.batch_size = 1024
