@@ -83,7 +83,7 @@ class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
 class AlphaMultiTrainingRunLightning(pl.LightningModule):
     def __init__(self, game_class: Type[GameMulti], network: AlphaMultiNetwork,
                  hyperparams: AlphaMultiTrainingHyperparameters, agent_class=AlphaAgentMulti,
-                 dataset: Any[AlphaAgentMultiListener, Type[AlphaAgentMultiListener], None] = None):
+                 dataset: Union[AlphaAgentMultiListener, Type[AlphaAgentMultiListener], None] = None):
         """
 
         :param game:
