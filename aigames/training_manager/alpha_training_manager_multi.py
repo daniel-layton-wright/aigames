@@ -149,7 +149,10 @@ class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
         self.enforce_max_size()
 
     def __len__(self):
-        return math.ceil(sum(len(traj.states) for traj in self.trajectories) / float(self.hyperparams.batch_size))
+        return math.ceil(self.num_states() / float(self.hyperparams.batch_size))
+
+    def num_states(self):
+        return sum(len(traj.states) for traj in self.trajectories)
 
     def train_dataloader(self):
         return self
@@ -187,9 +190,21 @@ class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
         while sum(len(traj.states) for traj in self.trajectories) > self.hyperparams.max_data_size:
             self.pop()
 
-    @property
-    def states(self):
-        return torch.cat([traj.states for traj in self.trajectories])
+    def states(self, device=None):
+        if device is None:
+            return torch.cat([traj.states for traj in self.trajectories])
+        else:
+            return torch.cat([traj.states.to(device) for traj in self.trajectories])
+
+    def rewards(self, device=None):
+        """
+        Returns a M x R x N tensor of the rewards, padding the rewards to the max length
+        where M is the number of trajectories, R is the max episode length, N is the number of players
+        """
+        if device is None:
+            return torch.nn.utils.rnn.pad_sequence([traj.rewards for traj in self.trajectories], batch_first=True)
+        else:
+            return torch.nn.utils.rnn.pad_sequence([traj.rewards.to(device) for traj in self.trajectories], batch_first=True)
 
 
 class NumMovesTrajectoryDataset(TrajectoryDataset):

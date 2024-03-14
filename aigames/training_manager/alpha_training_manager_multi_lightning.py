@@ -240,7 +240,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.agent.train()
         self.network.train()
 
-        self.log('dataset/size', self.dataset.states.shape[0] if self.dataset.states is not None else 0)
+        self.log('dataset/size', self.dataset.num_states())
         self.log('dataset/total_datapoints_seen', self.dataset.total_datapoints_seen)
 
     def after_self_play_game(self):
