@@ -183,8 +183,8 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
         self.log_game_results(self.game, 'train')
 
         # Log fraction of dataset that has highest tile in corner
-        tile_values_by_channel = (torch.ones(16, 16) * torch.arange(0, 16)).T.reshape(1, 16, 4, 4).to(self.dataset.states.device)
-        flattened_states = (self.dataset.states * tile_values_by_channel).sum(dim=1)
+        tile_values_by_channel = (torch.ones(16, 16) * torch.arange(0, 16)).T.reshape(1, 16, 4, 4).cpu()
+        flattened_states = (self.dataset.states.cpu() * tile_values_by_channel).sum(dim=1)
 
         max_tiles = flattened_states.amax(dim=(1, 2))
         states_minus_max = flattened_states - max_tiles.reshape(-1, 1, 1)
