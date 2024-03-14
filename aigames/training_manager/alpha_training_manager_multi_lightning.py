@@ -4,8 +4,9 @@ from .alpha_training_manager import *
 import pytorch_lightning as pl
 import torch.utils.data
 import math
-from .alpha_training_manager_multi import BasicAlphaDatasetMulti, TensorDataset
-from ..agent.alpha_agent_multi import AlphaAgentHyperparametersMulti, AlphaAgentMulti, ConstantMCTSIters
+from .alpha_training_manager_multi import BasicAlphaDatasetMulti, TensorDataset, TrajectoryDataset
+from ..agent.alpha_agent_multi import AlphaAgentHyperparametersMulti, AlphaAgentMulti, ConstantMCTSIters, \
+    AlphaAgentMultiListener
 from ..game.game_multi import GameMulti
 from ..utils.listeners import MaxActionGameKiller
 
@@ -61,10 +62,6 @@ class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
         self.total_datapoints_seen += states.shape[0]
         self.datapoints_seen_since_last_sample += states.shape[0]
 
-    def sample_minibatch(self, batch_size):
-        super().sample_minibatch(batch_size)
-        self.datapoints_seen_since_last_sample = 0
-
 
 class BasicAlphaDatasetMultiNumMoves(BasicAlphaDatasetLightning):
     def __init__(self, evaluator: BaseAlphaEvaluator = None, hyperparams: AlphaMultiTrainingHyperparameters = None,
@@ -85,7 +82,8 @@ class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
 
 class AlphaMultiTrainingRunLightning(pl.LightningModule):
     def __init__(self, game_class: Type[GameMulti], network: AlphaMultiNetwork,
-                 hyperparams: AlphaMultiTrainingHyperparameters, agent_class=AlphaAgentMulti, dataset=None):
+                 hyperparams: AlphaMultiTrainingHyperparameters, agent_class=AlphaAgentMulti,
+                 dataset: Any[AlphaAgentMultiListener, Type[AlphaAgentMultiListener], None] = None):
         """
 
         :param game:
@@ -96,7 +94,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.hyperparams = hyperparams
         self.game_class = game_class
         self.network = network
-        self.dataset = BasicAlphaDatasetLightning(self.network, self.hyperparams) if dataset is None else dataset
+        self.dataset = self.create_dataset(dataset)
         self.agent = agent_class(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
         self.game = self.game_class(self.hyperparams.n_parallel_games, self.agent, listeners=hyperparams.game_listeners)
         self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent,
@@ -104,6 +102,20 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.n_self_play_rounds = 0
         self.lr_save_tmp = []
         self.doing_dummy_epoch = False
+
+    # TODO : make base class for alpha dataset
+    def create_dataset(self, dataset) -> AlphaAgentMultiListener:
+        # If dataset is a dataset object already just use it
+        if isinstance(dataset, AlphaAgentMultiListener):
+            return dataset
+        # Or if the dataset is a class initialize it
+        elif isinstance(dataset, type):
+            return dataset(self.network, self.hyperparams)
+        # Or if dataset is None return a default one
+        elif dataset is None:
+            return TrajectoryDataset(self.network, self.hyperparams)
+        else:
+            raise ValueError(f'Unknown dataset type: {dataset}')
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)
@@ -278,6 +290,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
         if 'n_self_play_rounds' in checkpoint:
             self.n_self_play_rounds = checkpoint['n_self_play_rounds']
+
+        self.dataset.evaluator = self.network
 
     def set_dataset(self, dataset):
         # Remove old dataset from agent
