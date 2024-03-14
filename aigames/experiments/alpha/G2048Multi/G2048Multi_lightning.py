@@ -258,7 +258,7 @@ def main():
         hyperparams.dirichlet_alpha = 0.25
         hyperparams.dirichlet_epsilon = 0.1
         hyperparams.scaleQ = True
-        hyperparams.c_puct = 1.25 # Can be low/normal when scaleQ is True
+        hyperparams.c_puct = 1.25  # Can be low/normal when scaleQ is True
         hyperparams.lr = 0.0003
         hyperparams.weight_decay = 1e-5
         hyperparams.td_lambda = TDLambdaByRound([1, 0.9, 0.8, 0.7, 0.6, 0.5])

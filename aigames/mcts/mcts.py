@@ -2,11 +2,15 @@ import enum
 from dataclasses import dataclass
 import torch
 from aigames.game.game_multi import GameMulti
+import json_fix
 
 
 class UCBFormulaType(enum.Enum):
     Simple = 'simple'  # The simple UCB formula without a log term
     MuZeroLog = 'muzerolog'  # The UCB formula used in MuZero, with a log term
+
+    def __json__(self):
+        return self.value
 
 
 @dataclass(kw_only=True, slots=True)
