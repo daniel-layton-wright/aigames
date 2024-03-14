@@ -155,10 +155,10 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
         self.hyperparams.training_tau.update_metric('self_play_round', self.n_self_play_rounds)
         self.hyperparams.training_tau.update_metric('optimizer_step', self.trainer.global_step)
-        self.log_to_wandb('training_tau', self.hyperparams.training_tau.get_tau(0))
+        self.log_to_wandb({'training_tau': self.hyperparams.training_tau.get_tau(0)})
 
         self.hyperparams.td_lambda.update_self_play_round(self.n_self_play_rounds)
-        self.log_to_wandb('td_lambda', self.hyperparams.td_lambda.get_lambda())
+        self.log_to_wandb({'td_lambda': self.hyperparams.td_lambda.get_lambda()})
 
         # Always put network in eval mode when playing games (for batch norm stuff)
         self.agent.train()
@@ -167,16 +167,16 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.n_self_play_rounds += 1
         self.after_self_play_game()
 
-    def log_to_wandb(self, key, val):
+    def log_to_wandb(self, log_dict):
         if self.logger is not None and hasattr(self.logger, 'experiment'):
             d = {
-                key: val,
+                **log_dict,
                 'epoch': self.current_epoch,
                 'trainer/global_step': self.global_step,
                 'self_play_round': self.n_self_play_rounds
             }
 
-            self.logger.experiment.log(d, step=self.global_step)
+            self.logger.experiment.log(d)
 
     def time_to_play_game(self):
         return (self.hyperparams.self_play_every_n_epochs > 0

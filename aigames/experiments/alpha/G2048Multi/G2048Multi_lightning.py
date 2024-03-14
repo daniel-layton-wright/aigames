@@ -173,9 +173,11 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
         fraction_reached_2048 = (max_tiles >= 11).float().mean()
 
         # Log this
-        self.log_to_wandb(f'best_tile/{suffix}', avg_max_tile)
-        self.log_to_wandb(f'fraction_reached_1024/{suffix}', fraction_reached_1024)
-        self.log_to_wandb(f'fraction_reached_2048/{suffix}', fraction_reached_2048)
+        self.log_to_wandb({
+            f'best_tile/{suffix}': avg_max_tile,
+            f'fraction_reached_1024/{suffix}': fraction_reached_1024,
+            f'fraction_reached_2048/{suffix}': fraction_reached_2048
+        })
 
     def after_self_play_game(self):
         self.log_game_results(self.game, 'train')
