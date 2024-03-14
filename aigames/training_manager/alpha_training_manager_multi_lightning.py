@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Union
 from .alpha_training_manager import *
 import pytorch_lightning as pl
 import torch.utils.data
