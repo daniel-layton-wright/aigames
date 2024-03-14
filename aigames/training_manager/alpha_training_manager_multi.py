@@ -1,20 +1,13 @@
 import math
 from typing import List
-
 import numpy as np
-
 from ..agent.alpha_agent import BaseAlphaEvaluator
 import torch
 from ..agent.alpha_agent_multi import AlphaAgentMultiListener, Trajectory
+import pytorch_lightning as pl
 
 
-# TODO : get rid of this class, seems useless
-class AlphaDatasetMulti(AlphaAgentMultiListener):
-    def sample_minibatch(self, batch_size):
-        raise NotImplementedError()
-
-
-class BasicAlphaDatasetMulti(AlphaDatasetMulti):
+class BasicAlphaDatasetMulti(AlphaAgentMultiListener):
     def __init__(self, evaluator: BaseAlphaEvaluator = None, max_size=50000, process_state=True, min_size=100):
         self.evaluator = evaluator
         self.max_size = max_size
@@ -109,7 +102,7 @@ def compute_td_targets(state_values: torch.Tensor, rewards: torch.Tensor, td_lam
     return td_values
 
 
-class TrajectoryDataset(AlphaDatasetMulti):
+class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
     num_items = 3
 
     class DataBuffer:
@@ -139,6 +132,7 @@ class TrajectoryDataset(AlphaDatasetMulti):
             return self.data[0].shape[0] if self.data[0] is not None else 0
 
     def __init__(self, evaluator: BaseAlphaEvaluator, hyperparams):
+        super().__init__()
         self.trajectories = []
         self.hyperparams = hyperparams
         self.evaluator = evaluator
@@ -156,6 +150,9 @@ class TrajectoryDataset(AlphaDatasetMulti):
 
     def __len__(self):
         return math.ceil(sum(len(traj.states) for traj in self.trajectories) / float(self.hyperparams.batch_size))
+
+    def train_dataloader(self):
+        return self
 
     def __iter__(self):
         random_order_of_trajectories = np.random.permutation(self.trajectories)

@@ -263,7 +263,15 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         if 'dataset' in checkpoint:
-            self.dataset = checkpoint['dataset']
+            self.set_dataset(checkpoint['dataset'])
 
         if 'n_self_play_rounds' in checkpoint:
             self.n_self_play_rounds = checkpoint['n_self_play_rounds']
+
+    def set_dataset(self, dataset):
+        # Remove old dataset from agent
+        self.agent.listeners.remove(self.dataset)
+
+        dataset.evaluator = self.network
+        self.dataset = dataset
+        self.agent.listeners.append(self.dataset)

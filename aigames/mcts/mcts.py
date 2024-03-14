@@ -1,17 +1,25 @@
+import enum
 from dataclasses import dataclass
 import torch
 from aigames.game.game_multi import GameMulti
+
+
+class UCBFormulaType(enum.Enum):
+    Simple = 'simple'  # The simple UCB formula without a log term
+    MuZeroLog = 'muzerolog'  # The UCB formula used in MuZero, with a log term
 
 
 @dataclass(kw_only=True, slots=True)
 class MCTSHyperparameters:
     n_mcts_iters: int = 1200
     c_puct: float = 1.0
+    c_base_log_term: float = 19652.0  # The base for the log term in the UCB formula
     dirichlet_alpha: float = 0.3
     dirichlet_epsilon: float = 0.25
     discount: float = 1.0
     expand_simultaneous_fraction: float = 1.0  # The fraction of trees that need to be at a leaf to be expanded
     scaleQ: bool = True  # Whether to scale Q values to be between 0 and 1 my the min and max Q values in the tree
+    ucb_formula: UCBFormulaType = UCBFormulaType.Simple
 
 
 class MCTS:
@@ -19,7 +27,7 @@ class MCTS:
     Implementation of MCTS, trying to do simultaneous roll-outs of different nodes and use GPU as much as possible
     """
 
-    def __init__(self, game: GameMulti, evaluator, hyperparams, root_states: torch.Tensor,
+    def __init__(self, game: GameMulti, evaluator, hyperparams: MCTSHyperparameters, root_states: torch.Tensor,
                  add_dirichlet_noise: bool = True):
         self.hyperparams = hyperparams
         self.evaluator = evaluator
@@ -202,8 +210,7 @@ class MCTS:
 
         # For the other nodes, choose best action and search down
         N = self.n[idx, cur_nodes]
-        U = (self.hyperparams.c_puct * self.pi[idx, cur_nodes] *
-             torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N))
+        U = self.get_U(idx, cur_nodes, N)
 
         if self.hyperparams.scaleQ:
             allQ = self.w[idx] / (self.n[idx] + (self.n[idx] == 0)).unsqueeze(-1)
@@ -218,6 +225,16 @@ class MCTS:
         next_actions = torch.argmax(Q + U, dim=1)
 
         self.advance_to_next_states(idx, cur_nodes, next_actions)
+
+    def get_U(self, idx, nodes, N):
+        if self.hyperparams.ucb_formula == UCBFormulaType.Simple:
+            return self.hyperparams.c_puct * self.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
+        elif self.hyperparams.ucb_formula == UCBFormulaType.MuZeroLog:
+            return (
+                self.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
+                * (self.hyperparams.c_puct
+                   + torch.log((1 + N.sum(dim=1, keepdim=True) + self.hyperparams.c_base_log_term) / self.hyperparams.c_base_log_term))
+            )
 
     def search_for_n_iters(self, n_iters):
         searchable = self.searchable_roots()

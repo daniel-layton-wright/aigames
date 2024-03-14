@@ -90,7 +90,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         self.register_buffer('value_scale_epsilon', torch.FloatTensor([self.hyperparams.value_scale_epsilon]))
 
         self.base = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=self.hyperparams.n_channels, kernel_size=4, stride=1, padding=0),
+            nn.Conv2d(in_channels=16, out_channels=self.hyperparams.n_channels, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(self.hyperparams.n_channels),
             nn.ReLU(),
             *[BasicBlock(self.hyperparams.n_channels, self.hyperparams.n_channels) for _ in range(self.hyperparams.n_blocks)],

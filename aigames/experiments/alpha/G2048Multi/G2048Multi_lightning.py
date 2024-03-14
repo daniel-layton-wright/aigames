@@ -1,10 +1,10 @@
 import argparse
 from collections import defaultdict
-from typing import List, Any
+from typing import List, Any, Tuple
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
-
+from aigames.mcts.mcts import UCBFormulaType
 from aigames.training_manager.alpha_training_manager_multi import TrajectoryDataset
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
@@ -109,7 +109,7 @@ class TrainingTauDecreaseOnPlateau(TrainingTau):
 
         if key == 'optimizer_step':
             self.optimizer_step = val
-            print('optimizer_step', val)
+
             if 0 < self.max_optimizer_steps_before_tau_decrease <= val - self.last_self_optimizer_step_tau_decrease:
                 self.i = min(self.i + 1, len(self.tau_schedule) - 1)
                 self.max_metric = None
@@ -130,6 +130,27 @@ class TrainingTauDecreaseOnPlateau(TrainingTau):
             self.max_metric = None
             self.max_j = self.j
             self.last_self_optimizer_step_tau_decrease = self.optimizer_step
+
+
+class TrainingTauStepSchedule(TrainingTau):
+    """
+    A training tau based on a schedule for the optimizer step number
+
+    Example: TrainingTauStepSchedule([(1.0, int(100e3)), (0.5, int(200e3)), (0.1, int(300e3)), (0.0, None)])
+    """
+    def __init__(self, schedule: List[Tuple[float, int]]):
+        super().__init__(0)
+        self.schedule = schedule
+        self.i = 0
+
+    def update_metric(self, key, val):
+        if key == 'optimizer_step':
+            self.i = next((i for i, (_, step) in enumerate(self.schedule) if step > val or step is None),
+                          len(self.schedule) - 1  # default
+                          )
+
+    def get_tau(self, move_number):
+        return self.schedule[self.i][0]
 
 
 class EpisodeHistoryCheckpoint(Callback):
@@ -237,19 +258,19 @@ def main():
         hyperparams.dirichlet_alpha = 0.25
         hyperparams.dirichlet_epsilon = 0.1
         hyperparams.scaleQ = True
-        hyperparams.c_puct = 2  # Can be low/normal when scaleQ is True
+        hyperparams.c_puct = 1.25 # Can be low/normal when scaleQ is True
         hyperparams.lr = 0.0003
         hyperparams.weight_decay = 1e-5
-        hyperparams.training_tau = TrainingTauDecreaseOnPlateau([1.0, 0.7, 0.5, 0.3, 0.1, 0.0],
-                                                                'eval_game_avg_max_tile',
-                                                                4 * hyperparams.self_play_every_n_epochs,
-                                                                max_optimizer_steps_before_tau_decrease=int(50e3))
         hyperparams.td_lambda = TDLambdaByRound([1.0, 0.5])  # [1, 0.9, 0.8, 0.7, 0.6, 0.5])
+        hyperparams.training_tau = TrainingTauStepSchedule([(1.0, int(100e3)), (0.5, int(200e3)),
+                                                            (0.1, int(300e3)), (0.0, None)])
         hyperparams.batch_size = 1024
         hyperparams.data_buffer_full_size = 16_384  # stabilize things by doing 16 steps before using new network for next TD estimates
         hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count')]
         hyperparams.eval_game_listeners = [ActionCounterProgressBar(1500, description='Eval game action count')]
         hyperparams.discount = 0.999
+        hyperparams.ucb_formula = UCBFormulaType.MuZeroLog
+        hyperparams.save_dataset_in_checkpoint = True
         hyperparams.clear_dataset_before_self_play_rounds = []
 
         network_class = import_string(ckpt_path_args.network_class)
@@ -301,10 +322,9 @@ def main():
     torch.autograd.set_detect_anomaly(True)
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
-    episode_history_checkpoint = EpisodeHistoryCheckpoint(os.path.join(args.ckpt_dir, wandb_run))
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,
                          logger=pl_loggers.WandbLogger(**wandb_kwargs),
-                         callbacks=[model_checkpoint, episode_history_checkpoint], log_every_n_steps=1,
+                         callbacks=[model_checkpoint], log_every_n_steps=1,
                          max_epochs=args.max_epochs,
                          gradient_clip_val=args.gradient_clip_val
                          )
