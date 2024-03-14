@@ -96,10 +96,10 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
             *[BasicBlock(self.hyperparams.n_channels, self.hyperparams.n_channels) for _ in range(self.hyperparams.n_blocks)],
             nn.Conv2d(in_channels=self.hyperparams.n_channels, out_channels=self.hyperparams.n_out_channels,
                       kernel_size=1, stride=1, padding=0),
-            Flatten()
+            nn.Flatten()
         )
 
-        self.n_base_out_features = self.hyperparams.n_out_channels
+        self.n_base_out_features = self.hyperparams.n_out_channels * 4 * 4
 
         self.policy_logits_head = nn.Sequential(
             nn.Linear(in_features=self.n_base_out_features, out_features=128),
