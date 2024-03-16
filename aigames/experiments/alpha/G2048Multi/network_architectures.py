@@ -184,8 +184,17 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
 
         values = self.scale_and_bucketize_values(values)
 
-        value_loss = nn.functional.cross_entropy(pred_value_logits, values)
-        distn_loss = nn.functional.cross_entropy(pred_distn_logits[~nan_distns], pis[~nan_distns])
+        value_loss = nn.functional.cross_entropy(pred_value_logits, values, reduction='none')
+        distn_loss = nn.functional.cross_entropy(pred_distn_logits[~nan_distns], pis[~nan_distns],
+                                                 reduction='none')
+
+        if len(args) > 0:
+            importance_sampling_weights = torch.tensor(args[0], device=pred_distn_logits.device)
+            value_loss *= importance_sampling_weights
+            distn_loss *= importance_sampling_weights[~nan_distns]
+
+        value_loss = value_loss.mean()
+        distn_loss = distn_loss.mean()
 
         return value_loss, distn_loss
 

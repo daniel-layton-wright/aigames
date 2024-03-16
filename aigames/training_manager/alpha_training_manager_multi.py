@@ -237,7 +237,9 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
         for _ in range(len(self)):
             p = self.get_all_priorities()
             p /= p.sum()
+            importance_sampling_weights = 1. / (len(p) * p)
             random_indices = np.random.choice(len(p), self.hyperparams.batch_size, p=p, replace=True)
+            importance_sampling_weights = importance_sampling_weights[random_indices]
             random_indices = self.get_trajectory_and_sub_index(random_indices)
 
             all_states, sizes = self.get_states(random_indices)
@@ -258,7 +260,7 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
 
             pis = self.get_pis(random_indices)
 
-            yield first_states, pis, td_targets
+            yield first_states, pis, td_targets, importance_sampling_weights
 
     def get_states(self, indices):
         sizes = []

@@ -126,18 +126,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                                      weight_decay=self.hyperparams.weight_decay)
         return [optimizer]
 
-    def loss(self, processed_states, action_distns, values):
-        # If any of the inputs are nan, start pdb
-        if torch.isnan(processed_states).any() or torch.isnan(values).any():
-            import pdb
-            pdb.set_trace()
-
-        value_loss, distn_loss = self.network.loss(processed_states, action_distns, values)
-
-        # If any of the loss are nan, start pdb
-        if torch.isnan(value_loss).any() or torch.isnan(distn_loss).any():
-            import pdb
-            pdb.set_trace()
+    def loss(self, processed_states, action_distns, values, *args):
+        value_loss, distn_loss = self.network.loss(processed_states, action_distns, values, *args)
 
         mean_loss = self.hyperparams.value_weight_in_loss * value_loss + distn_loss
         return mean_loss, value_loss, distn_loss
@@ -203,7 +193,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def time_to_play_eval_game_network_only(self):
         return (self.hyperparams.eval_game_network_only_every_n_epochs > 0
-                and self.current_epoch > 0
+                and self.current_epoch >= 0
                 and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epochs == 0)
 
     def on_train_epoch_start(self) -> None:
