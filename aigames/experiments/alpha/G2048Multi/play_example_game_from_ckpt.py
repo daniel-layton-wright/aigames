@@ -11,7 +11,7 @@ from ....utils.listeners import ActionCounterProgressBar, MaxActionGameKiller
 from .network_architectures import G2048MultiNetwork
 from ....utils.utils import get_all_slots, add_all_slots_to_arg_parser, load_from_arg_parser
 from ....game.G2048_multi import get_G2048Multi_game_class
-from .G2048Multi_lightning import TrainingTauDecreaseOnPlateau, G2048TrainingRun
+from .G2048Multi_lightning import *
 from .network_architectures import G2048MultiNetworkV2
 
 

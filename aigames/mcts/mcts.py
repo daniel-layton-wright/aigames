@@ -15,7 +15,6 @@ class UCBFormulaType(enum.Enum):
 
 @dataclass(kw_only=True, slots=True)
 class MCTSHyperparameters:
-    n_mcts_iters: int = 1200
     c_puct: float = 1.0
     c_base_log_term: float = 19652.0  # The base for the log term in the UCB formula
     dirichlet_alpha: float = 0.3
@@ -31,12 +30,13 @@ class MCTS:
     Implementation of MCTS, trying to do simultaneous roll-outs of different nodes and use GPU as much as possible
     """
 
-    def __init__(self, game: GameMulti, evaluator, hyperparams: MCTSHyperparameters, root_states: torch.Tensor,
-                 add_dirichlet_noise: bool = True):
+    def __init__(self, game: GameMulti, evaluator, hyperparams: MCTSHyperparameters, max_n_iters: int,
+                 root_states: torch.Tensor, add_dirichlet_noise: bool = True):
         self.hyperparams = hyperparams
         self.evaluator = evaluator
         self.game = game
-        self.total_states = 2 + self.hyperparams.n_mcts_iters  # node 0 is dummy, 1 for the root, 1 for each iter
+        self.n_iters = max_n_iters
+        self.total_states = 2 + self.n_iters  # node 0 is dummy, 1 for the root, 1 for each iter
         self.device = root_states.device
 
         # The network's pi value for each root, state (outputs a policy size)
@@ -176,7 +176,7 @@ class MCTS:
 
     def searchable_roots(self):
         out_of_bounds = (self.next_empty_nodes >= self.total_states) & (~self.is_leaf[self.root_idx, self.cur_nodes])
-        done = self.n[:, 1].sum(dim=1) >= self.hyperparams.n_mcts_iters
+        done = self.n[:, 1].sum(dim=1) >= self.n_iters
         return (~out_of_bounds
                 & ~done
                 & ~self.only_one_action)

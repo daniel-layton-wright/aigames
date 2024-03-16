@@ -30,6 +30,7 @@ class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
     clear_dataset_before_self_play_rounds: list = field(default_factory=list)
     save_dataset_in_checkpoint: bool = False
     data_buffer_full_size: int = 32
+    td_truncate_length: int = 10
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):

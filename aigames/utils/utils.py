@@ -71,15 +71,16 @@ def add_all_slots_to_arg_parser(parser, obj):
     :param obj: An object with a __slots__ variables
     """
     for slot in get_all_slots(obj):
-        cur_type = type(getattr(obj, slot))
-        extra_args = {}
+        if hasattr(obj, slot):
+            cur_type = type(getattr(obj, slot))
+            extra_args = {}
 
-        if cur_type == bool:
-            extra_args['action'] = argparse.BooleanOptionalAction
+            if cur_type == bool:
+                extra_args['action'] = argparse.BooleanOptionalAction
 
-        parser.add_argument(f'--{slot}', type=cur_type, default=getattr(obj, slot),
-                            help=f'The {slot} of {type(obj).__name__} class, type: {type(getattr(obj, slot)).__name__}',
-                            **extra_args)
+            parser.add_argument(f'--{slot}', type=cur_type, default=getattr(obj, slot),
+                                help=f'The {slot} of {type(obj).__name__} class, type: {type(getattr(obj, slot)).__name__}',
+                                **extra_args)
 
 
 def load_from_arg_parser(args, obj):
@@ -91,7 +92,8 @@ def load_from_arg_parser(args, obj):
     :param obj: An object with a __slots__ variable
     """
     for slot in get_all_slots(obj):
-        setattr(obj, slot, getattr(args, slot))
+        if hasattr(obj, slot):
+            setattr(obj, slot, getattr(args, slot))
 
 
 def cache(func):

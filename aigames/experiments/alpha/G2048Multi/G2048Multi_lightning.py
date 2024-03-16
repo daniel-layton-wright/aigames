@@ -5,7 +5,7 @@ import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 from aigames.mcts.mcts import UCBFormulaType
-from aigames.training_manager.alpha_training_manager_multi import TrajectoryDataset
+from aigames.training_manager.alpha_training_manager_multi import TrajectoryDataset, PrioritizedTrajectoryDataset
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
     AlphaMultiTrainingHyperparameters
@@ -306,7 +306,7 @@ def main():
         else:
             network = network_class()
 
-        training_run = G2048TrainingRun(G2048Multi, network, hyperparams)
+        training_run = G2048TrainingRun(G2048Multi, network, hyperparams, dataset=PrioritizedTrajectoryDataset)
     else:
         training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
                                                              hyperparams=hyperparams,

@@ -28,10 +28,12 @@ class BaseAlphaEvaluator:
 
 
 class Trajectory:
-    def __init__(self, states, rewards, pis):
+    def __init__(self, states, rewards, pis, search_values=None):
         self.states = states
         self.rewards = rewards
         self.pis = pis
+        self.search_values = search_values  # the mcts value for a player state or network value for env state
+        self.priorities = None  # Support for prioritized sampling
 
 
 class AlphaAgentMultiListener:
@@ -76,6 +78,46 @@ class TrainingTau:
 
     def __json__(self):
         return self.__dict__
+
+
+class ValueTargetCalculationMethod(enum.Enum):
+    DISCOUNTED_REWARDS = 'discounted_rewards'
+    TD = 'td'
+    TD_MCTS = 'td_mcts'
+    TD_MCTS_NETWORK_FALLBACK = 'td_mcts_network_fallback'
+
+    def __json__(self):
+        return self.value
+
+
+class TDLambda:
+    def __init__(self, td_lambda):
+        self.td_lambda = float(td_lambda)
+
+    def get_lambda(self):
+        return self.td_lambda
+
+    def update_self_play_round(self, self_play_round):
+        pass
+
+    def __json__(self):
+        return self.td_lambda
+
+
+class TDLambdaByRound(TDLambda):
+    def __init__(self, td_lambda_schedule_list):
+        super().__init__(-1)
+        self.td_lambda_schedule_list = td_lambda_schedule_list
+        self.self_play_round = 0
+
+    def get_lambda(self):
+        return self.td_lambda_schedule_list[min(len(self.td_lambda_schedule_list) - 1, self.self_play_round)]
+
+    def update_self_play_round(self, self_play_round):
+        self.self_play_round = self_play_round
+
+    def __json__(self):
+        return self.td_lambda_schedule_list
 
 
 class MCTSItersSchedule:
@@ -124,46 +166,6 @@ class FullFastMCTSIters(MCTSItersSchedule):
             return self.full_mcts_iters, True
 
 
-class ValueTargetCalculationMethod(enum.Enum):
-    DISCOUNTED_REWARDS = 'discounted_rewards'
-    TD = 'td'
-    TD_MCTS = 'td_mcts'
-    TD_MCTS_NETWORK_FALLBACK = 'td_mcts_network_fallback'
-
-    def __json__(self):
-        return self.value
-
-
-class TDLambda:
-    def __init__(self, td_lambda):
-        self.td_lambda = float(td_lambda)
-
-    def get_lambda(self):
-        return self.td_lambda
-
-    def update_self_play_round(self, self_play_round):
-        pass
-
-    def __json__(self):
-        return self.td_lambda
-
-
-class TDLambdaByRound(TDLambda):
-    def __init__(self, td_lambda_schedule_list):
-        super().__init__(-1)
-        self.td_lambda_schedule_list = td_lambda_schedule_list
-        self.self_play_round = 0
-
-    def get_lambda(self):
-        return self.td_lambda_schedule_list[min(len(self.td_lambda_schedule_list) - 1, self.self_play_round)]
-
-    def update_self_play_round(self, self_play_round):
-        self.self_play_round = self_play_round
-
-    def __json__(self):
-        return self.td_lambda_schedule_list
-
-
 @dataclass(kw_only=True, slots=True)
 class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
     training_tau: TrainingTau = TrainingTau(1.0)
@@ -195,18 +197,14 @@ class AlphaAgentMulti(AgentMulti):
         self.n_players = 0
         self.listeners = listeners if listeners is not None else []
 
-        # Create a copy of the hyperparams that will be altered for mcts iters
-        mcts_args = {k: getattr(self.hyperparams, k) for k in MCTSHyperparameters.__slots__}
-        self.mcts_hyperparams = MCTSHyperparameters(**mcts_args)
-
     def get_actions(self, states, mask):
-        use_to_train_network = self.update_mcts_hyperparams()
-        self.setup_mcts(self.mcts_hyperparams, states)
-        self.mcts.search_for_n_iters(self.mcts_hyperparams.n_mcts_iters)
+        n_mcts_iters, use_to_train_network = self.hyperparams.n_mcts_iters.get_n_mcts_iters()
+        self.setup_mcts(self.hyperparams, n_mcts_iters, states)
+        self.mcts.search_for_n_iters(n_mcts_iters)
 
         tau = self.get_tau()
 
-        if self.mcts_hyperparams.n_mcts_iters > 1:
+        if n_mcts_iters > 1:
             action_distribution = self.mcts.n[:, 1]
         else:
             self.mcts.expand()
@@ -257,16 +255,12 @@ class AlphaAgentMulti(AgentMulti):
 
         return tau
 
-    def setup_mcts(self, mcts_hypers, states):
+    def setup_mcts(self, mcts_hypers, n_iters, states):
         if self.hyperparams.reuse_mcts_tree and self.mcts is not None:
             self.mcts = self.mcts.get_next_mcts(states)
         else:
-            self.mcts = MCTS(self.game, self.evaluator, mcts_hypers, states,
+            self.mcts = MCTS(self.game, self.evaluator, mcts_hypers, n_iters, states,
                              add_dirichlet_noise=(self.training or self.hyperparams.use_dirichlet_noise_in_eval))
-
-    def update_mcts_hyperparams(self):
-        self.mcts_hyperparams.n_mcts_iters, use_to_train_network = self.hyperparams.n_mcts_iters.get_n_mcts_iters()
-        return use_to_train_network
 
     def record_pi(self, states, pi, mask, mcts_value=None, network_value=None, env_state=False):
         # Record this for training, set the root node to the next node now and forget the parent
@@ -322,6 +316,9 @@ class AlphaAgentMulti(AgentMulti):
         rewards = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
                               device=self.game.states.device)
 
+        search_values = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
+                                  device=self.game.states.device)
+
         pis = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_actions()), dtype=torch.float32,
                           device=self.game.states.device)
 
@@ -342,6 +339,13 @@ class AlphaAgentMulti(AgentMulti):
                                      torch.zeros((1, self.game.n_parallel_games, self.game_class.get_n_players()),
                                                  device=self.game.states.device, dtype=torch.float32)))
 
+                search_values = torch.cat((search_values,
+                                         torch.zeros((1, self.game.n_parallel_games, self.game_class.get_n_players()),
+                                                     device=self.game.states.device, dtype=torch.float32)))
+
+                if data.mcts_value is not None:
+                    search_values[-1, data.mask] = data.mcts_value
+
                 mask = torch.cat((mask, data.mask.unsqueeze(0)))
 
             elif isinstance(data, RewardData):
@@ -351,11 +355,13 @@ class AlphaAgentMulti(AgentMulti):
         rewards = rewards.transpose(0, 1)
         mask = mask.transpose(0, 1)
         pis = pis.transpose(0, 1)
+        search_values = search_values.transpose(0, 1)
 
         trajectories = []
 
         for i in range(state_trajectories.shape[0]):
-            trajectories.append(Trajectory(state_trajectories[i][mask[i]], rewards[i][mask[i]], pis[i][mask[i]]))
+            trajectories.append(Trajectory(state_trajectories[i][mask[i]], rewards[i][mask[i]], pis[i][mask[i]],
+                                           search_values[i][mask[i]]))
 
         return trajectories
 
