@@ -204,7 +204,14 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
 
     def on_trajectories(self, trajectories: List[Trajectory]):
         for traj in trajectories:
-            discounted_rewards = traj.rewards * (self.hyperparams.discount ** np.arange(len(traj.rewards)))
+            # Fill in missing search values with network value
+            missing = torch.isnan(traj.search_values).any(dim=1)
+            self.evaluator.eval()
+            network_result = self.evaluator.evaluate(traj.states[missing])
+            self.evaluator.train()
+            traj.search_values[missing] = network_result[1]
+
+            discounted_rewards = compute_td_targets(traj.rewards, traj.rewards, 1, self.hyperparams.discount)
             # priority is the norm of the difference between the discounted_rewards and the mcts value
             diffs = discounted_rewards - traj.search_values
             traj.priorities = torch.norm(diffs, dim=1, p=1).cpu().numpy()
@@ -260,7 +267,8 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
         for i in indices:
             traj_index = np.searchsorted(traj_lengths_cum, i, side='right')
             index_within_traj = i - traj_lengths_cum[traj_index - 1] if traj_index > 0 else i
-            cur_states = self.trajectories[traj_index].states[index_within_traj:(index_within_traj + self.hyperparams.td_truncate_length)]
+            cur_states = self.trajectories[traj_index
+                         ].states[index_within_traj:(index_within_traj + self.hyperparams.td_truncate_length + 1)]
             all_states.append(cur_states)
             sizes.append(len(cur_states))
 
@@ -275,7 +283,8 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
         for i in indices:
             traj_index = np.searchsorted(traj_lengths_cum, i, side='right')
             index_within_traj = i - traj_lengths_cum[traj_index - 1] if traj_index > 0 else i
-            cur_rewards = self.trajectories[traj_index].rewards[index_within_traj:(index_within_traj + self.hyperparams.td_truncate_length)]
+            cur_rewards = self.trajectories[traj_index
+                          ].rewards[index_within_traj:(index_within_traj + self.hyperparams.td_truncate_length)]
             all_rewards.append(cur_rewards)
 
         return torch.nn.utils.rnn.pad_sequence(all_rewards, batch_first=False)
