@@ -274,8 +274,8 @@ def main():
         hyperparams.lr = 0.0003
         hyperparams.weight_decay = 1e-5
         hyperparams.td_lambda = TDLambdaByRound([1, 0.9, 0.8, 0.7, 0.6, 0.5])
-        hyperparams.training_tau = TrainingTauStepSchedule([(1.0, int(100e3)), (0.5, int(200e3)),
-                                                            (0.1, int(300e3)), (0.0, None)])
+        hyperparams.training_tau = TrainingTauStepSchedule([(1.0, int(25e3)), (0.5, int(50e3)),
+                                                            (0.1, int(75e3)), (0.0, None)])
         hyperparams.batch_size = 1024
         hyperparams.data_buffer_full_size = 16_384  # stabilize things by doing 16 steps before using new network for next TD estimates
         hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count')]
