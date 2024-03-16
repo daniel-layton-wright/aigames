@@ -345,6 +345,8 @@ class AlphaAgentMulti(AgentMulti):
 
                 if data.mcts_value is not None:
                     search_values[-1, data.mask] = data.mcts_value
+                else:
+                    search_values[-1, data.mask] = torch.nan
 
                 mask = torch.cat((mask, data.mask.unsqueeze(0)))
 

@@ -233,6 +233,7 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
         return np.concatenate([traj.priorities for traj in self.trajectories])
 
     def __iter__(self):
+        # TODO : return the sample priority weights to use in the loss function
         for _ in range(len(self)):
             p = self.get_all_priorities()
             p /= p.sum()
@@ -243,7 +244,8 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
             network_result = self.evaluator.evaluate(all_states)
             self.evaluator.train()
 
-            first_states = torch.cat([all_states[[[0]]]] + ([all_states[[i]] for i in np.cumsum(sizes)[:-1]]))
+            first_state_indices = np.cumsum(sizes) - sizes
+            first_states = all_states[first_state_indices]
 
             state_values = network_result[1]
             state_values = torch.split(state_values, sizes)
