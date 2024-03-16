@@ -238,6 +238,7 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
             p = self.get_all_priorities()
             p /= p.sum()
             random_indices = np.random.choice(len(p), self.hyperparams.batch_size, p=p, replace=True)
+            random_indices = self.get_trajectory_and_sub_index(random_indices)
 
             all_states, sizes = self.get_states(random_indices)
             self.evaluator.eval()
@@ -260,15 +261,10 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
             yield first_states, pis, td_targets
 
     def get_states(self, indices):
-        traj_lengths = np.array([len(traj.states) for traj in self.trajectories])
-        traj_lengths_cum = np.cumsum(traj_lengths)
-
         sizes = []
         all_states = []
 
-        for i in indices:
-            traj_index = np.searchsorted(traj_lengths_cum, i, side='right')
-            index_within_traj = i - traj_lengths_cum[traj_index - 1] if traj_index > 0 else i
+        for (traj_index, index_within_traj) in indices:
             cur_states = self.trajectories[traj_index
                          ].states[index_within_traj:(index_within_traj + self.hyperparams.td_truncate_length + 1)]
             all_states.append(cur_states)
@@ -277,14 +273,9 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
         return torch.cat(all_states), sizes
 
     def get_rewards(self, indices):
-        traj_lengths = np.array([len(traj.states) for traj in self.trajectories])
-        traj_lengths_cum = np.cumsum(traj_lengths)
-
         all_rewards = []
 
-        for i in indices:
-            traj_index = np.searchsorted(traj_lengths_cum, i, side='right')
-            index_within_traj = i - traj_lengths_cum[traj_index - 1] if traj_index > 0 else i
+        for (traj_index, index_within_traj) in indices:
             cur_rewards = self.trajectories[traj_index
                           ].rewards[index_within_traj:(index_within_traj + self.hyperparams.td_truncate_length)]
             all_rewards.append(cur_rewards)
@@ -292,18 +283,26 @@ class PrioritizedTrajectoryDataset(TrajectoryDataset):
         return torch.nn.utils.rnn.pad_sequence(all_rewards, batch_first=False)
 
     def get_pis(self, indices):
-        traj_lengths = np.array([len(traj.states) for traj in self.trajectories])
-        traj_lengths_cum = np.cumsum(traj_lengths)
-
         all_pis = []
 
-        for i in indices:
-            traj_index = np.searchsorted(traj_lengths_cum, i, side='right')
-            index_within_traj = i - traj_lengths_cum[traj_index - 1] if traj_index > 0 else i
+        for (traj_index, index_within_traj) in indices:
             cur_pis = self.trajectories[traj_index].pis[[index_within_traj]]
             all_pis.append(cur_pis)
 
         return torch.cat(all_pis)
+
+    def get_trajectory_and_sub_index(self, indices):
+        traj_lengths = np.array([len(traj.states) for traj in self.trajectories])
+        traj_lengths_cum = np.cumsum(traj_lengths)
+
+        out = []
+
+        for i in indices:
+            traj_index = np.searchsorted(traj_lengths_cum, i, side='right')
+            index_within_traj = i - traj_lengths_cum[traj_index - 1] if traj_index > 0 else i
+            out.append((traj_index, index_within_traj))
+
+        return out
 
     def sample_trajectory_index(self, n: int = 1):
         """
