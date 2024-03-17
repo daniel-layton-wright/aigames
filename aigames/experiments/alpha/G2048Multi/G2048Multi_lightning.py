@@ -308,7 +308,7 @@ def main():
         else:
             network = network_class()
 
-        training_run = G2048TrainingRun(G2048Multi, network, hyperparams, dataset=PrioritizedTrajectoryDataset)
+        training_run = G2048TrainingRun(G2048Multi, network, hyperparams, dataset=hyperparams.dataset_type)
     else:
         training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
                                                              hyperparams=hyperparams,

@@ -27,10 +27,11 @@ class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
     eval_game_every_n_epochs: int = 10  # Set to -1 for never
     eval_game_network_only_every_n_epochs: int = 10
     eval_game_listeners: list = field(default_factory=list)
+    dataset_type: Type = TrajectoryDataset
     clear_dataset_before_self_play_rounds: list = field(default_factory=list)
     save_dataset_in_checkpoint: bool = False
     data_buffer_full_size: int = 32
-    td_truncate_length: int = 10
+    td_truncate_length: int = 10  # For PrioritizedTrajectoryDataset that uses truncated td returns
 
 
 class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
