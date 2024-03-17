@@ -189,7 +189,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
                                                  reduction='none')
 
         if len(args) > 0:
-            importance_sampling_weights = torch.tensor(args[0], device=pred_distn_logits.device)
+            importance_sampling_weights = args[0].to(pred_distn_logits.device)
             value_loss *= importance_sampling_weights
             distn_loss *= importance_sampling_weights[~nan_distns]
 
