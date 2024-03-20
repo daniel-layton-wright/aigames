@@ -291,6 +291,9 @@ class AlphaAgentMulti(AgentMulti):
         self.episode_history = []
         self.move_number_in_current_game = 0
 
+    def on_game_restart(self, game):
+        self.game = game
+
     def on_game_end(self):
         if not self.training:
             return

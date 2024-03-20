@@ -63,20 +63,36 @@ class ActionCounterProgressBar(GameListenerMulti):
         self.progress_bar_max = progress_bar_max
         self.tqdm = None
         self.description = description
+        self.i = 0
 
     def before_game_start(self, game):
+        self.i = 0
         self.tqdm = tqdm(total=self.progress_bar_max, leave=False)
         self.tqdm.set_description(self.description)
 
+    def on_game_restart(self, game):
+        self.tqdm = tqdm(total=self.progress_bar_max, leave=False)
+        self.tqdm.set_description(self.description)
+        self.tqdm.update(self.i)
+
     def on_action(self, game, actions):
+        self.i += 1
         self.tqdm.update(1)
 
     def on_game_end(self, game):
         self.tqdm.close()
         self.tqdm = None
 
+    def __getstate__(self):
+        return {'progress_bar_max': self.progress_bar_max, 'description': self.description, 'i': self.i}
+
+    def __setstate__(self, state):
+        self.progress_bar_max = state['progress_bar_max']
+        self.description = state['description']
+        self.i = state['i'] if 'i' in state else 0
+
     def __json__(self):
-        return {}  # Why do you need a JSON of this wandb?
+        return {}
 
 
 class MaxActionGameKiller(GameListenerMulti):

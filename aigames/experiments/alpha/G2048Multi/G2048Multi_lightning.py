@@ -20,6 +20,7 @@ from ....game.game_multi import GameListenerMulti
 import sys
 from importlib import import_module
 import torch
+import json_fix
 
 
 def cached_import(module_path, class_name):
@@ -50,6 +51,35 @@ def import_string(dotted_path):
             'Module "%s" does not define a "%s" attribute/class'
             % (module_path, class_name)
         ) from err
+
+
+class CheckpointMidGame(Callback, GameListenerMulti):
+    def __init__(self, save_every_n_moves=500):
+        super().__init__()
+        self.cur_move = 0
+        self.save_every_n_moves = save_every_n_moves
+        self.trainer = None
+        self.pl_module = None
+
+    def setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", stage: str) -> None:
+        self.trainer = trainer
+        self.pl_module = pl_module
+
+    def after_action(self, game):
+        self.cur_move += 1
+
+        if self.cur_move % self.save_every_n_moves == 0:
+            for checkpoint in self.trainer.checkpoint_callbacks:
+                if isinstance(checkpoint, ModelCheckpoint):
+                    monitor_candidates = checkpoint._monitor_candidates(self.trainer)
+                    checkpoint._save_topk_checkpoint(self.trainer, monitor_candidates)
+                    checkpoint._save_last_checkpoint(self.trainer, monitor_candidates)
+
+    def __getstate__(self):
+        return {'save_every_n_moves': self.save_every_n_moves, 'cur_move': self.cur_move}
+
+    def __json__(self):
+        return {'save_every_n_moves': self.save_every_n_moves, 'cur_move': self.cur_move}
 
 
 class GameProgressCallback(Callback, GameListenerMulti):
@@ -253,6 +283,7 @@ def main():
         sysargv.remove('--help')
     ckpt_path_args, _ = parser.parse_known_args(sysargv)
 
+    checkpoint_mid_game = CheckpointMidGame()
     # game_progress_callback = GameProgressCallback()
 
     if ckpt_path_args.restore_ckpt_path is not None:
@@ -302,6 +333,13 @@ def main():
 
     G2048Multi = get_G2048Multi_game_class(hyperparams.device)
 
+    # remove the CheckpointMidGame if it exists and add the current one
+    for x in hyperparams.game_listeners:
+        if isinstance(x, CheckpointMidGame):
+            hyperparams.game_listeners.remove(x)
+
+    hyperparams.game_listeners.append(checkpoint_mid_game)
+
     if ckpt_path_args.restore_ckpt_path is None:
         if hasattr(network_class, 'init_from_arg_parser'):
             network = network_class.init_from_arg_parser(args)
@@ -335,7 +373,7 @@ def main():
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(args.ckpt_dir, wandb_run), save_last=True)
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,
                          logger=pl_loggers.WandbLogger(**wandb_kwargs),
-                         callbacks=[model_checkpoint], log_every_n_steps=1,
+                         callbacks=[model_checkpoint, checkpoint_mid_game], log_every_n_steps=1,
                          max_epochs=args.max_epochs,
                          gradient_clip_val=args.gradient_clip_val
                          )

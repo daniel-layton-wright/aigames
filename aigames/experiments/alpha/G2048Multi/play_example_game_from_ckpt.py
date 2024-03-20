@@ -61,6 +61,7 @@ def main():
     parser.add_argument('--debug', '-d', action='store_true', help='Open PDB at the end')
     parser.add_argument('--agent_eval_mode', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--show_game', action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument('--show_network_monitor', action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument('--show_action_counter', action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument('--max_actions', type=int, default=None)
     parser.add_argument('--pause_time', type=float, default=0.0)
@@ -74,9 +75,13 @@ def main():
     training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.ckpt_path, map_location='cpu',
                                                          hyperparams=hyperparams)
 
+    training_run.game.listeners = []
+
     if args.show_game:
-        network_mcts_monitor = NetworkMCTSMonitor()
         training_run.game.listeners.append(CommandLineGame(args.pause_time))
+
+    if args.show_network_monitor:
+        network_mcts_monitor = NetworkMCTSMonitor(pause_time=args.pause_time)
         training_run.agent.listeners.append(network_mcts_monitor)
 
     if args.show_action_counter:

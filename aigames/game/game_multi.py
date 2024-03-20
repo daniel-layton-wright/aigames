@@ -11,6 +11,9 @@ class GameListenerMulti(GameListener):
     def on_rewards(self, rewards):
         pass
 
+    def on_game_restart(self, game):
+        pass
+
 
 class GameMulti:
     @classmethod
@@ -54,56 +57,63 @@ class GameMulti:
         self.states = self.get_initial_states(self.n_parallel_games)
         self.player = player  # Require that one agent be doing everything, otherwise it's sort of pointless
         self.listeners = listeners if listeners is not None else []
+        self.is_env = torch.zeros((self.n_parallel_games,), dtype=torch.bool, device=self.states.device)
+        self.is_term = torch.ones((self.n_parallel_games,), dtype=torch.bool, device=self.states.device)
 
     def play(self):
-        # Start the game from the initial state:
-        self.states = self.get_initial_states(self.n_parallel_games)
+        if self.is_term.all():
+            # Restart the game from the initial state:
+            self.states = self.get_initial_states(self.n_parallel_games)
 
-        # Notify listeners game is starting:
-        for listener in self.listeners:
-            listener.before_game_start(self)
+            # Notify listeners game is starting:
+            for listener in self.listeners:
+                listener.before_game_start(self)
 
-        self.player.before_game_start(self)
+            self.player.before_game_start(self)
 
-        is_env = torch.zeros((self.n_parallel_games,), dtype=torch.bool, device=self.states.device)
-        is_terminal = torch.zeros((self.n_parallel_games,), dtype=torch.bool, device=self.states.device)
+            self.is_env = torch.zeros((self.n_parallel_games,), dtype=torch.bool, device=self.states.device)
+            self.is_term = torch.zeros((self.n_parallel_games,), dtype=torch.bool, device=self.states.device)
+        else:
+            # We are restarting a game mid-way through
+            for listener in self.listeners:
+                listener.on_game_restart(self)
 
         try:
-            while (~is_terminal).any():
-                if is_env[~is_terminal].any():
-                    self.player.before_env_move(self.states[~is_terminal], ~is_terminal)
+            while (~self.is_term).any():
+                if self.is_env[~self.is_term].any():
+                    self.player.before_env_move(self.states[~self.is_term], ~self.is_term)
 
                     # Advance states that are in an env state
-                    self.states[~is_terminal & is_env], _, is_terminal[~is_terminal & is_env] = (
-                        self.get_next_states_from_env(self.states[~is_terminal & is_env]))
-                    is_env[:] = False
+                    self.states[~self.is_term & self.is_env], _, self.is_term[~self.is_term & self.is_env] = (
+                        self.get_next_states_from_env(self.states[~self.is_term & self.is_env]))
+                    self.is_env[:] = False
                     continue
 
                 for listener in self.listeners:
                     listener.on_states_from_env(self)
 
                 # Ask the player for his move:
-                actions = self.player.get_actions(self.states[~is_terminal], ~is_terminal)
+                actions = self.player.get_actions(self.states[~self.is_term], ~self.is_term)
 
                 # Notify listeners of the move
                 for listener in self.listeners:
                     listener.on_action(self, actions)
 
                 # Advance to the next state according to the move
-                self.states[~is_terminal], rewards, is_env[~is_terminal], is_terminal[~is_terminal] = (
-                    self.get_next_states(self.states[~is_terminal], actions))
+                self.states[~self.is_term], rewards, self.is_env[~self.is_term], self.is_term[~self.is_term] = (
+                    self.get_next_states(self.states[~self.is_term], actions))
 
                 for listener in self.listeners:
                     listener.on_rewards(rewards)
 
-                self.player.on_rewards(rewards, ~is_terminal)
+                self.player.on_rewards(rewards, ~self.is_term)
 
                 # Callback to listeners after the action
                 for listener in self.listeners:
                     listener.after_action(self)
 
         except AbortGameException:
-            pass
+            self.is_term[:] = True
 
         # Game over. Notify agents and listeners:
         self.player.on_game_end()
