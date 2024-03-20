@@ -350,7 +350,7 @@ def main():
     else:
         training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
                                                              hyperparams=hyperparams,
-                                                             map_location='cpu')
+                                                             map_location=hyperparams.device)
 
     # Start wandb run
     wandb_kwargs = dict(
