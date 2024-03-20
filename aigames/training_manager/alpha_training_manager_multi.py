@@ -109,7 +109,7 @@ class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
         def full(self):
             return self.data[0].shape[0] >= self.full_size
 
-        def yield_data(self, random=True):
+        def yield_data(self, random=True, device=None):
             # Yield a random subset of the data of size self.batch_size
             batch_size = min(self.batch_size, self.data[0].shape[0])
             if random:
@@ -119,6 +119,9 @@ class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
 
             out = tuple(self.data[i][order[:batch_size]] for i in range(len(self.data)))
             self.data = [self.data[i][order[batch_size:]] for i in range(len(self.data))]
+
+            if device is not None:
+                out = tuple(x.to(device) for x in out)
 
             return out
 
@@ -160,17 +163,18 @@ class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
             data_buffer.add_to_buffer(*self.get_data(cur_traj))
 
             while data_buffer.full():
-                yield data_buffer.yield_data()
+                yield data_buffer.yield_data(device=self.hyperparams.device)
 
         while len(data_buffer) > 0:
-            yield data_buffer.yield_data()
+            yield data_buffer.yield_data(device=self.hyperparams.device)
 
     def get_data(self, cur_traj):
         self.evaluator.eval()
-        network_result = self.evaluator.evaluate(cur_traj.states)
+        network_result = self.evaluator.evaluate(cur_traj.states.to(self.hyperparams.device))
         self.evaluator.train()
         state_values = network_result[1]
-        td_targets = compute_td_targets(state_values, cur_traj.rewards, self.hyperparams.td_lambda.get_lambda(),
+        td_targets = compute_td_targets(state_values, cur_traj.rewards.to(state_values.device),
+                                        self.hyperparams.td_lambda.get_lambda(),
                                         self.hyperparams.discount)
         return cur_traj.states, cur_traj.pis, td_targets
 
