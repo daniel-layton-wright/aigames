@@ -5,8 +5,8 @@ import time
 from .... import CommandLineGame
 from ....agent.alpha_agent import TrainingTau
 from ....agent.alpha_agent_multi import AlphaAgentMultiListener
-from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
-    AlphaMultiTrainingHyperparameters
+from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
+from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
 from ....utils.listeners import ActionCounterProgressBar, MaxActionGameKiller
 from .network_architectures import G2048MultiNetwork
 from ....utils.utils import get_all_slots, add_all_slots_to_arg_parser, load_from_arg_parser

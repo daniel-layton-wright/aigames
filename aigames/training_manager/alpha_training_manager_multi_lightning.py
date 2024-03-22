@@ -1,80 +1,13 @@
-from dataclasses import dataclass, field
 from typing import Tuple, Dict, Any, Union, Optional
 from .alpha_training_manager import *
 import pytorch_lightning as pl
 import torch.utils.data
 import math
-from .alpha_training_manager_multi import BasicAlphaDatasetMulti, TensorDataset, TrajectoryDataset
-from ..agent.alpha_agent_multi import AlphaAgentHyperparametersMulti, AlphaAgentMulti, ConstantMCTSIters, \
-    AlphaAgentMultiListener
+from .alpha_dataset_multi import TrajectoryDataset, AlphaDatasetMulti
+from .hyperparameters import AlphaMultiTrainingHyperparameters
+from ..agent.alpha_agent_multi import AlphaAgentMulti, ConstantMCTSIters, AlphaAgentMultiListener
 from ..game.game_multi import GameMulti
 from ..utils.listeners import MaxActionGameKiller
-
-
-@dataclass(kw_only=True, slots=True)
-class AlphaMultiTrainingHyperparameters(AlphaAgentHyperparametersMulti):
-    n_parallel_games: int = 1000
-    value_weight_in_loss: float = 1.0
-    batch_size: int = 32
-    device: str = 'cpu'
-    game_listeners: list = field(default_factory=list)
-    lr: float = 0.01
-    weight_decay: float = 1e-5
-    self_play_every_n_epochs: int = 10
-    max_data_size: int = 10000000
-    min_data_size: int = 1
-    n_parallel_eval_games: int = 100
-    eval_game_every_n_epochs: int = 10  # Set to -1 for never
-    eval_game_network_only_every_n_epochs: int = 10
-    eval_game_listeners: list = field(default_factory=list)
-    dataset_type: Type = TrajectoryDataset
-    clear_dataset_before_self_play_rounds: list = field(default_factory=list)
-    save_dataset_in_checkpoint: bool = False
-    data_buffer_full_size: int = 32
-    td_truncate_length: int = 10  # For PrioritizedTrajectoryDataset that uses truncated td returns
-
-
-class BasicAlphaDatasetLightning(BasicAlphaDatasetMulti):
-    def __init__(self, evaluator: BaseAlphaEvaluator = None,
-                 hyperparams: AlphaMultiTrainingHyperparameters = None, process_state=True):
-        if hyperparams is None:
-            hyperparams = AlphaMultiTrainingHyperparameters()
-
-        super().__init__(evaluator, hyperparams.max_data_size, process_state, hyperparams.min_data_size)
-        self.hyperparams = hyperparams
-        self.total_datapoints_seen = 0
-        self.datapoints_seen_since_last_sample = 0
-
-    def __iter__(self):
-        dataset = TensorDataset(*(self.data[key] for key in self.data))
-        sampler = torch.utils.data.RandomSampler(dataset, replacement=False)
-        dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=self.hyperparams.batch_size)
-        return iter(dataloader)
-
-    def __len__(self):
-        n = self.data['states'].shape[0] if self.data['states'] is not None else 0
-        return math.ceil(n / self.hyperparams.batch_size)
-
-    def enforce_max_size(self):
-        while self.data['states'] is not None and self.data['states'].shape[0] > self.hyperparams.max_data_size:
-            self.pop()
-
-    def on_data_point(self, states: torch.Tensor, pis: torch.Tensor, rewards: torch.Tensor, *args, **kwargs):
-        super().on_data_point(states, pis, rewards, *args, **kwargs)
-        self.total_datapoints_seen += states.shape[0]
-        self.datapoints_seen_since_last_sample += states.shape[0]
-
-
-class BasicAlphaDatasetMultiNumMoves(BasicAlphaDatasetLightning):
-    def __init__(self, evaluator: BaseAlphaEvaluator = None, hyperparams: AlphaMultiTrainingHyperparameters = None,
-                 process_state=True):
-        super().__init__(evaluator, hyperparams, process_state)
-        self.data['num_moves'] = None
-
-    def get_data_names_and_values(self, states, pis, rewards, num_moves=None, *args, **kwargs):
-        data = super().get_data_names_and_values(states, pis, rewards, *args, **kwargs)
-        data.append(('num_moves', num_moves))
-        return data
 
 
 class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
@@ -85,7 +18,7 @@ class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
 class AlphaMultiTrainingRunLightning(pl.LightningModule):
     def __init__(self, game_class: Type[GameMulti], network: AlphaMultiNetwork,
                  hyperparams: AlphaMultiTrainingHyperparameters, agent_class=AlphaAgentMulti,
-                 dataset: Union[AlphaAgentMultiListener, Type[AlphaAgentMultiListener], None] = None):
+                 dataset: Union[AlphaDatasetMulti, Type[AlphaDatasetMulti], None] = None):
         """
 
         :param game:
@@ -108,10 +41,9 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.doing_first_epoch_after_checkpoint = False
         self.resume_game = False
 
-    # TODO : make base class for alpha dataset
-    def create_dataset(self, dataset) -> AlphaAgentMultiListener:
+    def create_dataset(self, dataset: Union[AlphaDatasetMulti, Type[AlphaDatasetMulti], None]) -> AlphaDatasetMulti:
         # If dataset is a dataset object already just use it
-        if isinstance(dataset, AlphaAgentMultiListener):
+        if isinstance(dataset, AlphaDatasetMulti):
             return dataset
         # Or if the dataset is a class initialize it
         elif isinstance(dataset, type):
@@ -253,7 +185,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.agent.train()
         self.network.train()
 
-        self.log('dataset/size', self.dataset.num_states())
+        self.log('dataset/size', self.dataset.num_datapoints)
         self.log('dataset/total_datapoints_seen', self.dataset.total_datapoints_seen)
 
     def after_self_play_game(self):
@@ -298,6 +230,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
         if 'game' in checkpoint:
             self.game = checkpoint['game']
+            self.game.to(self.hyperparams.device)
             self.agent.episode_history = self.game.player.episode_history
             self.agent.move_number_in_current_game = self.game.player.move_number_in_current_game
             self.game.player = self.agent
@@ -315,4 +248,5 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
         dataset.evaluator = self.network
         self.dataset = dataset
+        self.dataset.to(self.hyperparams.dataset_device)
         self.agent.listeners.append(self.dataset)

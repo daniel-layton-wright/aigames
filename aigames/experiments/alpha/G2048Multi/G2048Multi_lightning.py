@@ -5,10 +5,10 @@ import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 from aigames.mcts.mcts import UCBFormulaType
-from aigames.training_manager.alpha_training_manager_multi import TrajectoryDataset, PrioritizedTrajectoryDataset
+from aigames.training_manager.alpha_dataset_multi import TrajectoryDataset, PrioritizedTrajectoryDataset
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
-from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
-    AlphaMultiTrainingHyperparameters
+from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
+from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
 from ....utils.listeners import ActionCounterProgressBar
 from .network_architectures import G2048MultiNetwork, G2048MultiNetworkV2
 import pytorch_lightning as pl

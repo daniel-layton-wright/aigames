@@ -123,12 +123,16 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         value_bucket_logits = self.value_logits_head(base)
         return policy_logits, value_bucket_logits
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
     @torch.no_grad()
     def evaluate(self, state):
         if state.shape[1] != 16:
             state = self.process_state(state)
 
-        pi_logits, value_bucket_logits = self.forward(state)
+        pi_logits, value_bucket_logits = self.forward(state.to(self.device))
 
         pi = torch.softmax(pi_logits, dim=1)
         value_bucket_softmax = torch.softmax(value_bucket_logits, dim=1)

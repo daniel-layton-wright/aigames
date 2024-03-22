@@ -311,7 +311,6 @@ class G2048Multi(GameMulti):
 
         return new_states, rewards, env_is_next, is_terminal
 
-
     @classmethod
     def get_next_states_from_env(cls, states: torch.Tensor):
         """

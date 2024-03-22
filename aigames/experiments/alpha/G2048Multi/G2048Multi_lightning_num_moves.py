@@ -7,11 +7,11 @@ from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 
 from aigames.agent.alpha_agent_multi_adaptive import AlphaAgentMultiAdaptive
-from aigames.training_manager.alpha_training_manager_multi import NumMovesTrajectoryDataset
+from aigames.training_manager.alpha_dataset_multi import NumMovesTrajectoryDataset
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, TDLambda, AlphaAgentHyperparametersMulti, \
     ConstantMCTSIters
-from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
-    AlphaMultiTrainingHyperparameters, BasicAlphaDatasetMultiNumMoves
+from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
+from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
 from ....utils.listeners import ActionCounterProgressBar
 from .network_architectures import G2048MultiNetwork, G2048MultiNetworkV2
 import pytorch_lightning as pl

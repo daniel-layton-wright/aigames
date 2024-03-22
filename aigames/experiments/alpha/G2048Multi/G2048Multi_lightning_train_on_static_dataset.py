@@ -4,8 +4,8 @@ import sys
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint
 from ....agent.alpha_agent_multi import TrainingTau
-from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
-    AlphaMultiTrainingHyperparameters
+from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
+from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
 from ....utils.listeners import ActionCounterProgressBar
 from .network_architectures import G2048MultiNetwork, G2048MultiNetworkV2
 import pytorch_lightning as pl

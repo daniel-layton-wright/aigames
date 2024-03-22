@@ -120,3 +120,9 @@ class GameMulti:
 
         for listener in self.listeners:
             listener.on_game_end(self)
+
+    def to(self, device):
+        self.states = self.states.to(device)
+        self.is_env = self.is_env.to(device)
+        self.is_term = self.is_term.to(device)
+        return self

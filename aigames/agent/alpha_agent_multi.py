@@ -35,6 +35,13 @@ class Trajectory:
         self.search_values = search_values  # the mcts value for a player state or network value for env state
         self.priorities = None  # Support for prioritized sampling
 
+    def to(self, device):
+        self.states = self.states.to(device)
+        self.rewards = self.rewards.to(device)
+        self.pis = self.pis.to(device)
+        self.search_values = self.search_values.to(device) if self.search_values is not None else None
+        self.priorities = self.priorities.to(device) if self.priorities is not None else None
+
 
 class AlphaAgentMultiListener:
     def after_mcts_search(self, mcts, pi, chosen_actions):
@@ -303,58 +310,50 @@ class AlphaAgentMulti(AgentMulti):
         for data_listener in self.listeners:
             data_listener.on_trajectories(trajectories)
 
-        if self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.DISCOUNTED_REWARDS:
-            self.generate_data_discounted_rewards_method()
-        elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD:
-            self.generate_data_td_method_network_value()
-        elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD_MCTS:
-            self.generate_data_td_method_mcts_value()
-        elif self.hyperparams.value_target_calculation_method == ValueTargetCalculationMethod.TD_MCTS_NETWORK_FALLBACK:
-            self.generate_data_td_method(lambda data: data.mcts_value if data.mcts_value is not None else data.network_value)
-
     def get_trajectories(self):
+        d = self.game.states.device
         state_trajectories = torch.zeros((0, self.game.n_parallel_games, *self.game_class.get_state_shape()),
-                                         device=self.game.states.device, dtype=torch.float32)
+                                         device=d, dtype=torch.float32)
 
         rewards = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
-                              device=self.game.states.device)
+                              device=d)
 
         search_values = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
-                                  device=self.game.states.device)
+                                    device=d)
 
         pis = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_actions()), dtype=torch.float32,
-                          device=self.game.states.device)
+                          device=d)
 
-        mask = torch.zeros((0, self.game.n_parallel_games), dtype=torch.bool, device=self.game.states.device)
+        mask = torch.zeros((0, self.game.n_parallel_games), dtype=torch.bool, device=d)
 
         for data in self.episode_history:
             if isinstance(data, TimestepData):
                 blank_states = torch.zeros((1, self.game.n_parallel_games, *self.game_class.get_state_shape()),
-                                           device=self.game.states.device, dtype=torch.float32)
+                                           device=d, dtype=torch.float32)
                 state_trajectories = torch.cat((state_trajectories, blank_states))
-                state_trajectories[-1, data.mask] = data.states
+                state_trajectories[-1, data.mask] = data.states.to(d)
 
                 pis = torch.cat((pis, torch.zeros((1, self.game.n_parallel_games, self.game_class.get_n_actions()),
-                                                  device=self.game.states.device, dtype=torch.float32)))
-                pis[-1, data.mask] = data.pis
+                                                  device=d, dtype=torch.float32)))
+                pis[-1, data.mask] = data.pis.to(d)
 
                 rewards = torch.cat((rewards,
                                      torch.zeros((1, self.game.n_parallel_games, self.game_class.get_n_players()),
-                                                 device=self.game.states.device, dtype=torch.float32)))
+                                                 device=d, dtype=torch.float32)))
 
                 search_values = torch.cat((search_values,
                                          torch.zeros((1, self.game.n_parallel_games, self.game_class.get_n_players()),
-                                                     device=self.game.states.device, dtype=torch.float32)))
+                                                     device=d, dtype=torch.float32)))
 
                 if data.mcts_value is not None:
-                    search_values[-1, data.mask] = data.mcts_value
+                    search_values[-1, data.mask] = data.mcts_value.to(d)
                 else:
                     search_values[-1, data.mask] = torch.nan
 
                 mask = torch.cat((mask, data.mask.unsqueeze(0)))
 
             elif isinstance(data, RewardData):
-                rewards[-1, data.mask] = data.reward_value
+                rewards[-1, data.mask] = data.reward_value.to(d)
 
         state_trajectories = state_trajectories.transpose(0, 1)
         rewards = rewards.transpose(0, 1)

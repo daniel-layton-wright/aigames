@@ -1,99 +1,41 @@
 import math
-from typing import List
 from collections import Counter
+from dataclasses import dataclass
+from typing import List
 import numpy as np
-from ..agent.alpha_agent import BaseAlphaEvaluator
 import torch
-from ..agent.alpha_agent_multi import AlphaAgentMultiListener, Trajectory
-import pytorch_lightning as pl
-
-from ..utils.td import compute_td_targets, compute_td_targets_truncated
-
-
-class BasicAlphaDatasetMulti(AlphaAgentMultiListener):
-    def __init__(self, evaluator: BaseAlphaEvaluator = None, max_size=50000, process_state=True, min_size=100):
-        self.evaluator = evaluator
-        self.max_size = max_size
-        self.min_size = min_size
-
-        self.data = {
-            'states': None,
-            'pis': None,
-            'rewards': None
-        }
-
-        self.process_state = process_state
-
-        if process_state and (evaluator is None):
-            raise ValueError('If process_state==True, you must give an evaluator.')
-
-    def on_data_point(self, states: torch.Tensor, pis: torch.Tensor, rewards: torch.Tensor, *args, **kwargs):
-        if self.process_state:
-            states = self.evaluator.process_state(states)
-
-        data_names_and_values = self.get_data_names_and_values(states, pis, rewards, *args, **kwargs)
-
-        if self.data['states'] is None:
-            for key, val in data_names_and_values:
-                self.data[key] = val
-        else:
-            for key, val in data_names_and_values:
-                self.data[key] = torch.cat((self.data[key], val))
-
-        self.enforce_max_size()
-
-    def get_data_names_and_values(self, states, pis, rewards, *args, **kwargs):
-        return [('states', states), ('pis', pis), ('rewards', rewards)]
-
-    def enforce_max_size(self):
-        while len(self) > self.max_size:
-            self.pop()
-
-    def __len__(self):
-        return self.data['states'].shape[0] if self.data['states'] is not None else 0
-
-    def pop(self):
-        for key in self.data:
-            self.data[key] = self.data[key][1:]
-
-    def sample_minibatch(self, batch_size):
-        dataset = TensorDataset(*(self.data[key] for key in self.data))  # TODO : make sure this is in the right order
-        sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=batch_size)
-        dataloader = torch.utils.data.DataLoader(dataset, sampler=sampler, batch_size=batch_size)
-        return next(iter(dataloader))
-
-    def clear(self):
-        for key in self.data:
-            self.data[key] = None
-
-    def __getattr__(self, item):
-        if item in self.data:
-            return self.data[item]
-        else:
-            return super().__getattr__(item)
+from aigames.agent.alpha_agent import BaseAlphaEvaluator
+from aigames.agent.alpha_agent_multi import AlphaAgentMultiListener, Trajectory, AlphaAgentHyperparametersMulti
+from aigames.utils.td import compute_td_targets, compute_td_targets_truncated
 
 
-class TensorDataset(torch.utils.data.Dataset):
-    """Dataset wrapping tensors.
-
-    Each sample will be retrieved by indexing tensors along the first dimension.
-
-    Arguments:
-        *tensors (Tensor): tensors that have the same size of the first dimension.
-    """
-
-    def __init__(self, *tensors):
-        assert all(tensors[0].shape[0] == t.shape[0] for t in tensors)
-        self.tensors = tensors
-
-    def __getitem__(self, index):
-        return tuple(tensors[index] for tensors in self.tensors)
-
-    def __len__(self):
-        return self.tensors[0].shape[0]
+@dataclass(kw_only=True, slots=True)
+class AlphaDatasetMultiHyperparameters(AlphaAgentHyperparametersMulti):
+    batch_size: int = 32
+    max_data_size: int = 10000000
+    min_data_size: int = 1
+    data_buffer_full_size: int = 32
+    td_truncate_length: int = 10  # For PrioritizedTrajectoryDataset that uses truncated td returns
+    dataset_device: str = 'cpu'
 
 
-class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
+class AlphaDatasetMulti(AlphaAgentMultiListener):
+    def __iter__(self):
+        raise NotImplementedError()
+
+    def to(self, device):
+        raise NotImplementedError()
+
+    @property
+    def num_datapoints(self):
+        raise NotImplementedError()
+
+    @property
+    def total_datapoints_seen(self):
+        raise NotImplementedError()
+
+
+class TrajectoryDataset(AlphaDatasetMulti):
     num_items = 3
 
     class DataBuffer:
@@ -128,27 +70,33 @@ class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
         def __len__(self):
             return self.data[0].shape[0] if self.data[0] is not None else 0
 
-    def __init__(self, evaluator: BaseAlphaEvaluator, hyperparams):
+    def __init__(self, evaluator: BaseAlphaEvaluator, hyperparams: AlphaDatasetMultiHyperparameters):
         super().__init__()
         self.trajectories = []
         self.hyperparams = hyperparams
         self.evaluator = evaluator
-        self.total_datapoints_seen = 0
+        self._total_datapoints_seen = 0
 
     def on_trajectories(self, trajectories: List[Trajectory]):
         # Process states
         for traj in trajectories:
             traj.states = self.evaluator.process_state(traj.states)
+            traj.to(self.hyperparams.dataset_device)
 
         # Add to dataset
         self.trajectories.extend(trajectories)
-        self.total_datapoints_seen += sum(len(traj.states) for traj in trajectories)
+        self._total_datapoints_seen += sum(len(traj.states) for traj in trajectories)
         self.enforce_max_size()
 
-    def __len__(self):
-        return math.ceil(self.num_states() / float(self.hyperparams.batch_size))
+    @property
+    def total_datapoints_seen(self):
+        return self._total_datapoints_seen
 
-    def num_states(self):
+    def __len__(self):
+        return math.ceil(self.num_datapoints / float(self.hyperparams.batch_size))
+
+    @property
+    def num_datapoints(self):
         return sum(len(traj.states) for traj in self.trajectories)
 
     def train_dataloader(self):
@@ -163,14 +111,14 @@ class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
             data_buffer.add_to_buffer(*self.get_data(cur_traj))
 
             while data_buffer.full():
-                yield data_buffer.yield_data(device=self.hyperparams.device)
+                yield data_buffer.yield_data()
 
         while len(data_buffer) > 0:
-            yield data_buffer.yield_data(device=self.hyperparams.device)
+            yield data_buffer.yield_data()
 
     def get_data(self, cur_traj):
         self.evaluator.eval()
-        network_result = self.evaluator.evaluate(cur_traj.states.to(self.hyperparams.device))
+        network_result = self.evaluator.evaluate(cur_traj.states)
         self.evaluator.train()
         state_values = network_result[1]
         td_targets = compute_td_targets(state_values, cur_traj.rewards.to(state_values.device),
@@ -203,6 +151,10 @@ class TrajectoryDataset(pl.LightningDataModule, AlphaAgentMultiListener):
             return torch.nn.utils.rnn.pad_sequence([traj.rewards for traj in self.trajectories], batch_first=True)
         else:
             return torch.nn.utils.rnn.pad_sequence([traj.rewards.to(device) for traj in self.trajectories], batch_first=True)
+
+    def to(self, device):
+        for traj in self.trajectories:
+            traj.to(device)
 
 
 class PrioritizedTrajectoryDataset(TrajectoryDataset):
