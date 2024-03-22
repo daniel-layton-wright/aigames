@@ -72,7 +72,6 @@ class CheckpointMidGame(Callback, GameListenerMulti):
             for checkpoint in self.trainer.checkpoint_callbacks:
                 if isinstance(checkpoint, ModelCheckpoint):
                     monitor_candidates = checkpoint._monitor_candidates(self.trainer)
-                    checkpoint._save_topk_checkpoint(self.trainer, monitor_candidates)
                     checkpoint._save_last_checkpoint(self.trainer, monitor_candidates)
 
     def __getstate__(self):
