@@ -310,6 +310,15 @@ class AlphaAgentMulti(AgentMulti):
         for data_listener in self.listeners:
             data_listener.on_trajectories(trajectories)
 
+    def to(self, device):
+        """
+        Move the agent's data to the specified device
+
+        :param device:
+        """
+        for x in self.episode_history:
+            x.to(device)
+
     def get_trajectories(self):
         d = self.game.states.device
         state_trajectories = torch.zeros((0, self.game.n_parallel_games, *self.game_class.get_state_shape()),
@@ -350,7 +359,7 @@ class AlphaAgentMulti(AgentMulti):
                 else:
                     search_values[-1, data.mask] = torch.nan
 
-                mask = torch.cat((mask, data.mask.unsqueeze(0)))
+                mask = torch.cat((mask, data.mask.unsqueeze(0).to(d)))
 
             elif isinstance(data, RewardData):
                 rewards[-1, data.mask] = data.reward_value.to(d)
@@ -454,6 +463,14 @@ class TimestepData:
                 f'{f", net_val={self.network_value}" if self.network_value is not None else ""})'
                 f'{f", num_moves={self.num_moves}" if self.num_moves is not None else ""}')
 
+    def to(self, device):
+        """
+        
+        """
+        for x in [self.states, self.pis, self.mask, self.mcts_value, self.network_value, self.num_moves]:
+            if x is not None:
+                x.to(device)
+
 
 class RewardData:
     def __init__(self, reward_value, mask):
@@ -462,6 +479,14 @@ class RewardData:
 
     def __repr__(self):
         return f'(r: {self.reward_value}, mask={self.mask})'
+
+    def to(self, device):
+        """
+
+        """
+        for x in [self.reward_value, self.mask]:
+            if x is not None:
+                x.to(device)
 
 
 class DummyAlphaEvaluatorMulti(BaseAlphaEvaluator):
