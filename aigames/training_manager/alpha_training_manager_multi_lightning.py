@@ -38,7 +38,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.lr_save_tmp = []
         self.doing_dummy_epoch = False
         self.loaded_from_checkpoint = False
-        self.doing_first_epochs_after_checkpoint = False
+        self.doing_dummy_batch_before_resume = False
         self.resume_game = False
 
     def create_dataset(self, dataset: Union[AlphaDatasetMulti, Type[AlphaDatasetMulti], None]) -> AlphaDatasetMulti:
@@ -131,9 +131,15 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                 and self.current_epoch % self.hyperparams.eval_game_network_only_every_n_epochs == 0)
 
     def on_train_batch_start(self, batch: Any, batch_idx: int) -> Optional[int]:
-        if self.loaded_from_checkpoint and self.doing_first_epochs_after_checkpoint:
-            # If we loaded from a checkpoint, we already trained on this data, do one step to check backprop is working
-            # Then skip epoch
+        """
+        If this was loaded from a checkpoint and we need to resume a game, then we just do a single batch to make
+        sure back prop is working.
+
+        If we do not need to resume a game, then we train as normal on reloaded dataset.
+        """
+        if self.resume_game and self.doing_dummy_batch_before_resume and batch_idx > 0:
+            # If we loaded from a checkpoint mid-game, then we already trained on this data, do one step to check
+            # backprop is working then skip epoch
             return -1
 
     def on_train_epoch_start(self) -> None:
@@ -146,7 +152,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def on_train_epoch_end(self) -> None:
         # Save model checkpoint here, before self plays
-        if not self.doing_dummy_epoch and not self.doing_first_epochs_after_checkpoint:
+        if not self.doing_dummy_epoch and not self.doing_dummy_batch_before_resume:
             for checkpoint_callback in self.trainer.checkpoint_callbacks:
                 checkpoint_callback.on_train_epoch_end(self.trainer, self)
 
@@ -180,7 +186,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                 self.doing_dummy_epoch = False  # Done with dummy epoch
 
             self.self_play()
-            self.doing_first_epochs_after_checkpoint = False
+            self.doing_dummy_batch_before_resume = False
 
         self.agent.train()
         self.network.train()
@@ -238,10 +244,10 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.game.n_parallel_games = self.hyperparams.n_parallel_games
             self.game.listeners = self.hyperparams.game_listeners
             self.resume_game = True
+            self.doing_dummy_batch_before_resume = True
 
         self.dataset.evaluator = self.network
         self.loaded_from_checkpoint = True
-        self.doing_first_epochs_after_checkpoint = True
 
     def set_dataset(self, dataset):
         # Remove old dataset from agent
