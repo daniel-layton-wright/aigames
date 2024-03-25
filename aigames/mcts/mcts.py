@@ -9,6 +9,9 @@ class UCBFormulaType(enum.Enum):
     Simple = 'simple'  # The simple UCB formula without a log term
     MuZeroLog = 'muzerolog'  # The UCB formula used in MuZero, with a log term
 
+    # The UCB formula used in MuZero, with a log term, but visit all nodes from root at least once first
+    MuZeroLogVisitAll = 'muzerolog_visitall'
+
     def __json__(self):
         return self.value
 
@@ -51,6 +54,13 @@ class MCTS:
         self.pi = torch.zeros(
             (n_roots, self.total_states, n_actions),
             dtype=torch.float32,
+            device=self.device,
+            requires_grad=False
+        )
+
+        self.legal_actions_mask = torch.zeros(
+            (n_roots, self.total_states, n_actions),
+            dtype=torch.bool,
             device=self.device,
             requires_grad=False
         )
@@ -217,12 +227,18 @@ class MCTS:
         U = self.get_U(idx, cur_nodes, N)
 
         if self.hyperparams.scaleQ:
-            allQ = self.w[idx] / (self.n[idx] + (self.n[idx] == 0)).unsqueeze(-1)
-            Q = allQ[torch.arange(allQ.shape[0]), cur_nodes, :, self.player_index[idx, cur_nodes]]
-            maxQ = allQ.amax(dim=(1, 2, 3)).unsqueeze(-1)
-            minQ = allQ.amin(dim=(1, 2, 3)).unsqueeze(-1)
+            allQ_for_max = (self.w[idx] - (self.n[idx] == 0).unsqueeze(-1).float()) / self.n[idx].unsqueeze(-1)  # w=0, n=0 => q=-inf
+            allQ_for_min = (self.w[idx] + (self.n[idx] == 0).unsqueeze(-1).float()) / self.n[idx].unsqueeze(-1)  # w=0, n=0 => q=+inf
 
-            Q = (Q - minQ) / (maxQ - minQ + (maxQ == minQ))
+            maxQ = torch.maximum(allQ_for_max.amax(dim=(1, 2, 3)), self.values[idx, cur_nodes].amax(dim=(1,))).unsqueeze(-1)
+            minQ = torch.minimum(allQ_for_min.amin(dim=(1, 2, 3)), self.values[idx, cur_nodes].amin(dim=(1,))).unsqueeze(-1)
+
+            # Q replace unexplored edges with the given state's value
+            Q = ((self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]]
+                  + (N == 0) * self.legal_actions_mask[idx, cur_nodes] * self.values[idx, cur_nodes])
+                 / (N + (N == 0)))
+
+            Q = (Q - minQ + 0.5*(maxQ == minQ))*self.legal_actions_mask[idx, cur_nodes] / (maxQ - minQ + (maxQ == minQ))
         else:
             Q = self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]] / (N + (N == 0))
 
@@ -238,6 +254,13 @@ class MCTS:
                 self.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
                 * (self.hyperparams.c_puct
                    + torch.log((1 + N.sum(dim=1, keepdim=True) + self.hyperparams.c_base_log_term) / self.hyperparams.c_base_log_term))
+            )
+        elif self.hyperparams.ucb_formula == UCBFormulaType.MuZeroLogVisitAll:
+            return (
+                self.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
+                * (self.hyperparams.c_puct
+                   + torch.log((1 + N.sum(dim=1, keepdim=True) + self.hyperparams.c_base_log_term) / self.hyperparams.c_base_log_term))
+                + (1./(1 - ((N == 0.) & (nodes == 1).unsqueeze(-1) & self.legal_actions_mask[idx, nodes]).float()) - 1.)  # inf if N == 0 and nodes == 1
             )
 
     def search_for_n_iters(self, n_iters):
@@ -324,13 +347,13 @@ class MCTS:
         network_result = self.evaluator.evaluate(states)
         self.pi[idx, nodes], values = network_result[0], network_result[1]
         self.values[idx, nodes] = values
-        legal_actions_mask = self.game.get_legal_action_masks(states)
-        self.pi[idx, nodes] *= legal_actions_mask
+        self.legal_actions_mask[idx, nodes] = self.game.get_legal_action_masks(states)
+        self.pi[idx, nodes] *= self.legal_actions_mask[idx, nodes]
         # re-normalize pi
         self.pi[idx, nodes] /= self.pi[idx, nodes].sum(dim=1, keepdim=True)
 
         # For any roots, if there is only one valid action, set the flag; prevents searching for efficiency
-        self.set_only_one_action(idx, nodes, legal_actions_mask)
+        self.set_only_one_action(idx, nodes, self.legal_actions_mask[idx, nodes])
 
         parents = self.parent_nodes[idx, nodes]
         has_parent = parents.to(torch.bool)
