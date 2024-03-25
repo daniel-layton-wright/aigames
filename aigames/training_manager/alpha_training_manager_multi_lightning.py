@@ -22,7 +22,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         """
 
         :param game:
-        :param network: Pass in a callable that returns a network
+        :param network:
         """
         super().__init__()
         self.save_hyperparameters('game_class', 'network', 'hyperparams')

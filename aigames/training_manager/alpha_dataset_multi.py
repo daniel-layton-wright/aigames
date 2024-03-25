@@ -136,6 +136,9 @@ class TrajectoryDataset(AlphaDatasetMulti):
         while sum(len(traj.states) for traj in self.trajectories) > self.hyperparams.max_data_size:
             self.pop()
 
+            if self.hyperparams.dataset_device != 'cpu':
+                torch.cuda.empty_cache()
+
     def states(self, device=None):
         if device is None:
             return torch.cat([traj.states for traj in self.trajectories])

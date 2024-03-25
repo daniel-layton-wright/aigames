@@ -179,9 +179,70 @@ class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
     n_mcts_iters: MCTSItersSchedule = ConstantMCTSIters(100)
     use_dirichlet_noise_in_eval: bool = False  # the AlphaGo paper is unclear about this -> defintely should be False just think about it, don't need no stinking paper
     reuse_mcts_tree: bool = False  # Initial testing showed this was actually slower (on G2048Multi) :/
-    value_target_calculation_method: ValueTargetCalculationMethod = ValueTargetCalculationMethod.TD_MCTS_NETWORK_FALLBACK
     td_lambda: TDLambda = TDLambda(0.5)  # only used if value_target_calculation_method is TD. Setting this to 1 is equivalent to discounted rewards
     num_moves_td_lambda: TDLambda = TDLambda(0.5)  # used by the adaptive version
+
+
+class EpisodeHistory:
+    def __init__(self, n_parallel_games, state_shape, n_players, n_actions, device):
+        # Initialize with empty tensors
+        self.states = torch.zeros((0, n_parallel_games, *state_shape), device=device, dtype=torch.float32)
+        self.rewards = torch.zeros((0, n_parallel_games, n_players), dtype=torch.float32, device=device)
+        self.search_values = torch.zeros((0, n_parallel_games, n_players), dtype=torch.float32, device=device)
+        self.pis = torch.zeros((0, n_parallel_games, n_actions), dtype=torch.float32, device=device)
+        self.mask = torch.zeros((0, n_parallel_games), dtype=torch.bool, device=device)
+
+        self.next_state_idx = torch.zeros(n_parallel_games, dtype=torch.long, device=device)
+
+    def add_state_data(self, states, pis, mask, search_values):
+        d = self.states.device
+        if (self.next_state_idx[mask] >= self.states.shape[0]).any():
+            blank_states = torch.zeros((1, *self.states.shape[1:]), device=d, dtype=torch.float32)
+            self.states = torch.cat((self.states, blank_states))
+            self.pis = torch.cat((self.pis, torch.zeros((1, *self.pis.shape[1:]), device=d, dtype=torch.float32)))
+            self.rewards = torch.cat((self.rewards, torch.zeros((1, *self.rewards.shape[1:]), device=d, dtype=torch.float32)))
+            self.search_values = torch.cat((self.search_values,
+                                            torch.nan * torch.ones((1, *self.search_values.shape[1:]), device=d, dtype=torch.float32)))
+            self.mask = torch.cat((self.mask, torch.zeros((1, *self.mask.shape[1:]), device=d, dtype=torch.bool)))
+
+        next_state_idx = self.next_state_idx[mask]
+        self.states[next_state_idx, mask] = states.to(d)
+
+        if pis is not None:
+            self.pis[next_state_idx, mask] = pis.to(d)
+        else:
+            self.pis[next_state_idx, mask] = torch.nan
+
+        if search_values is not None:
+            self.search_values[next_state_idx, mask] = search_values.to(d)
+
+        self.mask[next_state_idx, mask] = True
+        self.next_state_idx[mask] += 1
+
+    def add_rewards(self, rewards, mask):
+        self.rewards[self.next_state_idx[mask]-1, mask] += rewards
+
+    def get_trajectories(self):
+        self.states = self.states.transpose(0, 1)
+        self.rewards = self.rewards.transpose(0, 1)
+        self.mask = self.mask.transpose(0, 1)
+        self.pis = self.pis.transpose(0, 1)
+        self.search_values = self.search_values.transpose(0, 1)
+
+        trajectories = []
+
+        for i in range(self.states.shape[0]):
+            trajectories.append(Trajectory(self.states[i][self.mask[i]], self.rewards[i][self.mask[i]],
+                                           self.pis[i][self.mask[i]], self.search_values[i][self.mask[i]]))
+
+        return trajectories
+
+    def to(self, device):
+        self.states = self.states.to(device)
+        self.rewards = self.rewards.to(device)
+        self.search_values = self.search_values.to(device)
+        self.pis = self.pis.to(device)
+        self.mask = self.mask.to(device)
 
 
 # noinspection PyBroadException
@@ -199,7 +260,8 @@ class AlphaAgentMulti(AgentMulti):
         self.evaluator = evaluator
         self.mcts = None
         self.training = True
-        self.episode_history = []
+        self.episode_history = EpisodeHistory(0, game_class.get_state_shape(),
+                                              game_class.get_n_players(), game_class.get_n_actions(), 'cpu')
         self.move_number_in_current_game = 0
         self.n_players = 0
         self.listeners = listeners if listeners is not None else []
@@ -218,7 +280,6 @@ class AlphaAgentMulti(AgentMulti):
             action_distribution = self.mcts.pi[:, 1]
 
         actions, pi = self.get_actions_and_pi(action_distribution, states, tau)
-
         mcts_value = self.mcts.w[:, 1].sum(dim=1) / self.mcts.n[:, 1].sum(dim=1).unsqueeze(-1)
         network_value = self.mcts.values[:, 1]
 
@@ -231,7 +292,7 @@ class AlphaAgentMulti(AgentMulti):
                 pi *= torch.nan
                 mcts_value = None
 
-            self.record_pi(states, pi, mask, mcts_value, network_value)
+            self.episode_history.add_state_data(states, pi, mask, mcts_value)
 
         return actions
 
@@ -240,7 +301,7 @@ class AlphaAgentMulti(AgentMulti):
         pi = torch.zeros((n_parallel_games, self.game_class.get_n_actions()), device=states.device, dtype=torch.float32)
         actions = torch.zeros(n_parallel_games, dtype=torch.long, device=states.device)
 
-        if type(tau) == float:
+        if isinstance(tau, float):
             tau = torch.tensor([[tau]], device=states.device, dtype=torch.float32).repeat(n_parallel_games, 1)
 
         non_zero = (tau > 0).flatten()
@@ -269,21 +330,16 @@ class AlphaAgentMulti(AgentMulti):
             self.mcts = MCTS(self.game, self.evaluator, mcts_hypers, n_iters, states,
                              add_dirichlet_noise=(self.training or self.hyperparams.use_dirichlet_noise_in_eval))
 
-    def record_pi(self, states, pi, mask, mcts_value=None, network_value=None, env_state=False):
-        # Record this for training, set the root node to the next node now and forget the parent
-        self.episode_history.append(TimestepData(states, pi, mask, mcts_value, network_value))
-
     def on_rewards(self, rewards: torch.Tensor, mask: torch.Tensor):
         if self.training:
-            self.episode_history.append(RewardData(rewards, mask))
+            self.episode_history.add_rewards(rewards, mask)
 
     def before_env_move(self, states: torch.Tensor, mask: torch.Tensor):
         # Put this in the episode history because we're gonna learn the value for these states. pi will be nans
-        num_actions = self.game_class.get_n_actions()
-        self.record_pi(states,
-                       torch.ones((states.shape[0], num_actions), dtype=torch.float32, device=states.device) * torch.nan,
-                       mask,
-                       env_state=True)
+        self.episode_history.add_state_data(
+            states, None,
+            mask, None
+        )
 
     def train(self):
         self.training = True
@@ -295,8 +351,13 @@ class AlphaAgentMulti(AgentMulti):
 
     def before_game_start(self, game: GameMulti):
         self.game = game
-        self.episode_history = []
+        self.episode_history = EpisodeHistory(game.n_parallel_games, self.game_class.get_state_shape(),
+                                              self.game_class.get_n_players(), self.game_class.get_n_actions(),
+                                              game.states.device)
         self.move_number_in_current_game = 0
+
+        if game.states.device != 'cpu':
+            torch.cuda.empty_cache()
 
     def on_game_restart(self, game):
         self.game = game
@@ -316,177 +377,10 @@ class AlphaAgentMulti(AgentMulti):
 
         :param device:
         """
-        for x in self.episode_history:
-            x.to(device)
+        self.episode_history.to(device)
 
     def get_trajectories(self):
-        d = self.game.states.device
-        state_trajectories = torch.zeros((0, self.game.n_parallel_games, *self.game_class.get_state_shape()),
-                                         device=d, dtype=torch.float32)
-
-        rewards = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
-                              device=d)
-
-        search_values = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
-                                    device=d)
-
-        pis = torch.zeros((0, self.game.n_parallel_games, self.game_class.get_n_actions()), dtype=torch.float32,
-                          device=d)
-
-        mask = torch.zeros((0, self.game.n_parallel_games), dtype=torch.bool, device=d)
-
-        for data in self.episode_history:
-            if isinstance(data, TimestepData):
-                blank_states = torch.zeros((1, self.game.n_parallel_games, *self.game_class.get_state_shape()),
-                                           device=d, dtype=torch.float32)
-                state_trajectories = torch.cat((state_trajectories, blank_states))
-                state_trajectories[-1, data.mask] = data.states.to(d)
-
-                pis = torch.cat((pis, torch.zeros((1, self.game.n_parallel_games, self.game_class.get_n_actions()),
-                                                  device=d, dtype=torch.float32)))
-                pis[-1, data.mask] = data.pis.to(d)
-
-                rewards = torch.cat((rewards,
-                                     torch.zeros((1, self.game.n_parallel_games, self.game_class.get_n_players()),
-                                                 device=d, dtype=torch.float32)))
-
-                search_values = torch.cat((search_values,
-                                         torch.zeros((1, self.game.n_parallel_games, self.game_class.get_n_players()),
-                                                     device=d, dtype=torch.float32)))
-
-                if data.mcts_value is not None:
-                    search_values[-1, data.mask] = data.mcts_value.to(d)
-                else:
-                    search_values[-1, data.mask] = torch.nan
-
-                mask = torch.cat((mask, data.mask.unsqueeze(0).to(d)))
-
-            elif isinstance(data, RewardData):
-                rewards[-1, data.mask] = data.reward_value.to(d)
-
-        state_trajectories = state_trajectories.transpose(0, 1)
-        rewards = rewards.transpose(0, 1)
-        mask = mask.transpose(0, 1)
-        pis = pis.transpose(0, 1)
-        search_values = search_values.transpose(0, 1)
-
-        trajectories = []
-
-        for i in range(state_trajectories.shape[0]):
-            trajectories.append(Trajectory(state_trajectories[i][mask[i]], rewards[i][mask[i]], pis[i][mask[i]],
-                                           search_values[i][mask[i]]))
-
-        return trajectories
-
-    def generate_data_discounted_rewards_method(self):
-        episode_history = reversed(self.episode_history)  # work backwards
-        cum_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()), dtype=torch.float32,
-                                  device=self.game.states.device)
-
-        for data in episode_history:
-            if isinstance(data, RewardData):
-                full_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
-                                           dtype=torch.float32, device=data.reward_value.device)
-                full_rewards[data.mask] = data.reward_value
-                cum_rewards = (full_rewards + self.hyperparams.discount * cum_rewards)
-
-            elif isinstance(data, TimestepData):
-                mask = data.mask
-                reward = cum_rewards[torch.arange(self.game.n_parallel_games, device=mask.device)[mask], :]
-
-                for data_listener in self.listeners:
-                    data_listener.on_data_point(data.states, data.pis, reward)
-
-    def generate_data_td_method_network_value(self):
-        return self.generate_data_td_method(lambda data: data.network_value)
-
-    def generate_data_td_method_mcts_value(self):
-        return self.generate_data_td_method(lambda data: data.mcts_value)
-
-    def generate_data_td_method(self, value_fn):
-        """
-
-        :param value_fn: A function that takes a TimestepData and returns the value to use for training. If the value is
-        None, then the value is skipped in the TD summation
-
-        """
-        episode_history = reversed(self.episode_history)  # work backwards
-
-        discounted_rewards_since_last_state = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
-                                                            dtype=torch.float32, device=self.game.states.device)
-
-        last_state_vals = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
-                                      dtype=torch.float32, device=self.game.states.device)
-
-        last_td_est = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
-                                  dtype=torch.float32, device=self.game.states.device)
-
-        for data in episode_history:
-            if isinstance(data, RewardData):
-                full_rewards = torch.zeros((self.game.n_parallel_games, self.game_class.get_n_players()),
-                                           dtype=torch.float32, device=data.reward_value.device)
-                full_rewards[data.mask] = data.reward_value
-
-                discounted_rewards_since_last_state = (full_rewards + self.hyperparams.discount *
-                                                       discounted_rewards_since_last_state)
-            elif isinstance(data, TimestepData):
-                mask = data.mask
-
-                if value_fn(data) is not None:
-                    td_est = (discounted_rewards_since_last_state[mask]
-                              + (1 - self.hyperparams.td_lambda.get_lambda()) * self.hyperparams.discount * last_state_vals[mask]
-                              + self.hyperparams.td_lambda.get_lambda() * self.hyperparams.discount * last_td_est[mask])
-                else:
-                    td_est = last_td_est[mask]
-
-                for data_listener in self.listeners:
-                    data_listener.on_data_point(data.states, data.pis, td_est)
-
-                if value_fn(data) is not None:
-                    last_state_vals[mask] = value_fn(data)
-                    discounted_rewards_since_last_state[mask] = 0
-                    last_td_est[mask] = td_est
-
-
-class TimestepData:
-    def __init__(self, states, pis, mask, mcts_value=None, network_value=None, num_moves=None):
-        self.states = states
-        self.pis = pis
-        self.mask = mask
-        self.mcts_value = mcts_value
-        self.network_value = network_value
-        self.num_moves = num_moves
-
-    def __repr__(self):
-        return (f'(state: {self.states}, pi={self.pis}, mask={self.mask}'
-                f'{f", mcts_val={self.mcts_value}" if self.mcts_value is not None else ""}'
-                f'{f", net_val={self.network_value}" if self.network_value is not None else ""})'
-                f'{f", num_moves={self.num_moves}" if self.num_moves is not None else ""}')
-
-    def to(self, device):
-        """
-        
-        """
-        for x in [self.states, self.pis, self.mask, self.mcts_value, self.network_value, self.num_moves]:
-            if x is not None:
-                x.to(device)
-
-
-class RewardData:
-    def __init__(self, reward_value, mask):
-        self.reward_value = reward_value
-        self.mask = mask
-
-    def __repr__(self):
-        return f'(r: {self.reward_value}, mask={self.mask})'
-
-    def to(self, device):
-        """
-
-        """
-        for x in [self.reward_value, self.mask]:
-            if x is not None:
-                x.to(device)
+        return self.episode_history.get_trajectories()
 
 
 class DummyAlphaEvaluatorMulti(BaseAlphaEvaluator):

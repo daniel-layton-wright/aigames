@@ -81,7 +81,7 @@ class GameMulti:
         try:
             while (~self.is_term).any():
                 if self.is_env[~self.is_term].any():
-                    self.player.before_env_move(self.states[~self.is_term], ~self.is_term)
+                    self.player.before_env_move(self.states[~self.is_term & self.is_env], ~self.is_term & self.is_env)
 
                     # Advance states that are in an env state
                     self.states[~self.is_term & self.is_env], _, self.is_term[~self.is_term & self.is_env] = (
