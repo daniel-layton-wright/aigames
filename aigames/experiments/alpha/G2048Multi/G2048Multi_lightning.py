@@ -5,52 +5,18 @@ import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 from aigames.mcts.mcts import UCBFormulaType
-from aigames.training_manager.alpha_dataset_multi import TrajectoryDataset, PrioritizedTrajectoryDataset
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
 from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
 from ....utils.listeners import ActionCounterProgressBar
-from .network_architectures import G2048MultiNetwork, G2048MultiNetworkV2
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
-from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
+from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser, import_string
 import os
 from ....game.G2048_multi import get_G2048Multi_game_class
 from ....game.game_multi import GameListenerMulti
 import sys
-from importlib import import_module
 import torch
-import json_fix
-
-
-def cached_import(module_path, class_name):
-    # Check whether module is loaded and fully initialized.
-    if not (
-        (module := sys.modules.get(module_path))
-        and (spec := getattr(module, "__spec__", None))
-        and getattr(spec, "_initializing", False) is False
-    ):
-        module = import_module(module_path)
-    return getattr(module, class_name)
-
-
-def import_string(dotted_path):
-    """
-    Import a dotted module path and return the attribute/class designated by the
-    last name in the path. Raise ImportError if the import failed.
-    """
-    try:
-        module_path, class_name = dotted_path.rsplit(".", 1)
-    except ValueError as err:
-        raise ImportError("%s doesn't look like a module path" % dotted_path) from err
-
-    try:
-        return cached_import(module_path, class_name)
-    except AttributeError as err:
-        raise ImportError(
-            'Module "%s" does not define a "%s" attribute/class'
-            % (module_path, class_name)
-        ) from err
 
 
 class CheckpointMidGame(Callback, GameListenerMulti):
@@ -64,6 +30,9 @@ class CheckpointMidGame(Callback, GameListenerMulti):
     def setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", stage: str) -> None:
         self.trainer = trainer
         self.pl_module = pl_module
+
+    def before_game_start(self, game):
+        self.cur_move = 0
 
     def after_action(self, game):
         self.cur_move += 1
@@ -174,7 +143,7 @@ class TrainingTauStepSchedule(TrainingTau):
 
     def update_metric(self, key, val):
         if key == 'optimizer_step':
-            self.i = next((i for i, (_, step) in enumerate(self.schedule) if step > val or step is None),
+            self.i = next((i for i, (_, step) in enumerate(self.schedule) if (step is None or step > val)),
                           len(self.schedule) - 1  # default
                           )
 
@@ -219,14 +188,15 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
 
         max_tiles = flattened_states.amax(dim=(1, 2))
         states_minus_max = flattened_states - max_tiles.reshape(-1, 1, 1)
-        product_of_corners = states_minus_max[:, 0, 0] * states_minus_max[:, 0, 3] * states_minus_max[:, 3, 0] * states_minus_max[:, 3, 3]
+        product_of_corners = (states_minus_max[:, 0, 0] * states_minus_max[:, 0, 3]
+                              * states_minus_max[:, 3, 0] * states_minus_max[:, 3, 3])
 
         max_is_in_corner = (product_of_corners == 0)
         fraction_max_in_corner = max_is_in_corner.float().mean().item()
         self.log('dataset/fraction_max_in_corner', fraction_max_in_corner)
 
-        # Compute average discounted and undiscounted reward
-        r = self.dataset.rewards(device='cpu').squeeze()[-self.hyperparams.n_parallel_games:]  # just the games from last round
+        # Compute average discounted and un-discounted reward form just the last round
+        r = self.dataset.rewards(device='cpu').squeeze()[-self.hyperparams.n_parallel_games:]
         undiscounted_reward = r.sum(dim=1).mean().item()
         discounted_reward = ((self.hyperparams.discount ** torch.arange(0, r.shape[1])).reshape(1, -1) * r).sum(dim=1)
         discounted_reward = discounted_reward.mean().item()
@@ -275,7 +245,8 @@ def main():
     # Set up an arg parser which will look for all the slots in hyperparams
     parser = argparse.ArgumentParser()
     parser.add_argument('--restore_ckpt_path', type=str, default=None, help='Path to a checkpoint to restore from')
-    parser.add_argument('--network_class', type=str, default='aigames.experiments.alpha.G2048Multi.network_architectures.G2048MultiNetworkV2')
+    parser.add_argument('--network_class', type=str,
+                        default='aigames.experiments.alpha.G2048Multi.network_architectures.G2048MultiNetworkV2')
 
     sysargv = sys.argv[1:]
     if '--help' in sysargv:
@@ -283,7 +254,6 @@ def main():
     ckpt_path_args, _ = parser.parse_known_args(sysargv)
 
     checkpoint_mid_game = CheckpointMidGame()
-    # game_progress_callback = GameProgressCallback()
 
     if ckpt_path_args.restore_ckpt_path is not None:
         training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path, map_location='cpu')

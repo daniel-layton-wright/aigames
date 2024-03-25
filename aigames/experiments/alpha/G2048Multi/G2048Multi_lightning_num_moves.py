@@ -16,14 +16,14 @@ from ....utils.listeners import ActionCounterProgressBar
 from .network_architectures import G2048MultiNetwork, G2048MultiNetworkV2
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
-from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
+from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser, import_string
 import os
 from ....game.G2048_multi import get_G2048Multi_game_class
 from ....game.game_multi import GameListenerMulti
 import sys
 from importlib import import_module
 import torch
-from .G2048Multi_lightning import import_string, G2048TrainingRun, EpisodeHistoryCheckpoint, TrainingTauDecreaseOnPlateau
+from .G2048Multi_lightning import G2048TrainingRun, EpisodeHistoryCheckpoint, TrainingTauDecreaseOnPlateau
 
 
 class AdaptiveTrainingTauDecreaseOnPlateau(TrainingTauDecreaseOnPlateau):
