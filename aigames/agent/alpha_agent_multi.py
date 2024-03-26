@@ -222,7 +222,14 @@ class EpisodeHistory:
     def add_rewards(self, rewards, mask):
         self.rewards[self.next_state_idx[mask]-1, mask] += rewards
 
-    def get_trajectories(self):
+    def get_trajectories(self) -> List[Trajectory]:
+        """
+        Get the trajectories from the episode history. This is the data that will be used to train the network.
+
+        Note, for memory efficiency after calling this method, the episode history will be empty.
+
+        :return: A list of Trajectory objects
+        """
         self.states = self.states.transpose(0, 1)
         self.rewards = self.rewards.transpose(0, 1)
         self.mask = self.mask.transpose(0, 1)
@@ -231,9 +238,27 @@ class EpisodeHistory:
 
         trajectories = []
 
-        for i in range(self.states.shape[0]):
-            trajectories.append(Trajectory(self.states[i][self.mask[i]], self.rewards[i][self.mask[i]],
-                                           self.pis[i][self.mask[i]], self.search_values[i][self.mask[i]]))
+        while self.states.shape[0] > 0:
+            cur_states = self.states[0]
+            self.states = self.states[1:]
+
+            cur_rewards = self.rewards[0]
+            self.rewards = self.rewards[1:]
+
+            cur_mask = self.mask[0]
+            self.mask = self.mask[1:]
+
+            cur_pis = self.pis[0]
+            self.pis = self.pis[1:]
+
+            cur_search_values = self.search_values[0]
+            self.search_values = self.search_values[1:]
+
+            trajectories.append(Trajectory(cur_states[cur_mask], cur_rewards[cur_mask], cur_pis[cur_mask],
+                                           cur_search_values[cur_mask]))
+
+            if self.states.device != 'cpu':
+                torch.cuda.empty_cache()
 
         return trajectories
 
