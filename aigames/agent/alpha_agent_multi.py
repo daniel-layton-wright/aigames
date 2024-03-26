@@ -191,7 +191,6 @@ class EpisodeHistory:
         self.search_values = torch.zeros((0, n_parallel_games, n_players), dtype=torch.float32, device=device)
         self.pis = torch.zeros((0, n_parallel_games, n_actions), dtype=torch.float32, device=device)
         self.mask = torch.zeros((0, n_parallel_games), dtype=torch.bool, device=device)
-
         self.next_state_idx = torch.zeros(n_parallel_games, dtype=torch.long, device=device)
 
     def add_state_data(self, states, pis, mask, search_values):
@@ -268,6 +267,7 @@ class EpisodeHistory:
         self.search_values = self.search_values.to(device)
         self.pis = self.pis.to(device)
         self.mask = self.mask.to(device)
+        self.next_state_idx = self.next_state_idx.to(device)
 
 
 # noinspection PyBroadException
