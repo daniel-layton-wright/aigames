@@ -257,5 +257,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
         dataset.evaluator = self.network
         self.dataset = dataset
+        self.dataset.hyperparams = self.hyperparams
+        self.dataset.enforce_max_datapoints()  # in case this has been changed on the restart
         self.dataset.to(self.hyperparams.dataset_device)
         self.agent.listeners.append(self.dataset)
