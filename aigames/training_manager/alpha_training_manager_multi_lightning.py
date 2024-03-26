@@ -251,13 +251,13 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.dataset.evaluator = self.network
         self.loaded_from_checkpoint = True
 
-    def set_dataset(self, dataset):
+    def set_dataset(self, dataset: AlphaDatasetMulti):
         # Remove old dataset from agent
         self.agent.listeners.remove(self.dataset)
 
         dataset.evaluator = self.network
         self.dataset = dataset
         self.dataset.hyperparams = self.hyperparams
-        self.dataset.enforce_max_datapoints()  # in case this has been changed on the restart
+        self.dataset.enforce_max_size()  # in case this has been changed on the restart
         self.dataset.to(self.hyperparams.dataset_device)
         self.agent.listeners.append(self.dataset)

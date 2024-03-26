@@ -26,6 +26,9 @@ class AlphaDatasetMulti(AlphaAgentMultiListener):
     def to(self, device):
         raise NotImplementedError()
 
+    def enforce_max_size(self):
+        raise NotImplementedError()
+
     @property
     def num_datapoints(self):
         raise NotImplementedError()
