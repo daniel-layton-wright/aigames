@@ -136,7 +136,13 @@ class TrajectoryDataset(AlphaDatasetMulti):
         self.trajectories.pop(0)
 
     def enforce_max_size(self):
-        while sum(len(traj.states) for traj in self.trajectories) > self.hyperparams.max_data_size:
+        self._enforce_max_size(self.hyperparams.max_data_size)
+
+    def advise_incoming_data_size(self, data_size: int):
+        self._enforce_max_size(self.hyperparams.max_data_size - data_size)
+
+    def _enforce_max_size(self, max_size):
+        while sum(len(traj.states) for traj in self.trajectories) > max_size:
             self.pop()
 
             if self.hyperparams.dataset_device != 'cpu':

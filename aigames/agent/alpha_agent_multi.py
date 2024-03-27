@@ -50,6 +50,12 @@ class AlphaAgentMultiListener:
     def on_trajectories(self, trajectories):
         pass
 
+    def advise_incoming_data_size(self, data_size):
+        """
+        Can be used to anticipate size of incoming data from the current game, such as to remove old data from memory
+        """
+        pass
+
     def on_data_point(self, state, pi, reward, *args, **kwargs):
         pass
 
@@ -193,7 +199,7 @@ class EpisodeHistory:
         self.mask = torch.zeros((0, n_parallel_games), dtype=torch.bool, device=device)
         self.next_state_idx = torch.zeros(n_parallel_games, dtype=torch.long, device=device)
 
-    def add_state_data(self, states, pis, mask, search_values):
+    def add_data(self, states, pis, mask, search_values):
         d = self.states.device
         if (self.next_state_idx[mask] >= self.states.shape[0]).any():
             blank_states = torch.zeros((1, *self.states.shape[1:]), device=d, dtype=torch.float32)
@@ -269,6 +275,9 @@ class EpisodeHistory:
         self.mask = self.mask.to(device)
         self.next_state_idx = self.next_state_idx.to(device)
 
+    def num_data_points(self):
+        return self.mask.sum().item()
+
 
 # noinspection PyBroadException
 class AlphaAgentMulti(AgentMulti):
@@ -317,7 +326,10 @@ class AlphaAgentMulti(AgentMulti):
                 pi *= torch.nan
                 mcts_value = None
 
-            self.episode_history.add_state_data(states, pi, mask, mcts_value)
+            self.episode_history.add_data(states, pi, mask, mcts_value)
+
+            for listener in self.listeners:
+                listener.advise_incoming_data_size(self.episode_history.num_data_points())
 
         return actions
 
@@ -360,11 +372,15 @@ class AlphaAgentMulti(AgentMulti):
             self.episode_history.add_rewards(rewards, mask)
 
     def before_env_move(self, states: torch.Tensor, mask: torch.Tensor):
-        # Put this in the episode history because we're gonna learn the value for these states. pi will be nans
-        self.episode_history.add_state_data(
-            states, None,
-            mask, None
-        )
+        if self.training:
+            # Put this in the episode history because we're gonna learn the value for these states. pi will be nans
+            self.episode_history.add_data(
+                states, None,
+                mask, None
+            )
+
+            for listener in self.listeners:
+                listener.advise_incoming_data_size(self.episode_history.num_data_points())
 
     def train(self):
         self.training = True

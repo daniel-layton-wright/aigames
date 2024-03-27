@@ -235,12 +235,13 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             self.n_self_play_rounds = checkpoint['n_self_play_rounds']
 
         if 'game' in checkpoint:
-            self.game = checkpoint['game']
+            self.game: GameMulti = checkpoint['game']
             self.agent.episode_history = self.game.player.episode_history
             self.agent.move_number_in_current_game = self.game.player.move_number_in_current_game
             self.agent.game = self.game
             self.game.player = self.agent
             self.game.listeners = self.hyperparams.game_listeners
+            self.game.n_parallel_games = self.hyperparams.n_parallel_games
 
             self.game.to(self.hyperparams.device)
             self.agent.to(self.hyperparams.device)
