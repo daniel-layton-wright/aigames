@@ -183,19 +183,21 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
         self.log_game_results(self.game, 'train')
 
         # Log fraction of dataset that has highest tile in corner
-        tile_values_by_channel = (torch.ones(16, 16) * torch.arange(0, 16)).T.reshape(1, 16, 4, 4).cpu()
-        flattened_states = (self.dataset.states(device='cpu') * tile_values_by_channel).sum(dim=1)
+        kernel = -4 * torch.ones(15, 16, 4, 4)
+        for i in range(1, 16):
+            kernel[i - 1, :(i + 1)] = 0
+            kernel[i - 1, i, 0, 0] = 1
+            kernel[i - 1, i, 0, 3] = 1
+            kernel[i - 1, i, 3, 0] = 1
+            kernel[i - 1, i, 3, 3] = 1
 
-        max_tiles = flattened_states.amax(dim=(1, 2))
-        states_minus_max = flattened_states - max_tiles.reshape(-1, 1, 1)
-        product_of_corners = (states_minus_max[:, 0, 0] * states_minus_max[:, 0, 3]
-                              * states_minus_max[:, 3, 0] * states_minus_max[:, 3, 3])
-
-        max_is_in_corner = (product_of_corners == 0)
-        fraction_max_in_corner = max_is_in_corner.float().mean().item()
+        s = self.dataset.states()
+        conv = torch.nn.functional.conv2d(s, kernel.to(s.device), padding=0, stride=1)
+        conv = conv.amax(dim=(1, 2, 3))
+        fraction_max_in_corner = (conv > 0).float().mean().item()
         self.log('dataset/fraction_max_in_corner', fraction_max_in_corner)
 
-        # Compute average discounted and un-discounted reward form just the last round
+        # Compute average discounted and un-discounted reward from just the last round
         r = self.dataset.rewards(device='cpu').squeeze()[-self.hyperparams.n_parallel_games:]
         undiscounted_reward = r.sum(dim=1).mean().item()
         discounted_reward = ((self.hyperparams.discount ** torch.arange(0, r.shape[1])).reshape(1, -1) * r).sum(dim=1)
