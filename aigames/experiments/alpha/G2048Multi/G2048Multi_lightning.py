@@ -20,7 +20,7 @@ import torch
 
 
 class CheckpointMidGame(Callback, GameListenerMulti):
-    def __init__(self, save_every_n_moves=500):
+    def __init__(self, save_every_n_moves=100):
         super().__init__()
         self.cur_move = 0
         self.save_every_n_moves = save_every_n_moves
