@@ -30,6 +30,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.game_class = game_class
         self.network = network
         self.dataset = self.create_dataset(dataset)
+        self.agent_class = agent_class
         self.agent = agent_class(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
         self.game = self.game_class(self.hyperparams.n_parallel_games, self.agent, listeners=hyperparams.game_listeners)
         self.eval_game = self.game_class(self.hyperparams.n_parallel_eval_games, self.agent,
@@ -70,14 +71,16 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def on_fit_start(self):
         if len(self.dataset) == 0:
-            test_game = self.game_class(self.hyperparams.n_parallel_games, self.agent,
+            # Use a dummy agent so that we don't interfere if a game is being reloaded
+            dummy_agent = self.agent_class(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
+            test_game = self.game_class(self.hyperparams.n_parallel_games, dummy_agent,
                                              listeners=[MaxActionGameKiller(2)])
 
             # play game for 2 moves then abort for minimal dataset for lightning to do its sanity checks then do the
             # full play in on_train_epoch_start
             if self.hyperparams.self_play_every_n_epochs > 0:
                 # Do first self-play.
-                self.agent.train()
+                dummy_agent.train()
                 self.network.eval()
                 test_game.play()
 
