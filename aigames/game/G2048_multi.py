@@ -42,8 +42,8 @@ def get_next_states_core(states: torch.Tensor, actions: torch.Tensor, move_left_
 def get_ind_core(new_states):
     lookup_tensor: Final = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32,
                                         device=new_states.device).unsqueeze(1)
-    new_ind = new_states.to(torch.float32).matmul(lookup_tensor)
-    new_indT = lookup_tensor.T.matmul(new_states.to(torch.float32))
+    new_ind = new_states.to(torch.float32).matmul(lookup_tensor).to(torch.int32)
+    new_indT = lookup_tensor.T.matmul(new_states.to(torch.float32)).to(torch.int32)
     return new_ind, new_indT
 
 
