@@ -56,6 +56,9 @@ class RewardListenerMulti(GameListenerMulti):
 
         self.rewards[mask] += (self.discount ** self.i) * rewards.cpu()
 
+    def __json__(self):
+        return {'discount': self.discount}
+
 
 class AvgRewardListenerMulti(GameListenerMulti):
     def __init__(self, discount_rate, player_index, show_tqdm=False, tqdm_total=None):
