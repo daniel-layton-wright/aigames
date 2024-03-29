@@ -54,7 +54,7 @@ class RewardListenerMulti(GameListenerMulti):
         if self.rewards.shape[0] == 0:
             self.rewards = torch.zeros((mask.shape[0], *rewards.shape[1:]), dtype=rewards.dtype)
 
-        self.rewards[mask] += (self.discount ** self.i) * rewards.cpu()
+        self.rewards[mask.cpu()] += (self.discount ** self.i) * rewards.cpu()
 
     def __json__(self):
         return {'discount': self.discount}
