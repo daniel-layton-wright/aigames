@@ -43,6 +43,7 @@ class RewardListenerMulti(GameListenerMulti):
 
     def before_game_start(self, game):
         self.i = 0
+        self.rewards = torch.tensor([])
 
     def on_states_from_env(self, game):
         self.i += 1
