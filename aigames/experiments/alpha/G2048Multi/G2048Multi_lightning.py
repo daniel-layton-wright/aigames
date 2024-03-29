@@ -284,7 +284,6 @@ def main():
         hyperparams.self_play_every_n_epochs = 1
         hyperparams.eval_game_every_n_epochs = 100
         hyperparams.eval_game_network_only_every_n_epochs = 1
-        hyperparams.dataset_type = PrioritizedTrajectoryDataset
         hyperparams.n_parallel_games = 1000
         hyperparams.max_data_size = 3500000
         hyperparams.min_data_size = 1024
