@@ -33,6 +33,30 @@ class RewardListener(GameListener):
         self.tqdm.update(reward_increment)
 
 
+class RewardListenerMulti(GameListenerMulti):
+    # TODO: this assumes all the games move together-- i.e., all are in an env state at same time, etc.
+    #  (probably fine, but maybe make more general)
+    def __init__(self, discount):
+        self.discount = discount
+        self.rewards = torch.tensor([])
+        self.i = 0
+
+    def before_game_start(self, game):
+        self.i = 0
+
+    def on_states_from_env(self, game):
+        self.i += 1
+
+    def after_action(self, game):
+        self.i += 1
+
+    def on_rewards(self, rewards, mask):
+        if self.rewards.shape[0] == 0:
+            self.rewards = torch.zeros((mask.shape[0], *rewards.shape[1:]), dtype=rewards.dtype)
+
+        self.rewards[mask] += (self.discount ** self.i) * rewards.cpu()
+
+
 class AvgRewardListenerMulti(GameListenerMulti):
     def __init__(self, discount_rate, player_index, show_tqdm=False, tqdm_total=None):
         self.rewards = None

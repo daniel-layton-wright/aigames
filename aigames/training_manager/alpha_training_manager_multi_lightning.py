@@ -224,7 +224,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         if self.hyperparams.save_dataset_in_checkpoint and not self.doing_dummy_epoch:
             checkpoint['dataset'] = self.dataset
 
-        if not self.doing_dummy_epoch and (~self.game.is_term).any():
+        # TODO: this writes a checkpoint without the game if a checkpoint was laoded without a dataset but with a game
+        if (~self.game.is_term).any():
             # Game is still going, save to checkpoint
             checkpoint['game'] = self.game
 

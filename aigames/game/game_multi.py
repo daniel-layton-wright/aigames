@@ -8,7 +8,7 @@ class GameListenerMulti(GameListener):
     def on_states_from_env(self, game):
         pass
 
-    def on_rewards(self, rewards):
+    def on_rewards(self, rewards, mask):
         pass
 
     def on_game_restart(self, game):
@@ -27,6 +27,10 @@ class GameMulti:
     @classmethod
     def get_state_shape(cls) -> Tuple[int, ...]:
         raise NotImplementedError()
+
+    @classmethod
+    def get_state_dtype(cls) -> torch.dtype:
+        return torch.float32
 
     @classmethod
     def get_n_stochastic_actions(cls) -> int:
@@ -104,7 +108,7 @@ class GameMulti:
                     self.get_next_states(self.states[~self.is_term], actions))
 
                 for listener in self.listeners:
-                    listener.on_rewards(rewards)
+                    listener.on_rewards(rewards, ~self.is_term)
 
                 self.player.on_rewards(rewards, ~self.is_term)
 

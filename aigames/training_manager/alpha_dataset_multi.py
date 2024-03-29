@@ -1,7 +1,7 @@
 import math
 from collections import Counter
 from dataclasses import dataclass
-from typing import List
+from typing import List, Union
 import numpy as np
 import torch
 from aigames.agent.alpha_agent import BaseAlphaEvaluator
@@ -14,6 +14,7 @@ class AlphaDatasetMultiHyperparameters(AlphaAgentHyperparametersMulti):
     batch_size: int = 32
     max_data_size: int = 10000000
     min_data_size: int = 1
+    store_data_processed: bool = False
     data_buffer_full_size: int = 32
     td_truncate_length: int = 10  # For PrioritizedTrajectoryDataset that uses truncated td returns
     dataset_device: str = 'cpu'
@@ -46,10 +47,17 @@ class TrajectoryDataset(AlphaDatasetMulti):
             self.data = [None for _ in range(num_items)]
             self.batch_size = batch_size
             self.full_size = max(full_size, batch_size) if full_size is not None else batch_size
+            self.sampling_p = None
 
-        def add_to_buffer(self, *args):
+        def add_to_buffer(self, *args, sampling_p: Union[None, np.array] = None):
             for i, arg in enumerate(args):
                 self.data[i] = arg if self.data[i] is None else torch.cat((self.data[i], arg))
+
+            if sampling_p is not None:
+                if self.sampling_p is None:
+                    self.sampling_p = sampling_p
+                else:
+                    self.sampling_p = np.concatenate((self.sampling_p, sampling_p))
 
         def full(self):
             return self.data[0].shape[0] >= self.full_size
@@ -58,12 +66,22 @@ class TrajectoryDataset(AlphaDatasetMulti):
             # Yield a random subset of the data of size self.batch_size
             batch_size = min(self.batch_size, self.data[0].shape[0])
             if random:
-                order = np.random.permutation(self.data[0].shape[0])
+                if self.sampling_p is not None:
+                    batch_indices = np.random.choice(self.data[0].shape[0], size=batch_size, p=(self.sampling_p/self.sampling_p.sum()))
+                    remaining_indices = np.setdiff1d(np.arange(self.data[0].shape[0]), batch_indices)
+
+                    self.sampling_p = self.sampling_p[remaining_indices]
+                else:
+                    order = np.random.permutation(self.data[0].shape[0])
+                    batch_indices = order[:batch_size]
+                    remaining_indices = order[batch_size:]
             else:
                 order = np.arange(self.data[0].shape[0])
+                batch_indices = order[:batch_size]
+                remaining_indices = order[batch_size:]
 
-            out = tuple(self.data[i][order[:batch_size]] for i in range(len(self.data)))
-            self.data = [self.data[i][order[batch_size:]] for i in range(len(self.data))]
+            out = tuple(self.data[i][batch_indices] for i in range(len(self.data)))
+            self.data = [self.data[i][remaining_indices] for i in range(len(self.data))]
 
             if device is not None:
                 out = tuple(x.to(device) for x in out)
@@ -83,7 +101,9 @@ class TrajectoryDataset(AlphaDatasetMulti):
     def on_trajectories(self, trajectories: List[Trajectory]):
         # Process states
         for traj in trajectories:
-            traj.states = self.evaluator.process_state(traj.states)
+            if self.hyperparams.store_data_processed:
+                traj.states = self.evaluator.process_state(traj.states)
+
             traj.to(self.hyperparams.dataset_device)
 
         # Add to dataset
@@ -127,7 +147,12 @@ class TrajectoryDataset(AlphaDatasetMulti):
         td_targets = compute_td_targets(state_values, cur_traj.rewards.to(state_values.device),
                                         self.hyperparams.td_lambda.get_lambda(),
                                         self.hyperparams.discount)
-        return cur_traj.states, cur_traj.pis, td_targets
+
+        states = cur_traj.states
+        if not self.hyperparams.store_data_processed:
+            states = self.evaluator.process_state(cur_traj.states)
+
+        return states, cur_traj.pis, td_targets
 
     def clear(self):
         self.trajectories = []
@@ -170,6 +195,51 @@ class TrajectoryDataset(AlphaDatasetMulti):
 
 
 class PrioritizedTrajectoryDataset(TrajectoryDataset):
+    num_items = 4
+
+    def on_trajectories(self, trajectories: List[Trajectory]):
+        for traj in trajectories:
+            # Fill in missing search values with network value
+            missing = torch.isnan(traj.search_values).any(dim=1)
+            self.evaluator.eval()
+            network_result = self.evaluator.evaluate(traj.states[missing])
+            self.evaluator.train()
+            traj.search_values[missing] = network_result[1]
+
+            discounted_rewards = compute_td_targets(traj.rewards, traj.rewards, 1, self.hyperparams.discount)
+            # priority is the norm of the difference between the discounted_rewards and the mcts value
+            diffs = discounted_rewards - traj.search_values
+            traj.priorities = torch.norm(diffs, dim=1, p=1).cpu().numpy()
+
+        super().on_trajectories(trajectories)
+
+    def __iter__(self):
+        data_buffer = self.DataBuffer(num_items=self.num_items, batch_size=self.hyperparams.batch_size,
+                                      full_size=self.hyperparams.data_buffer_full_size)
+
+        priority_per_trajectory = np.array([sum(traj.priorities) for traj in self.trajectories])
+        total_priority = priority_per_trajectory.sum()
+        priority_per_trajectory /= priority_per_trajectory.sum()
+
+        n_batches = 0
+
+        while n_batches < len(self):
+            random_trajectory_index = np.random.choice(len(self.trajectories), p=priority_per_trajectory)
+
+            cur_traj = self.trajectories[random_trajectory_index]
+            p = cur_traj.priorities
+            p = p / total_priority
+
+            importance_sampling_weights = torch.tensor(1. / (self.num_datapoints * p + 0.001), dtype=torch.float32)
+            data = self.get_data(cur_traj)
+            data_buffer.add_to_buffer(*data, importance_sampling_weights, sampling_p=cur_traj.priorities)
+
+            while data_buffer.full() and n_batches < len(self):
+                n_batches += 1
+                yield data_buffer.yield_data()
+
+
+class PrioritizedTrajectoryDatasetTruncated(TrajectoryDataset):
     num_items = 4
 
     def __init__(self, evaluator: BaseAlphaEvaluator, hyperparams):

@@ -5,10 +5,11 @@ import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 from aigames.mcts.mcts import UCBFormulaType
+from aigames.training_manager.alpha_dataset_multi import PrioritizedTrajectoryDataset
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
 from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
-from ....utils.listeners import ActionCounterProgressBar
+from ....utils.listeners import ActionCounterProgressBar, RewardListenerMulti
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
 from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser, import_string
@@ -164,20 +165,36 @@ class EpisodeHistoryCheckpoint(Callback):
 
 class G2048TrainingRun(AlphaMultiTrainingRunLightning):
     def log_game_results(self, game, suffix):
-        max_tiles = game.states.amax(dim=(1, 2))
+        max_tiles = game.states.amax(dim=(1, 2)).float()
         avg_max_tile = max_tiles.mean()
         max_best_tile = max_tiles.amax()
 
         fraction_reached_1024 = (max_tiles >= 10).float().mean()
         fraction_reached_2048 = (max_tiles >= 11).float().mean()
 
-        # Log this
-        self.log_to_wandb({
+        log_dict = {
             f'avg_best_tile/{suffix}': avg_max_tile,
             f'fraction_reached_1024/{suffix}': fraction_reached_1024,
             f'fraction_reached_2048/{suffix}': fraction_reached_2048,
             f'max_best_tile/{suffix}': max_best_tile
-        })
+        }
+
+        undiscounted_reward_listener = next(filter(lambda x: isinstance(x, RewardListenerMulti) and x.discount == 1.,
+                                                   game.listeners), None)
+
+        discounted_reward_listener = next(filter(lambda x: isinstance(x, RewardListenerMulti) and x.discount != 1.,
+                                                 game.listeners), None)
+
+        if undiscounted_reward_listener is not None:
+            log_dict[f'avg_undiscounted_reward/{suffix}'] = undiscounted_reward_listener.rewards.mean().item()
+            log_dict[f'max_undiscounted_reward/{suffix}'] = undiscounted_reward_listener.rewards.amax().item()
+
+        if discounted_reward_listener is not None:
+            log_dict[f'avg_discounted_reward/{suffix}'] = discounted_reward_listener.rewards.mean().item()
+            log_dict[f'max_discounted_reward/{suffix}'] = discounted_reward_listener.rewards.amax().item()
+
+        # Log this
+        self.log_to_wandb(log_dict)
 
     def after_self_play_game(self):
         self.log_game_results(self.game, 'train')
@@ -192,18 +209,20 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
             kernel[i - 1, i, 3, 3] = 1
 
         s = self.dataset.states()
-        conv = torch.nn.functional.conv2d(s, kernel.to(s.device), padding=0, stride=1)
-        conv = conv.amax(dim=(1, 2, 3))
-        fraction_max_in_corner = (conv > 0).float().mean().item()
-        self.log('dataset/fraction_max_in_corner', fraction_max_in_corner)
+        if self.hyperparams.store_data_processed:
+            conv = torch.nn.functional.conv2d(s, kernel.to(s.device), padding=0, stride=1)
+            conv = conv.amax(dim=(1, 2, 3))
+            fraction_max_in_corner = (conv > 0).float().mean().item()
+        else:
+            max_vals = s.amax(dim=(1, 2))
+            corner_vals = torch.maximum(torch.maximum(torch.maximum(
+                s[:, 0, 0], s[:, 0, 3]),
+                s[:, 3, 0]),
+                s[:, 3, 3]
+            )
+            fraction_max_in_corner = (max_vals == corner_vals).float().mean().item()
 
-        # Compute average discounted and un-discounted reward from just the last round
-        r = self.dataset.rewards(device='cpu').squeeze()[-self.hyperparams.n_parallel_games:]
-        undiscounted_reward = r.sum(dim=1).mean().item()
-        discounted_reward = ((self.hyperparams.discount ** torch.arange(0, r.shape[1])).reshape(1, -1) * r).sum(dim=1)
-        discounted_reward = discounted_reward.mean().item()
-        self.log('avg_undiscounted_reward/train', undiscounted_reward)
-        self.log('avg_discounted_reward/train', discounted_reward)
+        self.log('dataset/fraction_max_in_corner', fraction_max_in_corner)
 
     def after_eval_game(self):
         self.log_game_results(self.eval_game, 'eval')
@@ -211,7 +230,7 @@ class G2048TrainingRun(AlphaMultiTrainingRunLightning):
     def after_eval_game_network_only(self):
         self.log_game_results(self.eval_game, 'eval_network_only')
         self.hyperparams.training_tau.update_metric('eval_game_avg_max_tile',
-                                                    self.eval_game.states.amax(dim=(1, 2)).mean().item())
+                                                    self.eval_game.states.amax(dim=(1, 2)).float().mean().item())
 
     def on_train_batch_end(self, outputs: STEP_OUTPUT, batch: Any, batch_idx: int) -> None:
         self.network.eval()
@@ -265,6 +284,7 @@ def main():
         hyperparams.self_play_every_n_epochs = 1
         hyperparams.eval_game_every_n_epochs = 100
         hyperparams.eval_game_network_only_every_n_epochs = 1
+        hyperparams.dataset_type = PrioritizedTrajectoryDataset
         hyperparams.n_parallel_games = 1000
         hyperparams.max_data_size = 3500000
         hyperparams.min_data_size = 1024
@@ -276,13 +296,15 @@ def main():
         hyperparams.lr = 0.0003
         hyperparams.weight_decay = 1e-5
         hyperparams.td_lambda = TDLambdaByRound([1, 0.9, 0.8, 0.7, 0.6, 0.5])
-        hyperparams.training_tau = TrainingTauStepSchedule([(1.0, int(25e3)), (0.5, int(50e3)),
-                                                            (0.1, int(75e3)), (0.0, None)])
+        hyperparams.training_tau = TrainingTauStepSchedule([(1.0, int(100e3)), (0.5, int(200e3)),
+                                                            (0.1, int(300e3)), (0.0, None)])
         hyperparams.batch_size = 1024
         hyperparams.data_buffer_full_size = 16_384  # stabilize things by doing 16 steps before using new network for next TD estimates
-        hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count')]
-        hyperparams.eval_game_listeners = [ActionCounterProgressBar(1500, description='Eval game action count')]
         hyperparams.discount = 0.999
+        hyperparams.game_listeners = [ActionCounterProgressBar(1500, description='Train game action count'),
+                                      RewardListenerMulti(1), RewardListenerMulti(hyperparams.discount)]
+        hyperparams.eval_game_listeners = [ActionCounterProgressBar(1500, description='Eval game action count'),
+                                           RewardListenerMulti(1), RewardListenerMulti(hyperparams.discount)]
         hyperparams.ucb_formula = UCBFormulaType.MuZeroLog
         hyperparams.save_dataset_in_checkpoint = True
         hyperparams.clear_dataset_before_self_play_rounds = []

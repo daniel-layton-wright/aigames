@@ -106,7 +106,7 @@ def cache(func):
         import os
         import sys
         path = os.path.abspath(os.path.dirname(sys.modules[func.__module__].__file__))
-        filename = f'{func.__name__}_cache.pkl'
+        filename = f'{func.__module__}_{func.__name__}_cache.pkl'
         full_file_path = os.path.join(path, filename)
 
         import pickle
