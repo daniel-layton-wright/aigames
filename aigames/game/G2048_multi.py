@@ -433,12 +433,12 @@ class G2048MultiCuda(G2048Multi):
 
     get_next_states_jit = torch.jit.trace(
         get_next_states_full,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
                         torch.zeros((2,), dtype=torch.long, device=device),
-                        torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
-                        torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
+                        torch.randint(0, 2, (16 ** 4, 4), dtype=torch.uint8, device=device),
+                        torch.randint(0, 2, (16 ** 4, 4), dtype=torch.uint8, device=device),
                         torch.randint(0, 2, (16 ** 4, 1), dtype=torch.float32, device=device),
-                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=device),
+                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
                         torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
                         torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
     )
@@ -446,7 +446,7 @@ class G2048MultiCuda(G2048Multi):
     get_legal_action_masks_jit = torch.jit.trace(
         get_legal_action_masks_core,
         example_inputs=(
-            torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+            torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
             torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
             torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
             torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
@@ -455,7 +455,7 @@ class G2048MultiCuda(G2048Multi):
     is_terminal_jit = torch.jit.trace(
         is_terminal_core,
         example_inputs=(
-            torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+            torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
             torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
             torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
             torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
@@ -463,7 +463,7 @@ class G2048MultiCuda(G2048Multi):
 
     get_next_states_from_env_jit = torch.jit.trace(
         get_next_states_from_env_core,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
                         torch.rand(2, dtype=torch.float32, device=device),
                         torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
     )
