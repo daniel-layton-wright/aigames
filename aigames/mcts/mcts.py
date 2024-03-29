@@ -68,14 +68,14 @@ class MCTS:
         # The number of visits for each child of each root, state
         self.n = torch.zeros(
             (n_roots, self.total_states, n_actions),
-            dtype=torch.float32,
+            dtype=torch.int,
             device=self.device,
             requires_grad=False
         )
 
         self.player_index = torch.zeros(
             (n_roots, self.total_states,),
-            dtype=torch.long,
+            dtype=torch.int,
             device=self.device,
             requires_grad=False
         )
@@ -90,7 +90,7 @@ class MCTS:
 
         self.states = torch.zeros(
             (n_roots, self.total_states, *state_shape),
-            dtype=torch.float32,
+            dtype=root_states.dtype,
             device=self.device,
             requires_grad=False
         )
@@ -121,14 +121,14 @@ class MCTS:
 
         self.next_idx = torch.zeros(
             (n_roots, self.total_states, n_actions),
-            dtype=torch.long,
+            dtype=torch.int,
             device=self.device,
             requires_grad=False
         )
 
         self.next_idx_env = torch.zeros(
             (n_roots, self.total_states, n_stochastic_actions),
-            dtype=torch.long,
+            dtype=torch.int,
             device=self.device,
             requires_grad=False
         )
@@ -156,7 +156,7 @@ class MCTS:
 
         self.parent_nodes = torch.zeros(
             (n_roots, self.total_states,),
-            dtype=torch.long,
+            dtype=torch.int,
             device=self.device,
             requires_grad=False
         )
@@ -164,12 +164,12 @@ class MCTS:
         self.maxQ = torch.zeros((n_roots, 1), dtype=torch.float32, device=self.device, requires_grad=False)
         self.minQ = torch.zeros((n_roots, 1), dtype=torch.float32, device=self.device, requires_grad=False)
 
-        self.root_idx = torch.arange(n_roots, dtype=torch.long, device=self.device, requires_grad=False)
+        self.root_idx = torch.arange(n_roots, dtype=torch.int, device=self.device, requires_grad=False)
 
-        self.cur_nodes = torch.ones((n_roots,), dtype=torch.long, device=self.device,
+        self.cur_nodes = torch.ones((n_roots,), dtype=torch.int, device=self.device,
                                     requires_grad=False)
 
-        self.next_empty_nodes = 2 * torch.ones((n_roots,), dtype=torch.long,
+        self.next_empty_nodes = 2 * torch.ones((n_roots,), dtype=torch.int,
                                                device=self.device, requires_grad=False)
 
         self.need_to_add_dirichlet_noise = torch.zeros((n_roots,), dtype=torch.bool,

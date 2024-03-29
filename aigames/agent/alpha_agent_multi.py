@@ -40,7 +40,6 @@ class Trajectory:
         self.rewards = self.rewards.to(device)
         self.pis = self.pis.to(device)
         self.search_values = self.search_values.to(device) if self.search_values is not None else None
-        self.priorities = self.priorities.to(device) if self.priorities is not None else None
 
 
 class AlphaAgentMultiListener:
@@ -190,9 +189,9 @@ class AlphaAgentHyperparametersMulti(MCTSHyperparameters):
 
 
 class EpisodeHistory:
-    def __init__(self, n_parallel_games, state_shape, n_players, n_actions, device):
+    def __init__(self, n_parallel_games, state_shape, n_players, n_actions, device, state_dtype=torch.float32):
         # Initialize with empty tensors
-        self.states = torch.zeros((0, n_parallel_games, *state_shape), device=device, dtype=torch.float32)
+        self.states = torch.zeros((0, n_parallel_games, *state_shape), device=device, dtype=state_dtype)
         self.rewards = torch.zeros((0, n_parallel_games, n_players), dtype=torch.float32, device=device)
         self.search_values = torch.zeros((0, n_parallel_games, n_players), dtype=torch.float32, device=device)
         self.pis = torch.zeros((0, n_parallel_games, n_actions), dtype=torch.float32, device=device)
@@ -202,7 +201,7 @@ class EpisodeHistory:
     def add_data(self, states, pis, mask, search_values):
         d = self.states.device
         if (self.next_state_idx[mask] >= self.states.shape[0]).any():
-            blank_states = torch.zeros((1, *self.states.shape[1:]), device=d, dtype=torch.float32)
+            blank_states = torch.zeros((1, *self.states.shape[1:]), device=d, dtype=self.states.dtype)
             self.states = torch.cat((self.states, blank_states))
             self.pis = torch.cat((self.pis, torch.zeros((1, *self.pis.shape[1:]), device=d, dtype=torch.float32)))
             self.rewards = torch.cat((self.rewards, torch.zeros((1, *self.rewards.shape[1:]), device=d, dtype=torch.float32)))
@@ -295,7 +294,8 @@ class AlphaAgentMulti(AgentMulti):
         self.mcts = None
         self.training = True
         self.episode_history = EpisodeHistory(0, game_class.get_state_shape(),
-                                              game_class.get_n_players(), game_class.get_n_actions(), 'cpu')
+                                              game_class.get_n_players(), game_class.get_n_actions(), 'cpu',
+                                              game_class.get_state_dtype())
         self.move_number_in_current_game = 0
         self.n_players = 0
         self.listeners = listeners if listeners is not None else []
@@ -394,7 +394,7 @@ class AlphaAgentMulti(AgentMulti):
         self.game = game
         self.episode_history = EpisodeHistory(game.n_parallel_games, self.game_class.get_state_shape(),
                                               self.game_class.get_n_players(), self.game_class.get_n_actions(),
-                                              game.states.device)
+                                              game.states.device, self.game_class.get_state_dtype())
         self.move_number_in_current_game = 0
 
         if game.states.device != 'cpu':

@@ -6,13 +6,6 @@ from aigames.game.game_multi import GameMulti
 from aigames.utils.utils import cache
 
 
-def get_random_new_value():
-    if np.random.rand() < 0.9:
-        return 1
-    else:
-        return 2
-
-
 def get_next_states_core(states: torch.Tensor, actions: torch.Tensor, move_left_map: torch.Tensor,
                          move_right_map: torch.Tensor, reward_map: torch.Tensor, ind: torch.Tensor, indT: torch.Tensor)\
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -26,20 +19,20 @@ def get_next_states_core(states: torch.Tensor, actions: torch.Tensor, move_left_
 
     left_lookup_idx = ind[left_mask].flatten()
     new_states[left_mask, :, :] = (move_left_map[left_lookup_idx, :].reshape((left_mask.sum(), 4, 4)))
-    rewards[left_mask, :] = reward_map[left_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True)
+    rewards[left_mask, :] = reward_map[left_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True).to(torch.float32)
 
     right_lookup_idx = ind[right_mask].flatten()
     new_states[right_mask, :, :] = (move_right_map[right_lookup_idx, :].reshape((right_mask.sum(), 4, 4)))
-    rewards[right_mask, :] = reward_map[right_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True)
+    rewards[right_mask, :] = reward_map[right_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True).to(torch.float32)
 
     up_lookup_idx = indT[up_mask].flatten()
     new_states[up_mask, :, :] = (move_left_map[up_lookup_idx, :].reshape((up_mask.sum(), 4, 4))).transpose(1, 2)
-    rewards[up_mask, :] = reward_map[up_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True)
+    rewards[up_mask, :] = reward_map[up_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True).to(torch.float32)
 
     down_lookup_idx = indT[down_mask].flatten()
     new_states[down_mask, :, :] = (
         move_right_map[down_lookup_idx, :].reshape((down_mask.sum(), 4, 4))).transpose(1, 2)
-    rewards[down_mask, :] = reward_map[down_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True)
+    rewards[down_mask, :] = reward_map[down_lookup_idx, :].reshape(-1, 4).sum(dim=1, keepdim=True).to(torch.float32)
 
     new_ind, new_indT = get_ind_core(new_states)
 
@@ -47,10 +40,10 @@ def get_next_states_core(states: torch.Tensor, actions: torch.Tensor, move_left_
 
 
 def get_ind_core(new_states):
-    lookup_tensor: Final = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.float32,
+    lookup_tensor: Final = torch.tensor([16 ** 3, 16 ** 2, 16, 1], dtype=torch.int32,
                                         device=new_states.device).unsqueeze(1)
-    new_ind = new_states.matmul(lookup_tensor).to(int)
-    new_indT = lookup_tensor.T.matmul(new_states).to(int)
+    new_ind = new_states.to(torch.int32).matmul(lookup_tensor)
+    new_indT = lookup_tensor.T.matmul(new_states.to(torch.int32))
     return new_ind, new_indT
 
 
@@ -160,14 +153,14 @@ def shift_row_left(row) -> int:
 
 @cache
 def get_move_left_map_and_rewards():
-    move_left_map = torch.zeros((16**4, 4), dtype=torch.float)
-    reward_map = torch.zeros((16**4, 1), dtype=torch.float)
-    lookup_tensor = torch.FloatTensor([16**3, 16**2, 16, 1])
+    move_left_map = torch.zeros((16**4, 4), dtype=torch.uint8)
+    reward_map = torch.zeros((16**4, 1), dtype=torch.float32)
+    lookup_tensor = torch.tensor([16**3, 16**2, 16, 1], dtype=torch.int32)
     for i in range(16):
         for j in range(16):
             for k in range(16):
                 for l in range(16):
-                    row = torch.FloatTensor([i, j, k, l])
+                    row = torch.tensor([i, j, k, l], dtype=torch.int32)
                     ind = int(lookup_tensor.dot(row).item())
                     reward = shift_row_left(row)
                     move_left_map[ind, :] = row
@@ -178,13 +171,13 @@ def get_move_left_map_and_rewards():
 
 @cache
 def get_move_right_map():
-    move_right_map = torch.zeros((16**4, 4), dtype=torch.float)
-    lookup_tensor = torch.FloatTensor([16**3, 16**2, 16, 1])
+    move_right_map = torch.zeros((16**4, 4), dtype=torch.uint8)
+    lookup_tensor = torch.tensor([16**3, 16**2, 16, 1], dtype=torch.int32)
     for i in range(16):
         for j in range(16):
             for k in range(16):
                 for l in range(16):
-                    row = torch.FloatTensor([i, j, k, l])
+                    row = torch.tensor([i, j, k, l], dtype=torch.int32)
                     ind = int(lookup_tensor.dot(row).item())
                     row = torch.flip(row, [0])
                     shift_row_left(row)
@@ -200,12 +193,12 @@ def get_legal_move_masks():
     Fills in the LEGAL_MOVE_MASK array for a row. The format is [LEFT, RIGHT] (use transposes to get up down)
     """
     legal_move_mask = torch.zeros((16**4, 2), dtype=torch.bool)
-    lookup_tensor = torch.FloatTensor([16**3, 16**2, 16, 1])
+    lookup_tensor = torch.tensor([16**3, 16**2, 16, 1], dtype=torch.int32)
     for i in range(16):
         for j in range(16):
             for k in range(16):
                 for l in range(16):
-                    row = torch.FloatTensor([i, j, k, l])
+                    row = torch.tensor([i, j, k, l], dtype=torch.int32)
                     ind = int(lookup_tensor.dot(row).item())
                     legal_move_mask[ind, 0] = row_can_move_left(row)
                     legal_move_mask[ind, 1] = row_can_move_left(torch.flip(row, [0]))
@@ -225,12 +218,12 @@ class G2048Multi(GameMulti):
 
     get_next_states_jit = torch.jit.trace(
         get_next_states_full,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
                         torch.zeros((2,), dtype=torch.long, device=device),
-                        torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
-                        torch.randint(0, 2, (16 ** 4, 4), dtype=torch.float32, device=device),
+                        torch.randint(0, 2, (16 ** 4, 4), dtype=torch.uint8, device=device),
+                        torch.randint(0, 2, (16 ** 4, 4), dtype=torch.uint8, device=device),
                         torch.randint(0, 2, (16 ** 4, 1), dtype=torch.float32, device=device),
-                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.float32, device=device),
+                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
                         torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
                         torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
     )
@@ -238,7 +231,7 @@ class G2048Multi(GameMulti):
     get_legal_action_masks_jit = torch.jit.trace(
         get_legal_action_masks_core,
         example_inputs=(
-            torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+            torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
             torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
             torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
             torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
@@ -247,7 +240,7 @@ class G2048Multi(GameMulti):
     is_terminal_jit = torch.jit.trace(
         is_terminal_core,
         example_inputs=(
-            torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+            torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
             torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device),
             torch.randint(0, 2, (2, 4, 1), dtype=torch.long, device=device),
             torch.randint(0, 2, (2, 1, 4), dtype=torch.long, device=device))
@@ -255,7 +248,7 @@ class G2048Multi(GameMulti):
 
     get_next_states_from_env_jit = torch.jit.trace(
         get_next_states_from_env_core,
-        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.float32, device=device),
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
                         torch.rand(2, dtype=torch.float32, device=device),
                         torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
     )
@@ -278,6 +271,10 @@ class G2048Multi(GameMulti):
     @classmethod
     def get_state_shape(cls) -> Tuple[int, ...]:
         return 4, 4
+
+    @classmethod
+    def get_state_dtype(cls) -> torch.dtype:
+        return torch.uint8
 
     class Moves(enum.Enum):
         LEFT = 0
@@ -356,7 +353,7 @@ class G2048Multi(GameMulti):
 
     @classmethod
     def get_initial_states(cls, n_games):
-        states = torch.zeros((n_games, 4, 4), dtype=torch.float32, device=cls.device)
+        states = torch.zeros((n_games, 4, 4), dtype=torch.uint8, device=cls.device)
 
         # Add in two random values for each state
         states, _, _ = cls.get_next_states_from_env(states)
