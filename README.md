@@ -1,5 +1,7 @@
 # AIGames
 
+For questions, suggestions, to collaborate, etc. contact me at <dlwright@alumni.stanford.edu> .
+
 The `aigames` package contains implementations of AI algorithms to
 play games, but is primarily focused on AlphaZero.
 
