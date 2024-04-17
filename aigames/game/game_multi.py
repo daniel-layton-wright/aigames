@@ -143,7 +143,7 @@ class GameMulti:
 
     def _get_actions(self):
         # First we need to get the player index for each state
-        going = ~self.is_term
+        going = (~self.is_term).cpu()
         cur_player = self.get_cur_player_index(self.states[going])
 
         index_to_player = {i: player for i, player in enumerate(self.players)}
