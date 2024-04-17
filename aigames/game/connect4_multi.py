@@ -131,3 +131,14 @@ class Connect4Multi(GameMulti):
         return (
             ('-' * line_length + '\n' + '-' * line_length + '\n').join([grid_to_str(g) for g in self.states])
         )
+
+
+class Connect4MultiCuda(GameMulti):
+    device = 'cuda'
+
+
+def get_connect4_multi_class(device):
+    if device == 'cuda':
+        return Connect4MultiCuda
+    else:
+        return Connect4Multi

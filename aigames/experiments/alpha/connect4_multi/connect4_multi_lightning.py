@@ -5,7 +5,7 @@ import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 
-from aigames.game.connect4_multi import Connect4Multi
+from aigames.game.connect4_multi import get_connect4_multi_class
 from aigames.mcts.mcts import UCBFormulaType
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
@@ -192,6 +192,8 @@ def main():
     # Parse the args and set the hyperparams
     args = parser.parse_args()
     load_from_arg_parser(args, hyperparams)
+
+    Connect4Multi = get_connect4_multi_class(hyperparams.device)
 
     # remove the CheckpointMidGame if it exists and add the current one
     for x in hyperparams.game_listeners:
