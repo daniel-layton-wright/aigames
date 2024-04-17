@@ -96,6 +96,9 @@ class PerGameActionCounter(GameListenerMulti):
     def after_action(self, game: GameMulti):
         self.i[~game.is_term] += 1
 
+    def __json__(self):
+        return {}
+
 
 class ActionCounterProgressBar(GameListenerMulti):
     def __init__(self, progress_bar_max, description='Game action count'):
