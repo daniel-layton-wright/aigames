@@ -403,7 +403,7 @@ class AlphaAgentMulti(AgentMulti):
     def on_game_restart(self, game):
         self.game = game
 
-    def on_game_end(self):
+    def on_game_end(self, game):
         if not self.training:
             return
 

@@ -80,6 +80,20 @@ def get_legal_action_masks_core(states, legal_move_mask, ind, indT):
     return torch.cat([mask, legal_move_mask[indT, :].reshape(states.shape[0], 4, 2).any(dim=1)], dim=1)
 
 
+def get_env_legal_action_masks_core(states: torch.Tensor):
+    base_progressions = torch.concat([
+        torch.eye(16, dtype=states.dtype).view(16, 4, 4),
+        torch.eye(16, dtype=states.dtype).view(16, 4, 4) * 2
+    ], dim=0).to(states.device)
+    base_probabilities = torch.concat([
+        torch.full((16,), 0.9),
+        torch.full((16,), 0.1)
+    ], dim=0).to(states.device)
+    valid_progressions = torch.logical_not(torch.any((states.unsqueeze(1) * base_progressions).view(-1, 32, 16), dim=2))
+
+    return valid_progressions
+
+
 def get_next_states_from_env_core(states: torch.Tensor, random_values: torch.Tensor, legal_move_mask)\
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     base_progressions = torch.concat([
@@ -100,6 +114,21 @@ def get_next_states_from_env_core(states: torch.Tensor, random_values: torch.Ten
 
     is_terminal = is_terminal_core(next_states, legal_move_mask, next_ind, next_indT)
     return next_states, idx, is_terminal, next_ind, next_indT
+
+
+def get_next_states_from_env_action_idx(states: torch.Tensor, env_action_idx: torch.Tensor, legal_move_mask: torch.Tensor):
+    mark = (env_action_idx // 16).to(torch.uint8) + 1
+    idx = env_action_idx % 16
+    idx1 = idx // 4
+    idx2 = idx % 4
+    next_states = states.clone()
+    next_states[torch.arange(states.shape[0]), idx1, idx2] = mark
+
+    next_ind, next_indT = get_ind_core(next_states)
+
+    is_terminal = is_terminal_core(next_states, legal_move_mask, next_ind, next_indT)
+
+    return next_states, is_terminal, next_ind, next_indT
 
 
 def select_indices(probs, random_values):
@@ -253,6 +282,18 @@ class G2048Multi(GameMulti):
                         torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
     )
 
+    get_next_states_from_env_action_idx_jit = torch.jit.trace(
+        get_next_states_from_env_action_idx,
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
+                        torch.randint(0, 2, (2,), dtype=torch.long, device=device),
+                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
+    )
+
+    get_env_legal_action_masks_jit = torch.jit.trace(
+        get_env_legal_action_masks_core,
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device))
+    )
+
     def __init__(self, n_parallel_games, player, listeners=None):
         super().__init__(n_parallel_games, player, listeners)
 
@@ -309,20 +350,35 @@ class G2048Multi(GameMulti):
         return new_states, rewards, env_is_next, is_terminal
 
     @classmethod
-    def get_next_states_from_env(cls, states: torch.Tensor):
+    def get_env_legal_action_masks(cls, states):
+        return cls.get_env_legal_action_masks_jit(states)
+
+    @classmethod
+    def get_next_states_from_env(cls, states: torch.Tensor, action_idx=None):
         """
         For each state in the states tensor, we need to add a random 1 or 2 into a slot that is zero
 
         :param states: A tensor of size (N, 4, 4) representing the states
+        :param legal_action_mask: a pre-computed mask to use if passed
         """
-        random_values = torch.rand(states.shape[0], dtype=torch.float32, device=states.device)
-        next_states, idx, is_terminal, next_ind, next_indT = cls.get_next_states_from_env_jit(states, random_values,
-                                                                                              cls.LEGAL_MOVE_MASK)
+        if action_idx is not None:
+            next_states, is_terminal, next_ind, next_indT = cls.get_next_states_from_env_action_idx_jit(states, action_idx)
+        else:
+            action_idx = cls.get_env_action_idx(states, cls.get_env_legal_action_masks(states))
+            return cls.get_next_states_from_env(states, action_idx)
 
         next_states.ind = next_ind
         next_states.indT = next_indT
 
-        return next_states, idx, is_terminal
+        return next_states, is_terminal
+
+    @classmethod
+    def get_env_action_idx(cls, states, legal_action_mask):
+        pi = torch.tensor([9 for _ in range(16)] + [1 for _ in range(16)], dtype=torch.float32)
+        pi = pi.repeat(states.shape[0], 1)
+        pi *= legal_action_mask
+        pi /= pi.sum(dim=1, keepdim=True)
+        return torch.multinomial(pi, 1).flatten()
 
     @classmethod
     def shift_row_left(cls, row) -> int:
@@ -466,6 +522,18 @@ class G2048MultiCuda(G2048Multi):
         example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
                         torch.rand(2, dtype=torch.float32, device=device),
                         torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
+    )
+
+    get_next_states_from_env_action_idx_jit = torch.jit.trace(
+        get_next_states_from_env_action_idx,
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device),
+                        torch.randint(0, 2, (2,), dtype=torch.long, device=device),
+                        torch.randint(0, 2, (16 ** 4, 2), dtype=torch.bool, device=device))
+    )
+
+    get_env_legal_action_masks_jit = torch.jit.trace(
+        get_env_legal_action_masks_core,
+        example_inputs=(torch.randint(0, 2, (2, 4, 4), dtype=torch.uint8, device=device))
     )
 
 

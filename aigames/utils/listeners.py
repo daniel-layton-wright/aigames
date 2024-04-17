@@ -1,5 +1,5 @@
 from ..game.game import GameListener, AbortGameException
-from ..game.game_multi import GameListenerMulti
+from ..game.game_multi import GameListenerMulti, GameMulti
 from ..game import SequentialGame
 from tqdm.auto import tqdm
 import torch
@@ -84,6 +84,17 @@ class AvgRewardListenerMulti(GameListenerMulti):
         self.rewards += reward_increment
         self.i += 1
         self.tqdm.update((reward_increment.sum() / self.rewards.shape[0]).cpu().item())
+
+
+class PerGameActionCounter(GameListenerMulti):
+    def __init__(self):
+        self.i = torch.tensor([], dtype=torch.long)
+
+    def before_game_start(self, game):
+        self.i = torch.zeros(game.states.shape[0], dtype=torch.long)
+
+    def after_action(self, game: GameMulti):
+        self.i[~game.is_term] += 1
 
 
 class ActionCounterProgressBar(GameListenerMulti):

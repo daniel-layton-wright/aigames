@@ -126,6 +126,13 @@ class MCTS:
             requires_grad=False
         )
 
+        self.env_legal_action_mask = torch.zeros(
+            (n_roots, self.total_states, n_stochastic_actions),
+            dtype=torch.bool,
+            device=self.device,
+            requires_grad=False
+        )
+
         self.next_idx_env = torch.zeros(
             (n_roots, self.total_states, n_stochastic_actions),
             dtype=torch.int,
@@ -208,7 +215,8 @@ class MCTS:
             self.handle_terminal_states()
 
         # Advance env nodes, if searchable
-        self.advance_to_next_states_from_env_states(idx_env, cur_nodes_env)
+        if idx_env.shape[0] > 0:
+            self.advance_to_next_states_from_env_states(idx_env, cur_nodes_env)
 
         # Refresh just in case we can be more efficient and do these all together now
         searchable_roots = self.searchable_roots()  # These are the roots we can do anything on
@@ -235,7 +243,7 @@ class MCTS:
 
             # Q replace unexplored edges with the given state's value
             Q = ((self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]]
-                  + (N == 0) * self.legal_actions_mask[idx, cur_nodes] * self.values[idx, cur_nodes])
+                  + (N == 0) * self.legal_actions_mask[idx, cur_nodes] * self.values[idx, cur_nodes, self.player_index[idx, cur_nodes]].unsqueeze(1))
                  / (N + (N == 0)))
 
             Q = (Q - minQ + 0.5*(maxQ == minQ))*self.legal_actions_mask[idx, cur_nodes] / (maxQ - minQ + (maxQ == minQ))
@@ -313,8 +321,12 @@ class MCTS:
         self.next_empty_nodes[idx] += 1
 
     def advance_to_next_states_from_env_states(self, idx, nodes):
+        if idx.shape[0] == 0:
+            return
+
         # Now get the next player state for the env states
-        next_player_states, env_action_idx, is_terminal = self.game.get_next_states_from_env(self.states[idx, nodes])
+        legal_action_mask = self.env_legal_action_mask[idx, nodes]
+        env_action_idx = self.game.get_env_action_idx(self.states[idx, nodes], legal_action_mask)
 
         next_node_idx = self.next_idx_env[idx, nodes, env_action_idx]
 
@@ -323,9 +335,11 @@ class MCTS:
         empty_idx = idx[empty_mask]
         empty_nodes = nodes[empty_mask]
 
+        next_player_states, is_terminal = self.game.get_next_states_from_env(self.states[empty_idx, empty_nodes], env_action_idx[empty_mask])
+
         next_nodes = self.next_empty_nodes[empty_idx]
-        self.states[empty_idx, next_nodes] = next_player_states[empty_mask]
-        self.is_terminal[empty_idx, next_nodes] = is_terminal[empty_mask]
+        self.states[empty_idx, next_nodes] = next_player_states
+        self.is_terminal[empty_idx, next_nodes] = is_terminal
         self.next_idx_env[empty_idx, empty_nodes, env_action_idx[empty_mask]] = next_nodes
         self.cur_nodes[empty_idx] = next_nodes
         self.parent_nodes[empty_idx, next_nodes] = empty_nodes
@@ -344,13 +358,28 @@ class MCTS:
             return
 
         states = self.states[idx, nodes]
+        self.player_index[idx, nodes] = self.game.get_cur_player_index(states).to(self.player_index.dtype)
         network_result = self.evaluator.evaluate(states)
         self.pi[idx, nodes], values = network_result[0], network_result[1]
         self.values[idx, nodes] = values
-        self.legal_actions_mask[idx, nodes] = self.game.get_legal_action_masks(states)
+        
+        player_leaves = is_leaf_mask & ~self.is_env[self.root_idx, self.cur_nodes]
+        player_nodes = self.cur_nodes[player_leaves]
+        player_idx = self.root_idx[player_leaves]
+        player_states = self.states[player_idx, player_nodes]
+        
+        self.legal_actions_mask[idx, nodes] = self.game.get_legal_action_masks(player_states)
         self.pi[idx, nodes] *= self.legal_actions_mask[idx, nodes]
         # re-normalize pi
         self.pi[idx, nodes] /= self.pi[idx, nodes].sum(dim=1, keepdim=True)
+
+        env_leaves = is_leaf_mask & self.is_env[self.root_idx, self.cur_nodes]
+        env_nodes = self.cur_nodes[env_leaves]
+        env_idx = self.root_idx[env_leaves]
+        env_states = self.states[env_idx, env_nodes]
+
+        if env_nodes.shape[0] > 0:
+            self.env_legal_action_mask[env_nodes, env_idx] = self.game.get_env_legal_action_masks(env_states)
 
         # For any roots, if there is only one valid action, set the flag; prevents searching for efficiency
         self.set_only_one_action(idx, nodes, self.legal_actions_mask[idx, nodes])
