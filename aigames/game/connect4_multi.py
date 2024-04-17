@@ -133,7 +133,7 @@ class Connect4Multi(GameMulti):
         )
 
 
-class Connect4MultiCuda(GameMulti):
+class Connect4MultiCuda(Connect4Multi):
     device = 'cuda'
 
 
