@@ -94,7 +94,7 @@ class PerGameActionCounter(GameListenerMulti):
         self.i = torch.zeros(game.states.shape[0], dtype=torch.long)
 
     def after_action(self, game: GameMulti):
-        self.i[~game.is_term] += 1
+        self.i[(~game.is_term).cpu()] += 1
 
     def __json__(self):
         return {}
