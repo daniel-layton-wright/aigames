@@ -83,6 +83,18 @@ class GameMulti:
     def players_and_listeners(self) -> Set[GameListenerMulti]:
         return set(self.players) | set(self.listeners)
 
+    @property
+    def player(self):
+        # If all players are the same return the single player, otherwise raise ValueError
+        if len(set(self.players)) == 1:
+            return self.players[0]
+        else:
+            raise ValueError("All players must be the same to use the GameMulti.player attribute")
+
+    @player.setter
+    def player(self, player):
+        self.players = self.list_of_players(player)
+
     def play(self):
         if self.is_term.all():
             # Restart the game from the initial state:
