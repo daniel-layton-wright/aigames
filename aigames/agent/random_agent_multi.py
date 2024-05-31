@@ -12,4 +12,4 @@ class RandomAgentMulti(AgentMulti):
 
     def get_actions(self, states, mask):
         legal_actions = self.game_class.get_legal_action_masks(states)
-        return torch.multinomial(legal_actions, num_samples=1)
+        return torch.multinomial(legal_actions.float(), num_samples=1).flatten()
