@@ -5,14 +5,13 @@ from ....game import CommandLineGame
 from ....game.G2048_multi import get_G2048Multi_game_class
 from ....agent.alpha_agent_multi import AlphaAgentMulti, AlphaAgentHyperparametersMulti as AlphaAgentHyperparametersMulti, DummyAlphaEvaluatorMulti
 from ....utils.listeners import AvgRewardListenerMulti, ActionCounterProgressBar
-from .network_architectures import G2048MultiNetwork, G2048MultiEvaluator
+from .network_architectures import G2048MultiNetwork
 from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
 import argparse
 
 
 def main():
     hyperparams = AlphaAgentHyperparametersMulti()
-    hyperparams.n_mcts_iters = 100
 
     # Set up an argparser
     parser = argparse.ArgumentParser()
@@ -36,9 +35,8 @@ def main():
 
     # If using a network set up the network, otherwise use a dummy evaluator
     if args.use_network:
-        network = G2048MultiNetwork()
-        network.eval()
-        alpha_evaluator = G2048MultiEvaluator(network)
+        alpha_evaluator = G2048MultiNetwork()
+        alpha_evaluator.eval()
     else:
         alpha_evaluator = DummyAlphaEvaluatorMulti(4, 1, args.device)
 

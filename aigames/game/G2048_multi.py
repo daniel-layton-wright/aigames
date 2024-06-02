@@ -362,7 +362,7 @@ class G2048Multi(GameMulti):
         :param legal_action_mask: a pre-computed mask to use if passed
         """
         if action_idx is not None:
-            next_states, is_terminal, next_ind, next_indT = cls.get_next_states_from_env_action_idx_jit(states, action_idx)
+            next_states, is_terminal, next_ind, next_indT = cls.get_next_states_from_env_action_idx_jit(states, action_idx, cls.LEGAL_MOVE_MASK)
         else:
             action_idx = cls.get_env_action_idx(states, cls.get_env_legal_action_masks(states))
             return cls.get_next_states_from_env(states, action_idx)
@@ -412,8 +412,8 @@ class G2048Multi(GameMulti):
         states = torch.zeros((n_games, 4, 4), dtype=torch.uint8, device=cls.device)
 
         # Add in two random values for each state
-        states, _, _ = cls.get_next_states_from_env(states)
-        states, _, _ = cls.get_next_states_from_env(states)
+        states, _ = cls.get_next_states_from_env(states)
+        states, _ = cls.get_next_states_from_env(states)
 
         return states
 

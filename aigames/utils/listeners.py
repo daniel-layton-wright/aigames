@@ -36,14 +36,17 @@ class RewardListener(GameListener):
 class RewardListenerMulti(GameListenerMulti):
     # TODO: this assumes all the games move together-- i.e., all are in an env state at same time, etc.
     #  (probably fine, but maybe make more general)
-    def __init__(self, discount):
+    def __init__(self, discount, reset_on_game_start=True):
+        assert discount <= 1.
         self.discount = discount
         self.rewards = torch.tensor([])
         self.i = 0
+        self.reset_on_game_start = reset_on_game_start
 
     def before_game_start(self, game):
         self.i = 0
-        self.rewards = torch.tensor([])
+        if self.reset_on_game_start:
+            self.rewards = torch.tensor([])
 
     def on_states_from_env(self, game):
         self.i += 1

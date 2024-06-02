@@ -119,7 +119,7 @@ class GameMulti:
                         player_or_listener.before_env_move(self.states[env], env)
 
                     # Advance states that are in an env state
-                    self.states[env], _, self.is_term[env] = self.get_next_states_from_env(self.states[env])
+                    self.states[env], self.is_term[env] = self.get_next_states_from_env(self.states[env])
                     self.is_env[:] = False
                     continue
 

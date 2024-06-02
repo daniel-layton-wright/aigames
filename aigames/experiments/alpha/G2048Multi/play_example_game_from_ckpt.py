@@ -85,7 +85,7 @@ def main():
         training_run.agent.listeners.append(network_mcts_monitor)
 
     if args.show_action_counter:
-        training_run.game.listeners.append(ActionCounterProgressBar(500))
+        training_run.game.listeners.append(ActionCounterProgressBar(2000))
 
     if args.max_actions:
         training_run.game.listeners.append(MaxActionGameKiller(args.max_actions))

@@ -49,7 +49,7 @@ class G2048MultiNetwork(AlphaMultiNetwork, AlphaNetworkEvaluator):
         return policy, value
 
     def process_state(self, state: torch.Tensor):
-        return state.unsqueeze(1)
+        return state.unsqueeze(1).to(torch.float32)
 
     @torch.no_grad()
     def evaluate(self, state):
