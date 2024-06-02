@@ -176,7 +176,16 @@ class MCTS:
         self.cur_nodes = torch.ones((n_roots,), dtype=torch.int, device=self.device,
                                     requires_grad=False)
 
-        self.next_empty_nodes = 2 * torch.ones((n_roots,), dtype=torch.int,
+        # Initialize a list of empty nodes for each root, which should be arange(2, self.total_nodes) for each root
+        # If you use the 'subtree persistence' feature, this won't necessarily be arange, because the nodes down an
+        # untaken path will be able to be overwritten and re-used and the existing nodes will be kept in their place
+        # (to be faster)
+        self.empty_nodes = torch.arange(2, self.total_states + 1, device=self.device, requires_grad=False, dtype=torch.int,
+                                        ).unsqueeze(0).expand(n_roots, -1)
+
+        # This is the index in empty_nodes of where we should put the next node
+        # So: if next_empty_node_pointers[0] is 3, then the next node for root 0 should be put in empty_nodes[0, 3]
+        self.next_empty_node_pointers = torch.zeros((n_roots,), dtype=torch.int,
                                                device=self.device, requires_grad=False)
 
         self.need_to_add_dirichlet_noise = torch.zeros((n_roots,), dtype=torch.bool,
@@ -190,6 +199,13 @@ class MCTS:
 
         if add_dirichlet_noise:
             self.add_dirichlet_noise()
+
+    @property
+    def next_empty_nodes(self):
+        """
+        This property looks up the next empty node based on the next_empty_node_pointers and the empty_nodes
+        """
+        return self.empty_nodes[self.root_idx, self.next_empty_node_pointers]
 
     def searchable_roots(self):
         out_of_bounds = (self.next_empty_nodes >= self.total_states) & (~self.is_leaf[self.root_idx, self.cur_nodes])
@@ -318,7 +334,7 @@ class MCTS:
         self.cur_nodes[idx] = next_nodes
 
         # Set the action
-        self.next_empty_nodes[idx] += 1
+        self.next_empty_node_pointers[idx] += 1
 
     def advance_to_next_states_from_env_states(self, idx, nodes):
         if idx.shape[0] == 0:
@@ -343,7 +359,7 @@ class MCTS:
         self.next_idx_env[empty_idx, empty_nodes, env_action_idx[empty_mask]] = next_nodes
         self.cur_nodes[empty_idx] = next_nodes
         self.parent_nodes[empty_idx, next_nodes] = empty_nodes
-        self.next_empty_nodes[empty_idx] += 1
+        self.next_empty_node_pointers[empty_idx] += 1
 
         # If the next node idx is not zero then we've already been there, just advance to it
         self.cur_nodes[idx[~empty_mask]] = next_node_idx[~empty_mask]
@@ -368,10 +384,10 @@ class MCTS:
         player_idx = self.root_idx[player_leaves]
         player_states = self.states[player_idx, player_nodes]
         
-        self.legal_actions_mask[idx, nodes] = self.game.get_legal_action_masks(player_states)
-        self.pi[idx, nodes] *= self.legal_actions_mask[idx, nodes]
+        self.legal_actions_mask[player_idx, player_nodes] = self.game.get_legal_action_masks(player_states)
+        self.pi[player_idx, player_nodes] *= self.legal_actions_mask[player_idx, player_nodes]
         # re-normalize pi
-        self.pi[idx, nodes] /= self.pi[idx, nodes].sum(dim=1, keepdim=True)
+        self.pi[player_idx, player_nodes] /= self.pi[player_idx, player_nodes].sum(dim=1, keepdim=True)
 
         env_leaves = is_leaf_mask & self.is_env[self.root_idx, self.cur_nodes]
         env_nodes = self.cur_nodes[env_leaves]
@@ -379,7 +395,7 @@ class MCTS:
         env_states = self.states[env_idx, env_nodes]
 
         if env_nodes.shape[0] > 0:
-            self.env_legal_action_mask[env_nodes, env_idx] = self.game.get_env_legal_action_masks(env_states)
+            self.env_legal_action_mask[env_idx, env_nodes] = self.game.get_env_legal_action_masks(env_states)
 
         # For any roots, if there is only one valid action, set the flag; prevents searching for efficiency
         self.set_only_one_action(idx, nodes, self.legal_actions_mask[idx, nodes])
