@@ -57,6 +57,7 @@ def test_mcts_speed(args, hypers):
     print('mctx results: ')
     print(pt.pp(mctx_results))
 
+
 def test_mctx_speed(initial_state, game: GameMulti, network: BaseAlphaEvaluator, hypers: AlphaAgentHyperparametersMulti):
     """
     This function uses GDM's mctx packaage to compare speeds

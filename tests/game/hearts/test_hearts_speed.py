@@ -1,24 +1,7 @@
 import torch
-
 from aigames import GameListenerMulti
 from aigames.game.hearts import Hearts, get_legal_action_masks_core, get_next_states_core
-import time
 from aigames.utils.listeners import ActionCounterProgressBar
-
-
-class Timer:
-    def __init__(self):
-        self.start_time = 0
-        self.end_time = 0
-
-    def __enter__(self):
-        self.start_time = time.time()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.end_time = time.time()
-
-    def duration_in_seconds(self):
-        return self.end_time - self.start_time
 
 
 def get_random_states(n_games):
@@ -45,6 +28,7 @@ def get_random_states(n_games):
 
 
 def test_get_legal_action_masks_speed(states, reps=100):
+    from ...helpers import Timer
     # Test the speed of get_legal_action_masks for various sizes of states:
     sizes = [1, 10, 100, 1000, 10000, 100000]
     t = Timer()
@@ -106,10 +90,28 @@ def test_get_next_states_speed(states, actions, reps=100):
         print(f"Size: {size}, Time (jit): {t.duration_in_seconds() / reps:.6f} seconds")
 
 
+def test_alpha_agent_playing_hearts_speed():
+    from tests.helpers import Timer
+    # Play a game of hearts with an alpha agent and record the time taken
+    from aigames.agent.alpha_agent_multi import AlphaAgentMulti, DummyAlphaEvaluatorMulti, AlphaAgentHyperparametersMulti
+
+    eval = DummyAlphaEvaluatorMulti(52, 4)
+    hypers = AlphaAgentHyperparametersMulti()
+    alpha_agent = AlphaAgentMulti(Hearts, eval, hypers)
+
+    t = Timer()
+    with t:
+        game = Hearts(100, alpha_agent, [ActionCounterProgressBar(52)])
+        game.play()
+
+    print(f'Time for AlphaAgent playing Hearts: {t.duration_in_seconds()} seconds')
+
+
 def main():
     states, actions = get_random_states(2000)
-    test_get_legal_action_masks_speed(states)
-    test_get_next_states_speed(states, actions)
+    #test_get_legal_action_masks_speed(states)
+    #test_get_next_states_speed(states, actions)
+    test_alpha_agent_playing_hearts_speed()
 
 
 if __name__ == '__main__':
