@@ -44,22 +44,24 @@ class MCTS:
 
         # The network's pi value for each root, state (outputs a policy size)
         n_roots = root_states.shape[0]
-        n_actions = game.get_n_actions()
+        self.n_actions = game.get_n_actions()
         state_shape = game.get_state_shape()
         n_players = game.get_n_players()
-        n_stochastic_actions = game.get_n_stochastic_actions()
+        self.n_stochastic_actions = game.get_n_stochastic_actions()
+
+        self.n_actions_max = max(self.n_actions, self.n_stochastic_actions)
 
         self.state_shape = state_shape
 
         self.pi = torch.zeros(
-            (n_roots, self.total_states, n_actions),
+            (n_roots, self.total_states, self.n_actions),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
         )
 
         self.legal_actions_mask = torch.zeros(
-            (n_roots, self.total_states, n_actions),
+            (n_roots, self.total_states, self.n_actions_max),
             dtype=torch.bool,
             device=self.device,
             requires_grad=False
@@ -67,7 +69,7 @@ class MCTS:
 
         # The number of visits for each child of each root, state
         self.n = torch.zeros(
-            (n_roots, self.total_states, n_actions),
+            (n_roots, self.total_states, self.n_actions),
             dtype=torch.int,
             device=self.device,
             requires_grad=False
@@ -82,7 +84,7 @@ class MCTS:
 
         # The total values that have been backed-up the tree for each child of each root, state
         self.w = torch.zeros(
-            (n_roots, self.total_states, n_actions, n_players),
+            (n_roots, self.total_states, self.n_actions, n_players),
             dtype=torch.float32,
             device=self.device,
             requires_grad=False
@@ -120,21 +122,7 @@ class MCTS:
         )
 
         self.next_idx = torch.zeros(
-            (n_roots, self.total_states, n_actions),
-            dtype=torch.int,
-            device=self.device,
-            requires_grad=False
-        )
-
-        self.env_legal_action_mask = torch.zeros(
-            (n_roots, self.total_states, n_stochastic_actions),
-            dtype=torch.bool,
-            device=self.device,
-            requires_grad=False
-        )
-
-        self.next_idx_env = torch.zeros(
-            (n_roots, self.total_states, n_stochastic_actions),
+            (n_roots, self.total_states, self.n_actions_max),
             dtype=torch.int,
             device=self.device,
             requires_grad=False
@@ -168,13 +156,11 @@ class MCTS:
             requires_grad=False
         )
 
-        self.maxQ = torch.zeros((n_roots, 1), dtype=torch.float32, device=self.device, requires_grad=False)
-        self.minQ = torch.zeros((n_roots, 1), dtype=torch.float32, device=self.device, requires_grad=False)
+        self.maxQ = torch.nan * torch.ones((n_roots,), dtype=torch.float32, device=self.device, requires_grad=False)
+        self.minQ = torch.nan * torch.ones((n_roots,), dtype=torch.float32, device=self.device, requires_grad=False)
 
         self.root_idx = torch.arange(n_roots, dtype=torch.int, device=self.device, requires_grad=False)
-
-        self.cur_nodes = torch.ones((n_roots,), dtype=torch.int, device=self.device,
-                                    requires_grad=False)
+        self.cur_nodes = torch.ones((n_roots,), dtype=torch.int, device=self.device, requires_grad=False)
 
         # Initialize a list of empty nodes for each root, which should be arange(2, self.total_nodes) for each root
         # If you use the 'subtree persistence' feature, this won't necessarily be arange, because the nodes down an
@@ -192,13 +178,14 @@ class MCTS:
                                                        device=self.device, requires_grad=False)
 
         self.only_one_action = torch.zeros((n_roots,), dtype=torch.bool, device=self.device, requires_grad=False)
-
-        self.is_terminal[:, 1] = game.is_terminal(self.states[:, 1])
-        self.pi[self.is_terminal[:, 1], 1, :] = 1.0 / n_actions
-        self.n[self.is_terminal[:, 1], 1] = 1
+        self.handle_terminal_roots()
 
         if add_dirichlet_noise:
             self.add_dirichlet_noise()
+
+    @property
+    def r(self):
+        return self.root_idx, 1
 
     @property
     def next_empty_nodes(self):
@@ -209,10 +196,16 @@ class MCTS:
 
     def searchable_roots(self):
         out_of_bounds = (self.next_empty_nodes >= self.total_states) & (~self.is_leaf[self.root_idx, self.cur_nodes])
-        done = self.n[:, 1].sum(dim=1) >= self.n_iters
+        done = self.n[:, 0, 0] >= self.n_iters
         return (~out_of_bounds
                 & ~done
                 & ~self.only_one_action)
+
+    def handle_terminal_roots(self):
+        self.is_terminal[self.r] = self.game.is_terminal(self.states[self.r])
+        term_roots = self.is_terminal[self.r]
+        self.pi[term_roots, 1, :] = 1.0 / self.n_actions
+        self.n[term_roots, 1] = 1
 
     def search(self):
         searchable_roots = self.searchable_roots()  # These are the roots we can do anything on
@@ -222,22 +215,31 @@ class MCTS:
         idx_env = self.root_idx[env & ~leaves_or_terminal & searchable_roots]
         cur_nodes_env = self.cur_nodes[env & ~leaves_or_terminal & searchable_roots]
 
-        # Expand leaf nodes if enough trees are at a leaf (can set the fraction to 0 to always expand). 1e-3 is a tolerance for equality
-        if leaves_or_terminal[searchable_roots].float().mean() + 1e-3 >= self.hyperparams.expand_simultaneous_fraction:
+        refresh = False
+
+        # Expand leaf nodes if enough trees are at a leaf (set to 0 to always expand). 1e-3 is a tolerance for equality
+        if (leaves_or_terminal[searchable_roots].float().mean() + 1e-3 >= self.hyperparams.expand_simultaneous_fraction
+            # Expand the leaves that currently have the smallest n, that will get us to stop fastest
+            # or (leaves_or_terminal.any() and self.n[leaves_or_terminal, 0, 0].amin() == self.n[searchable_roots, 0, 0].amin())
+        ):
             # Expand leaves
             self.expand()
 
             # If we're at a terminal state, reset back to the root
             self.handle_terminal_states()
 
+            refresh = True
+
         # Advance env nodes, if searchable
         if idx_env.shape[0] > 0:
             self.advance_to_next_states_from_env_states(idx_env, cur_nodes_env)
+            refresh = True
 
-        # Refresh just in case we can be more efficient and do these all together now
-        searchable_roots = self.searchable_roots()  # These are the roots we can do anything on
-        leaves_or_terminal = self.is_leaf[self.root_idx, self.cur_nodes] | self.is_terminal[self.root_idx, self.cur_nodes]
-        env = self.is_env[self.root_idx, self.cur_nodes]
+        if refresh:
+            # Refresh just in case we can be more efficient and do these all together now
+            searchable_roots = self.searchable_roots()  # These are the roots we can do anything on
+            leaves_or_terminal = self.is_leaf[self.root_idx, self.cur_nodes] | self.is_terminal[self.root_idx, self.cur_nodes]
+            env = self.is_env[self.root_idx, self.cur_nodes]
 
         idx = self.root_idx[~leaves_or_terminal & ~env & searchable_roots]
         cur_nodes = self.cur_nodes[~leaves_or_terminal & ~env & searchable_roots]
@@ -251,18 +253,16 @@ class MCTS:
         U = self.get_U(idx, cur_nodes, N)
 
         if self.hyperparams.scaleQ:
-            allQ_for_max = (self.w[idx] - (self.n[idx] == 0).unsqueeze(-1).float()) / self.n[idx].unsqueeze(-1)  # w=0, n=0 => q=-inf
-            allQ_for_min = (self.w[idx] + (self.n[idx] == 0).unsqueeze(-1).float()) / self.n[idx].unsqueeze(-1)  # w=0, n=0 => q=+inf
-
-            maxQ = torch.maximum(allQ_for_max.amax(dim=(1, 2, 3)), self.values[idx, cur_nodes].amax(dim=(1,))).unsqueeze(-1)
-            minQ = torch.minimum(allQ_for_min.amin(dim=(1, 2, 3)), self.values[idx, cur_nodes].amin(dim=(1,))).unsqueeze(-1)
+            maxQ = torch.where(torch.isnan(self.maxQ[idx]), self.values[idx, cur_nodes].amax(dim=1), self.maxQ[idx]).unsqueeze(-1)
+            minQ = torch.where(torch.isnan(self.minQ[idx]), self.values[idx, cur_nodes].amin(dim=1), self.minQ[idx]).unsqueeze(-1)
 
             # Q replace unexplored edges with the given state's value
             Q = ((self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]]
-                  + (N == 0) * self.legal_actions_mask[idx, cur_nodes] * self.values[idx, cur_nodes, self.player_index[idx, cur_nodes]].unsqueeze(1))
+                  + (N == 0) * self.legal_actions_mask[idx, cur_nodes, :self.n_actions]
+                  * self.values[idx, cur_nodes, self.player_index[idx, cur_nodes]].unsqueeze(1))
                  / (N + (N == 0)))
 
-            Q = (Q - minQ + 0.5*(maxQ == minQ))*self.legal_actions_mask[idx, cur_nodes] / (maxQ - minQ + (maxQ == minQ))
+            Q = (Q - minQ + 0.5*(maxQ == minQ))*self.legal_actions_mask[idx, cur_nodes, :self.n_actions] / (maxQ - minQ + (maxQ == minQ))
         else:
             Q = self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]] / (N + (N == 0))
 
@@ -341,10 +341,9 @@ class MCTS:
             return
 
         # Now get the next player state for the env states
-        legal_action_mask = self.env_legal_action_mask[idx, nodes]
+        legal_action_mask = self.legal_actions_mask[idx, nodes]
         env_action_idx = self.game.get_env_action_idx(self.states[idx, nodes], legal_action_mask)
-
-        next_node_idx = self.next_idx_env[idx, nodes, env_action_idx]
+        next_node_idx = self.next_idx[idx, nodes, env_action_idx]
 
         # If the next node idx is zero then we need to fill it in
         empty_mask = (next_node_idx == 0)
@@ -356,7 +355,7 @@ class MCTS:
         next_nodes = self.next_empty_nodes[empty_idx]
         self.states[empty_idx, next_nodes] = next_player_states
         self.is_terminal[empty_idx, next_nodes] = is_terminal
-        self.next_idx_env[empty_idx, empty_nodes, env_action_idx[empty_mask]] = next_nodes
+        self.next_idx[empty_idx, empty_nodes, env_action_idx[empty_mask]] = next_nodes
         self.cur_nodes[empty_idx] = next_nodes
         self.parent_nodes[empty_idx, next_nodes] = empty_nodes
         self.next_empty_node_pointers[empty_idx] += 1
@@ -384,8 +383,8 @@ class MCTS:
         player_idx = self.root_idx[player_leaves]
         player_states = self.states[player_idx, player_nodes]
         
-        self.legal_actions_mask[player_idx, player_nodes] = self.game.get_legal_action_masks(player_states)
-        self.pi[player_idx, player_nodes] *= self.legal_actions_mask[player_idx, player_nodes]
+        self.legal_actions_mask[player_idx, player_nodes, :self.n_actions] = self.game.get_legal_action_masks(player_states)
+        self.pi[player_idx, player_nodes] *= self.legal_actions_mask[player_idx, player_nodes, :self.n_actions]
         # re-normalize pi
         self.pi[player_idx, player_nodes] /= self.pi[player_idx, player_nodes].sum(dim=1, keepdim=True)
 
@@ -395,7 +394,7 @@ class MCTS:
         env_states = self.states[env_idx, env_nodes]
 
         if env_nodes.shape[0] > 0:
-            self.env_legal_action_mask[env_idx, env_nodes] = self.game.get_env_legal_action_masks(env_states)
+            self.legal_actions_mask[env_idx, env_nodes, :self.n_stochastic_actions] = self.game.get_env_legal_action_masks(env_states)
 
         # For any roots, if there is only one valid action, set the flag; prevents searching for efficiency
         self.set_only_one_action(idx, nodes, self.legal_actions_mask[idx, nodes])
@@ -408,7 +407,7 @@ class MCTS:
         # back up values
         if nodesp.shape[0] > 0:
             self.backup(idxp, self.parent_nodes[idxp, nodesp], self.actions[idxp, nodesp],
-                        self.rewards[idxp, nodesp] + (self.hyperparams.discount * values))
+                        self.rewards[idxp, nodesp] + (self.hyperparams.discount * values[has_parent]))
 
         # no longer leaves
         self.is_leaf[idx, nodes] = False
@@ -436,13 +435,31 @@ class MCTS:
         self.w[idx, nodes, actions] += values
         self.n[idx, nodes, actions] += 1
 
+        self.update_max_min_q(idx, nodes, actions, values)
+
         parents = self.parent_nodes[idx, nodes]
         actions = self.actions[idx, nodes]
         q = self.rewards[idx, nodes] + self.hyperparams.discount * values
-        mask = (parents != 0)
+        mask = (nodes != 0)
         self.backup(idx[mask], parents[mask], actions[mask], q[mask])
 
+    def update_max_min_q(self, idx, nodes, actions, values):
+        """
+        Call this only after updating w and n for the idx, nodes, actions
+        """
+        # Only possible max Q has gone up if values > maxQ or this is the first value
+        # Check those and update if appropriate
+        update = (values.amax(dim=1) > self.maxQ[idx]) | torch.isnan(self.maxQ[idx])
+        q = self.w[idx[update], nodes[update], actions[update]].amax(dim=1) / self.n[idx[update], nodes[update], actions[update]]
+        self.maxQ[idx[update]] = torch.fmax(q, self.maxQ[idx[update]])  # fmax will update nans
+
+        # Only possible min Q has gone down if values < minQ
+        update = (values.amin(dim=1) < self.minQ[idx]) | torch.isnan(self.minQ[idx])
+        q = self.w[idx[update], nodes[update], actions[update]].amin(dim=1) / self.n[idx[update], nodes[update], actions[update]]
+        self.minQ[idx[update]] = torch.fmin(q, self.minQ[idx[update]])
+
     def add_dirichlet_noise(self):
+        self.need_to_add_dirichlet_noise[:] = False
         expanded_roots = ~self.is_leaf[self.root_idx, 1]
         self._add_dirichlet_noise(self.root_idx[expanded_roots])
 
@@ -469,80 +486,115 @@ class MCTS:
 
         :param new_roots: The new states to start the new tree from
         """
-        return
-        # TODO : fix this for new style
-        mcts = MCTS(self.game, self.evaluator, self.hyperparams, new_roots)
-        mcts.next_empty_nodes[:] = 1  # For convenience, we're just going to overwrite the root
+        # First, we need to find the new_roots nodes if they are in the current trees
 
-        # Maybe you could try to do these in parallel? but much simpler to write by doing each root one by one
-        for root in self.root_idx:
-            state_match = (self.states[root] == new_roots[root])
-            for _ in self.state_shape:
-                state_match = state_match.all(dim=1)
+        state_match = self.states[self.root_idx] == new_roots.unsqueeze(1)
+        for _ in range(len(self.state_shape)):
+            state_match = state_match.all(dim=-1)
 
-            node_idx = state_match.nonzero().flatten()
-            if node_idx.shape[0] == 0:
-                mcts.next_empty_nodes[root] = 2  # This state was not visited in existing tree, just keep the root we set in the constructor
-                continue
+        state_match *= (~self.is_env[self.root_idx])
 
-            if node_idx.shape[0] > 1:
-                best = self.n[root, node_idx].sum(dim=1).argmax()
-                node_idx = node_idx[best].item()
-            else:
-                node_idx = node_idx.item()
+        # We'll use the first match we find, per root
+        new_root_nodes = state_match.int().argmax(dim=1)
 
-            player_nodes = [(0, None, None, node_idx)]  # Format is: parent_node, env_parent_node (or None), env_parent_action (or None), node_idx
-            env_nodes = []  # Format is parent_node, node_idx, action
+        # Move the new roots to position 1, much easier to keep it this way, costs a little time to do these copies
+        move = (new_root_nodes != 0)
+        self.states[self.root_idx[move], 1] = self.states[self.root_idx[move], new_root_nodes[move]]
+        self.legal_actions_mask[self.root_idx[move], 1] = self.legal_actions_mask[self.root_idx[move], new_root_nodes[move]]
+        self.pi[self.root_idx[move], 1] = self.pi[self.root_idx[move], new_root_nodes[move]]
+        self.values[self.root_idx[move], 1] = self.values[self.root_idx[move], new_root_nodes[move]]
+        self.is_terminal[self.root_idx[move], 1] = self.is_terminal[self.root_idx[move], new_root_nodes[move]]
+        self.is_leaf[self.root_idx[move], 1] = self.is_leaf[self.root_idx[move], new_root_nodes[move]]
+        self.is_env[self.root_idx[move], 1] = self.is_env[self.root_idx[move], new_root_nodes[move]]
+        self.next_idx[self.root_idx[move], 1] = self.next_idx[self.root_idx[move], new_root_nodes[move]]
+        self.player_index[self.root_idx[move], 1] = self.player_index[self.root_idx[move], new_root_nodes[move]]
+        self.w[self.root_idx[move], 1] = self.w[self.root_idx[move], new_root_nodes[move]]
+        self.n[self.root_idx[move], 1] = self.n[self.root_idx[move], new_root_nodes[move]]
+        new_root_nodes[move] = 1
 
-            while len(player_nodes) > 0 or len(env_nodes) > 0:
-                # Handle all the player_nodes first
-                if len(player_nodes) > 0:
-                    new_parent, env_parent, env_action, node = player_nodes.pop()
-                    new_node = mcts.next_empty_nodes[root].clone()
+        # Update parent of children to be 1
+        children = self.next_idx[self.root_idx[move], 1]
+        self.parent_nodes[self.root_idx[move].unsqueeze(-1).repeat(1, children.shape[1]), children] = 1
+        # Reset and parent nodes at 0 to 0
+        self.parent_nodes[self.root_idx[move], 0] = 0
 
-                    mcts.states[root, new_node] = self.states[root, node]
-                    mcts.rewards[root, new_node] = self.rewards[root, node]
-                    mcts.is_terminal[root, new_node] = self.is_terminal[root, node]
-                    mcts.parent_nodes[root, new_node] = new_parent
-                    mcts.pi[root, new_node] = self.pi[root, node]
-                    mcts.n[root, new_node] = self.n[root, node]
-                    mcts.w[root, new_node] = self.w[root, node]
-                    mcts.player_index[root, new_node] = self.player_index[root, node]
-                    mcts.actions[root, new_node] = self.actions[root, node]
-                    mcts.is_leaf[root, new_node] = self.is_leaf[root, node]
-                    mcts.env_is_next[root, new_node] = self.env_is_next[root, node]
+        r = self.root_idx.unsqueeze(-1)
+        c = new_root_nodes.unsqueeze(-1)
+        keep_nodes = [c]
 
-                    if env_parent is not None:
-                        mcts.next_idx_env[root, env_parent, env_action] = new_node
-                    elif new_parent > 0:
-                        mcts.next_idx[root, new_parent, self.actions[root, node]] = new_node
+        while True:
+            c = self.next_idx[r.repeat(1, c.shape[1]), c].reshape(self.states.shape[0], -1)
+            c = c.sort(dim=1, descending=True).values
+            non_zero_range = c.argmin(dim=-1).max()
 
-                    # Enqueue the children
-                    for action, next_idx in enumerate(self.next_idx[root, node]):
-                        if next_idx != 0:
-                            if self.env_is_next[root, node, action]:
-                                env_nodes.append((new_node, next_idx, action))
-                            else:
-                                player_nodes.append((new_node, None, None, next_idx))
+            if non_zero_range == 0:
+                break
 
-                    mcts.next_empty_nodes[root] += 1
-                else:
-                    new_parent, env_node, action = env_nodes.pop()
-                    new_env_node = mcts.next_empty_nodes_env[root].clone()
-                    mcts.env_states[root, new_env_node] = self.env_states[root, env_node]
-                    mcts.env_state_rewards[root, new_env_node] = self.env_state_rewards[root, env_node]
-                    mcts.next_idx[root, new_parent, action] = new_env_node
+            c = c[:, :non_zero_range]
+            keep_nodes.append(c)
 
-                    # Enqueue the children
-                    for action, next_idx in enumerate(self.next_idx_env[root, env_node]):
-                        if next_idx != 0:
-                            player_nodes.append((new_parent, new_env_node, action, next_idx))
+        keep_nodes = torch.cat(keep_nodes, dim=1)
+        keep_nodes = keep_nodes.sort(dim=1, descending=True).values
 
-                    mcts.next_empty_nodes_env[root] += 1
+        # Keep nodes now contains all the nodes that will be preserved
+        # We need to get the reciprocal nodes, i.e., which in 1:self.max_nodes are not in keep_nodes
+        def get_empty_nodes(row_of_keep_nodes):
+            empty_nodes_range = torch.arange(1, self.total_states+1)
+            match = torch.isin(empty_nodes_range, row_of_keep_nodes, invert=True)
+            empty_nodes = empty_nodes_range * match + (self.total_states * ~match)
+            # sort
+            empty_nodes = empty_nodes.sort().values
+            return empty_nodes
 
-        mcts.set_only_one_action(mcts.root_idx, torch.ones((mcts.root_idx.shape[0],), dtype=torch.long, device=mcts.device),
-                                 (mcts.pi[mcts.root_idx, 1] > 0.0))
+        # Use vmap to apply this across the keep_nodes
+        self.empty_nodes = torch.vmap(get_empty_nodes)(keep_nodes).to(self.empty_nodes.dtype)
+        self.next_empty_node_pointers[:] = 0
 
-        assert ((mcts.parent_nodes[:, 1] != 1).all())
+        # We need to set all empty nodes as is_leaf
+        empty_nodes_capped = torch.minimum(self.empty_nodes, torch.tensor(self.total_states-1, dtype=torch.int))
+        roots = r.repeat(1, self.empty_nodes.shape[1])
+        self.is_leaf[roots, empty_nodes_capped] = True
+        # Reset the next_idx for empty_nodes to 0
+        self.next_idx[roots, empty_nodes_capped] = 0
+        # Reset w and n
+        self.w[roots, empty_nodes_capped] = 0
+        self.n[roots, empty_nodes_capped] = 0
 
-        return mcts
+        # If new_root_nodes is 0, we don't have the node in the tree, so we need to put it in at empty_nodes
+        insert_new_roots = (new_root_nodes == 0)
+        assert (self.next_empty_nodes[insert_new_roots] == 1).all()
+        self.states[self.root_idx[insert_new_roots], 1] = new_roots[insert_new_roots]
+        self.is_leaf[self.root_idx[insert_new_roots], 1] = True  # These states weren't in the tree, need to be expanded
+        self.next_empty_node_pointers[insert_new_roots] += 1
+        new_root_nodes[insert_new_roots] = 1
+
+        # For the roots we insert, we need to reset w and n to zeros
+        self.w[self.root_idx[insert_new_roots], 1] = 0
+        self.n[self.root_idx[insert_new_roots], 1] = 0
+
+        assert (new_root_nodes == 1).all().item()
+
+        # Update root nodes
+        self.root_nodes = new_root_nodes
+
+        # Clear the parent nodes of the new roots
+        self.parent_nodes[self.root_idx, new_root_nodes] = 0
+
+        # Handle terminal roots
+        self.handle_terminal_roots()
+
+        # Reset only_one_action
+        self.only_one_action[:] = False
+
+        # Start at root
+        self.cur_nodes[:] = new_root_nodes
+
+        if add_dirichlet_noise:
+            self.add_dirichlet_noise()
+
+        # Update the n row zero
+        self.n[:, 0, 0] = self.n[:, 1].sum(dim=1)
+
+        # TODO: update maxQ/minQ ?
+
+        return self
