@@ -7,7 +7,7 @@ from ....training_manager.alpha_training_manager import AlphaNetworkEvaluator
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiNetwork
 from torchvision.models.resnet import BasicBlock
 from .... import Flatten
-from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser
+from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser, bucketize, digitize
 
 
 class G2048MultiNetwork(AlphaMultiNetwork, AlphaNetworkEvaluator):
@@ -123,10 +123,6 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         value_bucket_logits = self.value_logits_head(base)
         return policy_logits, value_bucket_logits
 
-    @property
-    def device(self):
-        return next(self.parameters()).device
-
     @torch.no_grad()
     def evaluate(self, state):
         if state.shape[1] != 16:
@@ -137,7 +133,7 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
         pi = torch.softmax(pi_logits, dim=1)
         value_bucket_softmax = torch.softmax(value_bucket_logits, dim=1)
 
-        scaled_value = self.digitize(value_bucket_softmax, self.buckets)
+        scaled_value = digitize(value_bucket_softmax, self.buckets)
         value = self.inverse_scale(scaled_value).unsqueeze(1)
         return pi, value
 
@@ -147,28 +143,10 @@ class G2048MultiNetworkV2(AlphaMultiNetwork, BaseAlphaEvaluator):
     def scale_value(self, value):
         return torch.sign(value) * (torch.sqrt(torch.abs(value) + 1) - 1 + self.hyperparams.value_scale_epsilon * value)
 
-    @staticmethod
-    def bucketize(scaled_value, buckets, n_value_buckets):
-        bucketized = torch.clip(torch.bucketize(scaled_value, buckets), max=(n_value_buckets-1))
-        bucketized_low = torch.clip(bucketized - 1, min=0)
-        bucket_values = buckets[bucketized]
-        one_less_buckets = buckets[bucketized_low]
-        bucket_weight = torch.clip((scaled_value - one_less_buckets)
-                                   / (bucket_values - one_less_buckets + (bucket_values == one_less_buckets)),
-                                   min=0.0, max=1.0)
-        out = torch.zeros((scaled_value.shape[0], n_value_buckets), device=scaled_value.device)
-        out[torch.arange(scaled_value.shape[0]), bucketized.flatten()] = bucket_weight.flatten()
-        out[torch.arange(scaled_value.shape[0]), bucketized_low.flatten()] = 1 - bucket_weight.flatten()
-        return out
-
-    @staticmethod
-    def digitize(bucketized_values, buckets):
-        return torch.sum(buckets * bucketized_values, dim=1)
-
     def scale_and_bucketize_values(self, value):
         value = value.reshape(-1, 1)
         scaled_value = self.scale_value(value)
-        out = self.bucketize(scaled_value, self.buckets, self.hyperparams.n_value_buckets)
+        out = bucketize(scaled_value, self.buckets, self.hyperparams.n_value_buckets)
         return out
 
     def inverse_scale(self, scaled_value):
@@ -246,7 +224,7 @@ class G2048MultiNetworkV3(G2048MultiNetworkV2):
     def scale_and_bucketize_num_moves(self, num_moves):
         value = num_moves.reshape(-1, 1)
         scaled_value = self.scale_value(num_moves)
-        out = self.bucketize(scaled_value, self.num_move_buckets, self.hyperparams.n_num_move_buckets)
+        out = bucketize(scaled_value, self.num_move_buckets, self.hyperparams.n_num_move_buckets)
         return out
 
     @torch.no_grad()
@@ -259,11 +237,11 @@ class G2048MultiNetworkV3(G2048MultiNetworkV2):
         pi = torch.softmax(pi_logits, dim=1)
 
         value_bucket_softmax = torch.softmax(value_bucket_logits, dim=1)
-        scaled_value = self.digitize(value_bucket_softmax, self.buckets)
+        scaled_value = digitize(value_bucket_softmax, self.buckets)
         value = self.inverse_scale(scaled_value).unsqueeze(1)
 
         num_moves_softmax = torch.softmax(num_moves_logits, dim=1)
-        num_moves = self.digitize(num_moves_softmax, self.num_move_buckets)
+        num_moves = digitize(num_moves_softmax, self.num_move_buckets)
         num_moves = self.inverse_scale(num_moves).unsqueeze(1)
 
         return pi, value, num_moves

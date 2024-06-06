@@ -14,6 +14,10 @@ class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
     def loss(self, states, pis, values, *args, **kwargs) -> Tuple[torch.Tensor, ...]:
         raise NotImplementedError()
 
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
 
 class AlphaMultiTrainingRunLightning(pl.LightningModule):
     def __init__(self, game_class: Type[GameMulti], network: AlphaMultiNetwork,

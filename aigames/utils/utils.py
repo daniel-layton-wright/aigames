@@ -3,6 +3,7 @@ import sys
 from importlib import import_module
 from typing import Optional, List
 from .listeners import RewardListener, GameListener
+from .. import GameListenerMulti
 
 
 # TODO: replace this with more general version
@@ -38,7 +39,8 @@ def play_tournament(game_class, players, n_games, tqdm=True, listeners: Optional
         game.play()
 
 
-def play_tournament_multi(game_class, players, n_parallel_games, n_rounds, tqdm=True, listeners: Optional[List[GameListener]] = None):
+def play_tournament_multi(game_class, players, n_parallel_games, n_rounds, tqdm=True,
+                          listeners: Optional[List[GameListenerMulti]] = None):
     if not tqdm:
         loop = range(n_rounds)
     else:
@@ -179,3 +181,23 @@ def import_string(dotted_path):
             'Module "%s" does not define a "%s" attribute/class'
             % (module_path, class_name)
         ) from err
+
+
+def bucketize(scaled_value, buckets, n_value_buckets):
+    import torch
+    bucketized = torch.clip(torch.bucketize(scaled_value, buckets), max=(n_value_buckets-1))
+    bucketized_low = torch.clip(bucketized - 1, min=0)
+    bucket_values = buckets[bucketized]
+    one_less_buckets = buckets[bucketized_low]
+    bucket_weight = torch.clip((scaled_value - one_less_buckets)
+                               / (bucket_values - one_less_buckets + (bucket_values == one_less_buckets)),
+                               min=0.0, max=1.0)
+    out = torch.zeros((scaled_value.shape[0], n_value_buckets), device=scaled_value.device)
+    out[torch.arange(scaled_value.shape[0]), bucketized.flatten()] = bucket_weight.flatten()
+    out[torch.arange(scaled_value.shape[0]), bucketized_low.flatten()] = 1 - bucket_weight.flatten()
+    return out
+
+
+def digitize(bucketized_values, buckets):
+    import torch
+    return torch.sum(buckets * bucketized_values, dim=-1)
