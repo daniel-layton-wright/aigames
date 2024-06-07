@@ -109,8 +109,8 @@ def test_alpha_agent_playing_hearts_speed():
 
 def main():
     states, actions = get_random_states(2000)
-    #test_get_legal_action_masks_speed(states)
-    #test_get_next_states_speed(states, actions)
+    test_get_legal_action_masks_speed(states)
+    test_get_next_states_speed(states, actions)
     test_alpha_agent_playing_hearts_speed()
 
 

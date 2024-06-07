@@ -1,8 +1,5 @@
-"""
-
-"""
 import enum
-from typing import Tuple
+from typing import Tuple, Final
 from aigames.game.game_multi import GameMulti
 import torch
 
@@ -91,34 +88,45 @@ class HeartsHelper:
               Card.QUEEN_OF_HEARTS, Card.KING_OF_HEARTS, Card.ACE_OF_HEARTS]
 
     # noinspection PyTypeChecker
-    clubs_mask = torch.where((torch.arange(52) >= Card.TWO_OF_CLUBS.value) & (torch.arange(52) <= Card.ACE_OF_CLUBS.value),
-                             torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
-    diamonds_mask = torch.where((torch.arange(52) >= Card.TWO_OF_DIAMONDS.value) & (torch.arange(52) <= Card.ACE_OF_DIAMONDS.value),
-                                torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
-    spades_mask = torch.where((torch.arange(52) >= Card.TWO_OF_SPADES.value) & (torch.arange(52) <= Card.ACE_OF_SPADES.value),
-                              torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
-    hearts_mask = torch.where(torch.arange(52) >= Card.TWO_OF_HEARTS.value,
-                              torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
+    clubs_mask: Final = torch.where((torch.arange(52) >= Card.TWO_OF_CLUBS.value)
+                                    & (torch.arange(52) <= Card.ACE_OF_CLUBS.value),
+                                    torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
+    # noinspection PyTypeChecker
+    diamonds_mask: Final = torch.where((torch.arange(52) >= Card.TWO_OF_DIAMONDS.value)
+                                       & (torch.arange(52) <= Card.ACE_OF_DIAMONDS.value),
+                                       torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
+    # noinspection PyTypeChecker
+    spades_mask: Final = torch.where((torch.arange(52) >= Card.TWO_OF_SPADES.value)
+                                     & (torch.arange(52) <= Card.ACE_OF_SPADES.value),
+                                     torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
+    # noinspection PyTypeChecker
+    hearts_mask: Final = torch.where(torch.arange(52) >= Card.TWO_OF_HEARTS.value,
+                                     torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
 
     # you can index into the suit_masks by suit index to get the mask for that suit
-    suit_masks = torch.stack([clubs_mask, diamonds_mask, spades_mask, hearts_mask], dim=0)
+    suit_masks: Final = torch.stack([clubs_mask, diamonds_mask, spades_mask, hearts_mask], dim=0)
 
-    two_of_clubs_mask = torch.where(torch.arange(52) == Card.TWO_OF_CLUBS.value, torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
+    # noinspection PyTypeChecker
+    two_of_clubs_mask: Final = torch.where(torch.arange(52) == Card.TWO_OF_CLUBS.value,
+                                           torch.ones(52), torch.zeros(52)).to(torch.bool).unsqueeze(0)
 
-    rewards_mask = (torch.where(hearts_mask, -1, 0)
-                    + torch.where(torch.arange(52) == Card.QUEEN_OF_SPADES.value, -13, 0)).to(torch.float32).unsqueeze(0)
+    # noinspection PyTypeChecker
+    rewards_mask: Final = (torch.where(hearts_mask, -1, 0)
+                           + torch.where(torch.arange(52) == Card.QUEEN_OF_SPADES.value, -13, 0)).to(torch.float32)
 
 
 def is_terminal_core(states):
     return states[:, 0, 2] == 52  # All 52 cards have been played
 
 
-def get_next_states_core(states, actions):
+def get_next_states_core(states, actions, clubs_mask=HeartsHelper.clubs_mask, diamonds_mask=HeartsHelper.diamonds_mask,
+                         spades_mask=HeartsHelper.spades_mask, hearts_mask=HeartsHelper.hearts_mask,
+                         rewards_mask=HeartsHelper.rewards_mask):
     n = states.shape[0]
     r = torch.arange(n)
     next_states: torch.Tensor = states.clone()
     rewards = torch.zeros(n, 4)
-    is_env: torch.BoolTensor = torch.zeros(n, dtype=torch.bool, device=states.device)
+    is_env = torch.zeros(n, dtype=torch.bool, device=states.device)
 
     # Update the current player
     cur_player = states[r, 0, 0]
@@ -150,23 +158,23 @@ def get_next_states_core(states, actions):
     # Get the suit led
     cards_in_trick = next_states[last_card_in_trick, 4, 3:]
     led_card = (cards_in_trick == 1)
-    clubs_led = (led_card * HeartsHelper.clubs_mask).any(dim=-1, keepdim=True)
-    diamonds_led = (led_card * HeartsHelper.diamonds_mask).any(dim=-1, keepdim=True)
-    spades_led = (led_card * HeartsHelper.spades_mask).any(dim=-1, keepdim=True)
-    hearts_led = (led_card * HeartsHelper.hearts_mask).any(dim=-1, keepdim=True)
+    clubs_led = (led_card * clubs_mask).any(dim=-1, keepdim=True)
+    diamonds_led = (led_card * diamonds_mask).any(dim=-1, keepdim=True)
+    spades_led = (led_card * spades_mask).any(dim=-1, keepdim=True)
+    hearts_led = (led_card * hearts_mask).any(dim=-1, keepdim=True)
 
     cards_in_trick = cards_in_trick.to(torch.bool)
 
-    in_suit_cards = (cards_in_trick * clubs_led * HeartsHelper.clubs_mask |
-                     cards_in_trick * diamonds_led * HeartsHelper.diamonds_mask |
-                     cards_in_trick * spades_led * HeartsHelper.spades_mask |
-                     cards_in_trick * hearts_led * HeartsHelper.hearts_mask)
+    in_suit_cards = (cards_in_trick * clubs_led * clubs_mask |
+                     cards_in_trick * diamonds_led * diamonds_mask |
+                     cards_in_trick * spades_led * spades_mask |
+                     cards_in_trick * hearts_led * hearts_mask)
 
     winning_index = (torch.arange(52) * in_suit_cards).argmax(dim=-1) + 3
     winning_player = next_states[last_card_in_trick, 2, winning_index]
 
     # Update rewards of winning player
-    rewards[last_card_in_trick, winning_player.to(int) - 1] = (cards_in_trick * HeartsHelper.rewards_mask).sum(dim=-1)
+    rewards[last_card_in_trick, winning_player.to(torch.int) - 1] = (cards_in_trick * rewards_mask).sum(dim=-1)
 
     # All the cards in this trick go to the winning player
     next_states[last_card_in_trick, 3, 3:] += winning_player.unsqueeze(1) * cards_in_trick
@@ -180,17 +188,17 @@ def get_next_states_core(states, actions):
 
     # Handle shooting the moon. If a player has all the hearts and the queen of spades, they're cumulative reward
     # for the game needs to be brought to 0 and everyone else gets -26
-    points = (torch.stack([(next_states[:, 3, 3:] == (i + 1)).int() for i in range(4)]) * HeartsHelper.rewards_mask).sum(
+    points = (torch.stack([(next_states[:, 3, 3:] == (i + 1)).int() for i in range(4)]) * rewards_mask).sum(
         dim=-1).T
     # points is an N x 4 matrix where an entry in row i, column j is the points for player j in game i
 
-    points *= (rewards != 0)  # for the purpose of rewards, we're only counting moon shooting if they shoot the moon *this* trick
+    points *= (rewards != 0)  # for the purpose of rewards, only reward if they shoot the moon *this* trick
 
     # Get the index of the player who has all the hearts and the queen of spades
-    moon_shooter = (points == -26).nonzero(as_tuple=True)
-    cur_moon_shooter_rewards = rewards[moon_shooter[0], moon_shooter[1]]
-    rewards[moon_shooter[0], :] = -26
-    rewards[moon_shooter[0], moon_shooter[1]] = 26 + cur_moon_shooter_rewards
+    moon_shooter = (points == -26).nonzero()
+    cur_moon_shooter_rewards = rewards[moon_shooter]
+    rewards[moon_shooter[:, 0], :] = -26
+    rewards[moon_shooter] = 26 + cur_moon_shooter_rewards
 
     # TODO: maybe do early stopping if all the points have been taken
 
@@ -199,41 +207,44 @@ def get_next_states_core(states, actions):
     return next_states, rewards, is_env, is_terminal
 
 
-def get_legal_action_masks_core(states):
+def get_legal_action_masks_core(states, clubs_mask=HeartsHelper.clubs_mask, diamonds_mask=HeartsHelper.diamonds_mask,
+                                spades_mask=HeartsHelper.spades_mask, hearts_mask=HeartsHelper.hearts_mask,
+                                two_of_clubs_mask=HeartsHelper.two_of_clubs_mask):
+
     # The base legal action mask is the cards in the current player's
     cur_player_hand = states[:, 0, 3:].eq(states[:, 0, 0].unsqueeze(1))
 
     first_move_of_game = (states[:, 0, 2] == 0)  # have to start with two of clubs
 
     cur_player_lead = (states[:, 0, 1] == 0)  # 0 cards played to current trick
-    hearts_broken = ((states[:, 1, 3:] * HeartsHelper.hearts_mask) > 0).any(dim=-1)  # shape: n
+    hearts_broken = ((states[:, 1, 3:] * hearts_mask) > 0).any(dim=-1)  # shape: n
 
     led_cards = (states[:, 4, 3:] == 1)  # shape: n x 52
-    clubs_led = ((led_cards * HeartsHelper.clubs_mask) > 0).any(dim=-1)  # shape: n
-    diamonds_led = ((led_cards * HeartsHelper.diamonds_mask) > 0).any(dim=-1)
-    spades_led = ((led_cards * HeartsHelper.spades_mask) > 0).any(dim=-1)
-    hearts_led = ((led_cards * HeartsHelper.hearts_mask) > 0).any(dim=-1)
+    clubs_led = ((led_cards * clubs_mask) > 0).any(dim=-1)  # shape: n
+    diamonds_led = ((led_cards * diamonds_mask) > 0).any(dim=-1)
+    spades_led = ((led_cards * spades_mask) > 0).any(dim=-1)
+    hearts_led = ((led_cards * hearts_mask) > 0).any(dim=-1)
 
-    has_clubs = (cur_player_hand * HeartsHelper.clubs_mask).any(dim=-1)
-    has_diamonds = (cur_player_hand * HeartsHelper.diamonds_mask).any(dim=-1)
-    has_spades = (cur_player_hand * HeartsHelper.spades_mask).any(dim=-1)
-    has_hearts = (cur_player_hand * HeartsHelper.hearts_mask).any(dim=-1)
+    has_clubs = (cur_player_hand * clubs_mask).any(dim=-1)
+    has_diamonds = (cur_player_hand * diamonds_mask).any(dim=-1)
+    has_spades = (cur_player_hand * spades_mask).any(dim=-1)
+    has_hearts = (cur_player_hand * hearts_mask).any(dim=-1)
     has_non_hearts = (has_clubs | has_diamonds | has_spades)
 
     #########################################################################
     # Do all calculations below here after figuring out necessary variables #
     #########################################################################
     legal_action_masks = cur_player_hand.clone()
-    legal_action_masks[first_move_of_game] *= HeartsHelper.two_of_clubs_mask
+    legal_action_masks[first_move_of_game] *= two_of_clubs_mask
 
     # Can't lead hearts until hearts has been broken or you only have hearts
-    legal_action_masks[cur_player_lead & ~hearts_broken & has_non_hearts] *= (~HeartsHelper.hearts_mask)
+    legal_action_masks[cur_player_lead & ~hearts_broken & has_non_hearts] *= (~hearts_mask)
 
     # Have to follow suit if possible
-    legal_action_masks[clubs_led & has_clubs] *= HeartsHelper.clubs_mask
-    legal_action_masks[diamonds_led & has_diamonds] *= HeartsHelper.diamonds_mask
-    legal_action_masks[spades_led & has_spades] *= HeartsHelper.spades_mask
-    legal_action_masks[hearts_led & has_hearts] *= HeartsHelper.hearts_mask
+    legal_action_masks[clubs_led & has_clubs] *= clubs_mask
+    legal_action_masks[diamonds_led & has_diamonds] *= diamonds_mask
+    legal_action_masks[spades_led & has_spades] *= spades_mask
+    legal_action_masks[hearts_led & has_hearts] *= hearts_mask
 
     return legal_action_masks
 
@@ -260,14 +271,11 @@ class Hearts(GameMulti):
 
     The row 4 is the order in which cards were played in the current trick
     """
-    # get_next_states_jit = torch.jit.trace(get_next_states_core,
-    #                                       (torch.randint(2, (2, 5, 55), dtype=torch.int8), torch.randint(52, (2,))),
-    #                                       check_inputs=((torch.randint(2, (2, 5, 55), dtype=torch.int8), torch.randint(52, (2,))),))
-    # get_legal_action_masks_jit = torch.jit.trace(get_legal_action_masks_core,
-    #                                              torch.randint(2, (2, 5, 55), dtype=torch.int8),
-    #                                              check_inputs=(torch.randint(2, (2, 5, 55), dtype=torch.int8)))
-    # is_terminal_jit = torch.jit.trace(is_terminal_core, torch.randint(2, (2, 5, 55), dtype=torch.int8),
-    #                                   check_inputs=(torch.randint(2, (2, 5, 55), dtype=torch.int8)))
+    device = 'cpu'
+
+    get_next_states_jit = torch.jit.script(get_next_states_core)
+    get_legal_action_masks_jit = torch.jit.script(get_legal_action_masks_core)  # trace wasn't working, not sure why
+    is_terminal_jit = torch.jit.script(is_terminal_core)
 
     @classmethod
     def get_n_players(cls) -> int:
@@ -293,12 +301,12 @@ class Hearts(GameMulti):
     def get_initial_states(cls, n) -> torch.Tensor:
         # Start by generating an n x 52 tensor that is a random permutation of 13 1s, 2s, 3s, 4s
         # This will represent the cards in the hands of the players
-        hands = (1 + torch.arange(4, dtype=torch.int8)).repeat(n, 13)
+        hands = (1 + torch.arange(4, dtype=torch.int8, device=cls.device)).repeat(n, 13)
         random_perm = torch.argsort(torch.rand(*hands.shape), dim=-1)
         hands = hands[torch.arange(hands.shape[0]).unsqueeze(-1), random_perm]
         player_with_2clubs = hands[:, HeartsHelper.Card.TWO_OF_CLUBS.value]
 
-        states = torch.zeros(n, 5, 55, dtype=torch.int8)
+        states = torch.zeros(n, 5, 55, dtype=torch.int8, device=cls.device)
         states[:, 0, 3:] = hands
         states[:, 0, 0] = player_with_2clubs  # two of clubs goes first
         return states
@@ -338,15 +346,15 @@ class Hearts(GameMulti):
         legal_action_masks = Hearts.get_legal_action_masks(state.unsqueeze(0)).squeeze(0)
 
         # Extract information for each player
-        for player_idx in range(4):
-            player_name = f"Player {player_idx + 1}"
+        for pidx in range(4):
+            player_name = f"Player {pidx + 1}"
             current_score = (state[3, 3:].eq(
-                player_idx + 1) * HeartsHelper.rewards_mask).sum().int().item()  # Sum of rewards for this player
-            cards_in_hand = state[0, 3:] == (player_idx + 1)  # Assuming cards in hand starts from index 3
-            is_current_player = state[0, 0] == player_idx + 1
+                pidx + 1) * HeartsHelper.rewards_mask).sum().int().item()  # Sum of rewards for this player
+            cards_in_hand = state[0, 3:] == (pidx + 1)  # Assuming cards in hand starts from index 3
+            is_current_player = state[0, 0] == pidx + 1
 
             # Find the card played to the current trick by this player
-            current_trick_card_idx = (state[2, 3:] * (state[4, 3:] > 0).int()).eq(player_idx + 1).nonzero(as_tuple=True)[0]
+            current_trick_card_idx = (state[2, 3:] * (state[4, 3:] > 0).int()).eq(pidx + 1).nonzero(as_tuple=True)[0]
             current_trick_card = str(HeartsHelper.Card(
                 current_trick_card_idx.item())) if current_trick_card_idx.numel() > 0 else ""
 
@@ -355,18 +363,33 @@ class Hearts(GameMulti):
             player_name_colored = player_name  # colored(player_name, 'green') if is_current_player else player_name
 
             # Split cards in hand by suits with legal actions colored green
-            clubs = ' '.join(
-                [colored(str(HeartsHelper.Card(card_idx)), 'green') if legal_action_masks[card_idx] else str(HeartsHelper.Card(card_idx)) for card_idx, present in enumerate(cards_in_hand[:13]) if present])
-            diamonds = ' '.join(
-                [colored(str(HeartsHelper.Card(card_idx + 13)), 'green') if legal_action_masks[card_idx + 13] else str(HeartsHelper.Card(card_idx + 13)) for card_idx, present in enumerate(cards_in_hand[13:26]) if present])
-            spades = ' '.join(
-                [colored(str(HeartsHelper.Card(card_idx + 26)), 'green') if legal_action_masks[card_idx + 26] else str(HeartsHelper.Card(card_idx + 26)) for card_idx, present in enumerate(cards_in_hand[26:39]) if present])
-            hearts = ' '.join(
-                [colored(str(HeartsHelper.Card(card_idx + 39)), 'green') if legal_action_masks[card_idx + 39] else str(HeartsHelper.Card(card_idx + 39)) for card_idx, present in enumerate(cards_in_hand[39:]) if present])
+            clubs = ' '.join([
+                colored(str(HeartsHelper.Card(card_idx)), 'green') if legal_action_masks[card_idx]
+                else str(HeartsHelper.Card(card_idx)) for card_idx, present in enumerate(cards_in_hand[:13]) if present
+            ])
+            diamonds = ' '.join([
+                colored(str(HeartsHelper.Card(card_idx + 13)), 'green') if legal_action_masks[card_idx + 13]
+                else str(HeartsHelper.Card(card_idx + 13))
+                for card_idx, present in enumerate(cards_in_hand[13:26]) if present
+            ])
+            spades = ' '.join([
+                colored(str(HeartsHelper.Card(card_idx + 26)), 'green')
+                if legal_action_masks[card_idx + 26]
+                else str(HeartsHelper.Card(card_idx + 26))
+                for card_idx, present in enumerate(cards_in_hand[26:39]) if present
+            ])
+            hearts = ' '.join([
+                colored(str(HeartsHelper.Card(card_idx + 39)), 'green')
+                if legal_action_masks[card_idx + 39]
+                else str(HeartsHelper.Card(card_idx + 39))
+                for card_idx, present in enumerate(cards_in_hand[39:]) if present
+            ])
+
             # Append the row for this player
-            data.append(
-                [turn_indicator, player_name_colored, current_score, colored(current_trick_card, 'yellow'), clubs, diamonds, spades,
-                 hearts])
+            data.append([
+                turn_indicator, player_name_colored, current_score, colored(current_trick_card, 'yellow'),
+                clubs, diamonds, spades, hearts
+            ])
 
         # Create the DataFrame
         df = pd.DataFrame(data, columns=columns)
@@ -378,7 +401,8 @@ class Hearts(GameMulti):
         def terminal_len(s):
             # length of string when stripping out formatting characters
             return len(re.sub(
-                r'[\u001B\u009B][\[\]()#;?]*((([a-zA-Z\d]*(;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\u0007)|((\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~]))',
+                r'[\u001B\u009B][\[\]()#;?]*((([a-zA-Z\d]*(;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\u0007)'
+                r'|((\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~]))',
                 '', s))
 
         def terminal_ljust(s, ljustlen):
@@ -398,3 +422,7 @@ class Hearts(GameMulti):
         out += '-' * (2*len(columns) + sum(max_len[col] for col in columns)) + '\n'
 
         return out
+
+
+class HeartsCuda(Hearts):
+    device = 'cuda'

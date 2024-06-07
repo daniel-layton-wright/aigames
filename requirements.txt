@@ -13,3 +13,4 @@ setuptools~=65.6.3
 torchvision~=0.15.2
 termcolor
 jax~=0.4.25
+pandas
