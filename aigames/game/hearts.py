@@ -130,9 +130,9 @@ def get_next_states_core(states, actions, clubs_mask=HeartsHelper.clubs_mask, di
     rewards_mask = rewards_mask.to(states.device)
 
     n = states.shape[0]
-    r = torch.arange(n)
+    r = torch.arange(n, device=states.device)
     next_states: torch.Tensor = states.clone()
-    rewards = torch.zeros(n, 4)
+    rewards = torch.zeros(n, 4, device=states.device)
     is_env = torch.zeros(n, dtype=torch.bool, device=states.device)
 
     # Update the current player
@@ -177,7 +177,7 @@ def get_next_states_core(states, actions, clubs_mask=HeartsHelper.clubs_mask, di
                      cards_in_trick * spades_led * spades_mask |
                      cards_in_trick * hearts_led * hearts_mask)
 
-    winning_index = (torch.arange(52) * in_suit_cards).argmax(dim=-1) + 3
+    winning_index = (torch.arange(52, device=states.device) * in_suit_cards).argmax(dim=-1) + 3
     winning_player = next_states[last_card_in_trick, 2, winning_index]
 
     # Update rewards of winning player
