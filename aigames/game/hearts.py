@@ -122,6 +122,13 @@ def is_terminal_core(states):
 def get_next_states_core(states, actions, clubs_mask=HeartsHelper.clubs_mask, diamonds_mask=HeartsHelper.diamonds_mask,
                          spades_mask=HeartsHelper.spades_mask, hearts_mask=HeartsHelper.hearts_mask,
                          rewards_mask=HeartsHelper.rewards_mask):
+    # Move all masks to the states device
+    clubs_mask = clubs_mask.to(states.device)
+    diamonds_mask = diamonds_mask.to(states.device)
+    spades_mask = spades_mask.to(states.device)
+    hearts_mask = hearts_mask.to(states.device)
+    rewards_mask = rewards_mask.to(states.device)
+
     n = states.shape[0]
     r = torch.arange(n)
     next_states: torch.Tensor = states.clone()
@@ -210,6 +217,12 @@ def get_next_states_core(states, actions, clubs_mask=HeartsHelper.clubs_mask, di
 def get_legal_action_masks_core(states, clubs_mask=HeartsHelper.clubs_mask, diamonds_mask=HeartsHelper.diamonds_mask,
                                 spades_mask=HeartsHelper.spades_mask, hearts_mask=HeartsHelper.hearts_mask,
                                 two_of_clubs_mask=HeartsHelper.two_of_clubs_mask):
+    # Move all masks to the states device
+    clubs_mask = clubs_mask.to(states.device)
+    diamonds_mask = diamonds_mask.to(states.device)
+    spades_mask = spades_mask.to(states.device)
+    hearts_mask = hearts_mask.to(states.device)
+    two_of_clubs_mask = two_of_clubs_mask.to(states.device)
 
     # The base legal action mask is the cards in the current player's
     cur_player_hand = states[:, 0, 3:].eq(states[:, 0, 0].unsqueeze(1))
