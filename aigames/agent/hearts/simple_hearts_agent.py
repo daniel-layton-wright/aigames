@@ -38,7 +38,7 @@ class SimpleHeartsAgent(AgentMulti):
         card_values_desc = torch.arange(13, 0, -1, device=states.device).repeat(4)
 
         card_values_for_points = card_values.clone()
-        card_values_for_points[HeartsHelper.hearts_mask.flatten()] += 13
+        card_values_for_points[HeartsHelper.hearts_mask.flatten().to(states.device)] += 13
         card_values_for_points[HeartsHelper.Card.QUEEN_OF_SPADES.value] = 27
 
         actions[leading] = (cur_player_hand[leading] * legal_actions[leading] * card_values_desc).argmax(dim=1)
@@ -47,7 +47,7 @@ class SimpleHeartsAgent(AgentMulti):
         cur_trick_cards = (states[:, 4, 3:] > 0)
         card_led = (states[:, 4, 3:] == 1).int().argmax(dim=1)
         suit_led = card_led // 13
-        suit_masks = HeartsHelper.suit_masks[suit_led].squeeze(1)
+        suit_masks = HeartsHelper.suit_masks.to(states.device)[suit_led].squeeze(1)
 
         # If the player does not have the suit led, play the card with the highest points or highest card
         has_suit = (cur_player_hand * suit_masks).any(dim=1)
