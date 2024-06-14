@@ -12,6 +12,7 @@ setup(
     packages=find_packages(exclude=['tests']),
     package_data={
         'aigames': [
+            'experiments/alpha/hearts/config/*',
         ]
     },
     install_requires=[
