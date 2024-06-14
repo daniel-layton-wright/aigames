@@ -7,7 +7,7 @@ from .alpha_dataset_multi import TrajectoryDataset, AlphaDatasetMulti
 from .hyperparameters import AlphaMultiTrainingHyperparameters
 from ..agent.alpha_agent_multi import AlphaAgentMulti, ConstantMCTSIters, AlphaAgentMultiListener
 from ..game.game_multi import GameMulti
-from ..utils.listeners import MaxActionGameKiller
+from ..utils.listeners import MaxActionGameKiller, ActionCounterProgressBar
 
 
 class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
@@ -29,10 +29,10 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         :param network:
         """
         super().__init__()
-        self.save_hyperparameters('game_class', 'network', 'hyperparams')
+        self.save_hyperparameters('game_class', 'hyperparams')
         self.hyperparams = hyperparams
         self.game_class = game_class
-        self.network = network
+        self.network = torch.compile(network)
         self.dataset = self.create_dataset(dataset)
         self.agent_class = agent_class
         self.agent = agent_class(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
@@ -77,8 +77,9 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         if len(self.dataset) == 0:
             # Use a dummy agent so that we don't interfere if a game is being reloaded
             dummy_agent = self.agent_class(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
-            test_game = self.game_class(self.hyperparams.n_parallel_games, dummy_agent,
-                                             listeners=[MaxActionGameKiller(2)])
+            dummy_game = self.game_class(self.hyperparams.n_parallel_games, dummy_agent,
+                                             listeners=[MaxActionGameKiller(2),
+                                                        ActionCounterProgressBar(2, 'Dummy game to test backprop')])
 
             # play game for 2 moves then abort for minimal dataset for lightning to do its sanity checks then do the
             # full play in on_train_epoch_start
@@ -86,7 +87,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                 # Do first self-play.
                 dummy_agent.train()
                 self.network.eval()
-                test_game.play()
+                dummy_game.play()
 
             # Put network back in train mode
             self.network.train()
@@ -144,6 +145,9 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
         If we do not need to resume a game, then we train as normal on reloaded dataset.
         """
+        if self.doing_dummy_epoch and batch_idx > 0:
+            return -1
+
         if self.resume_game and self.doing_dummy_batch_before_resume and batch_idx > 0:
             # If we loaded from a checkpoint mid-game, then we already trained on this data, do one step to check
             # backprop is working then skip epoch

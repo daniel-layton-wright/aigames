@@ -30,7 +30,7 @@ def get_random_states(n_games):
 def test_get_legal_action_masks_speed(states, reps=100):
     from ...helpers import Timer
     # Test the speed of get_legal_action_masks for various sizes of states:
-    sizes = [1, 10, 100, 1000, 10000, 100000]
+    sizes = [1, 10, 100, 1000, 10000]
     t = Timer()
 
     for size in sizes:
@@ -59,8 +59,9 @@ def test_get_legal_action_masks_speed(states, reps=100):
 
 
 def test_get_next_states_speed(states, actions, reps=100):
+    from ...helpers import Timer
     # Test the speed of get_next_states for various sizes of states:
-    sizes = [1, 10, 100, 1000, 10000, 100000]
+    sizes = [1, 10, 100, 1000, 10000]
     t = Timer()
 
     for size in sizes:

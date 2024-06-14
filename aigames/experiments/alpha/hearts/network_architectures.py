@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Tuple
 
+from hydra.core.config_store import ConfigStore
+
 from aigames.agent.alpha_agent_multi import BaseAlphaEvaluator
 from aigames.game.hearts import Hearts
 from aigames.training_manager.alpha_training_manager_multi_lightning import AlphaMultiNetwork
@@ -142,21 +144,21 @@ class HeartsNetwork(AlphaMultiNetwork, BaseAlphaEvaluator):
     def loss(self, states, pis, values, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         pred_distn_logits, pred_value_logits = self.forward(states)
 
-        nan_distns = torch.isnan(pis).any(dim=1)
+        values = bucketize(values.flatten(), self.buckets, self.hyperparams.n_value_buckets)
 
-        values = bucketize(values.flatten(start_dim=1), self.buckets, self.hyperparams.n_value_buckets)
-        values = values.view(pred_distn_logits.shape)
-
-        value_loss = nn.functional.cross_entropy(pred_value_logits, values, reduction='none')
-        distn_loss = nn.functional.cross_entropy(pred_distn_logits[~nan_distns], pis[~nan_distns],
-                                                 reduction='none')
+        value_loss = nn.functional.cross_entropy(pred_value_logits.view(values.shape), values, reduction='none')
+        distn_loss = nn.functional.cross_entropy(pred_distn_logits, pis, reduction='none')
 
         if len(args) > 0:
             importance_sampling_weights = args[0].to(pred_distn_logits.device)
             value_loss *= importance_sampling_weights
-            distn_loss *= importance_sampling_weights[~nan_distns]
+            distn_loss *= importance_sampling_weights
 
         value_loss = value_loss.mean()
         distn_loss = distn_loss.mean()
 
         return value_loss, distn_loss
+
+    @classmethod
+    def init_from_cfg(cls, cfg: HeartsNetworkHyperparameters):
+        return cls(cfg)

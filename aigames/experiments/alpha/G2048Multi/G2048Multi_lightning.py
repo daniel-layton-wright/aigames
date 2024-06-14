@@ -4,6 +4,9 @@ from typing import List, Any, Tuple
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
+
+from aigames.experiments.alpha.utils.callbacks import CheckpointMidGame
+from aigames.experiments.alpha.utils.training_taus import TrainingTauStepSchedule
 from aigames.mcts.mcts import UCBFormulaType
 from aigames.training_manager.alpha_dataset_multi import PrioritizedTrajectoryDataset
 from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
@@ -15,152 +18,8 @@ import pytorch_lightning.loggers as pl_loggers
 from ....utils.utils import add_all_slots_to_arg_parser, load_from_arg_parser, import_string
 import os
 from ....game.G2048_multi import get_G2048Multi_game_class
-from ....game.game_multi import GameListenerMulti
 import sys
 import torch
-
-
-class CheckpointMidGame(Callback, GameListenerMulti):
-    def __init__(self, save_every_n_moves=100):
-        super().__init__()
-        self.cur_move = 0
-        self.save_every_n_moves = save_every_n_moves
-        self.trainer = None
-        self.pl_module = None
-
-    def setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", stage: str) -> None:
-        self.trainer = trainer
-        self.pl_module = pl_module
-
-    def before_game_start(self, game):
-        self.cur_move = 0
-
-    def after_action(self, game):
-        self.cur_move += 1
-
-        if self.cur_move % self.save_every_n_moves == 0:
-            for checkpoint in self.trainer.checkpoint_callbacks:
-                if isinstance(checkpoint, ModelCheckpoint):
-                    monitor_candidates = checkpoint._monitor_candidates(self.trainer)
-                    checkpoint._save_last_checkpoint(self.trainer, monitor_candidates)
-
-    def __getstate__(self):
-        return {'save_every_n_moves': self.save_every_n_moves, 'cur_move': self.cur_move}
-
-    def __json__(self):
-        return {'save_every_n_moves': self.save_every_n_moves, 'cur_move': self.cur_move}
-
-
-class GameProgressCallback(Callback, GameListenerMulti):
-    """
-    A training callback which will log the current move number in the training game being played by the trainer
-    """
-    def __init__(self, log_name='training_game/move_number'):
-        super().__init__()
-        self.cur_move = 0
-        self.trainer = None
-        self.pl_module = None
-        self.log_name = log_name
-
-    def setup(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", stage: str) -> None:
-        self.trainer = trainer
-        self.pl_module = pl_module
-
-    def before_game_start(self, game):
-        self.cur_move = 0
-
-    def on_action(self, game, actions):
-        self.cur_move += 1
-        self.pl_module.logger.experiment.log({self.log_name: self.cur_move})
-
-    def on_game_end(self, game):
-        self.cur_move = 0
-        self.pl_module.logger.experiment.log({self.log_name: self.cur_move})
-
-
-class TrainingTauDecreaseOnPlateau(TrainingTau):
-    def __init__(self, tau_schedule: List[float], plateau_metric, plateau_patience,
-                 max_optimizer_steps_before_tau_decrease: int = -1):
-        super().__init__(0)
-        self.tau_schedule = tau_schedule
-        self.i = 0
-        self.metrics = defaultdict(list)
-        self.plateau_metric = plateau_metric
-        self.plateau_patience = plateau_patience
-        self.j = -1
-        self.max_j = -1
-        self.max_metric = None
-        self.max_optimizer_steps_before_tau_decrease = max_optimizer_steps_before_tau_decrease
-        self.last_self_optimizer_step_tau_decrease = 0
-        self.optimizer_step = 0
-
-    def get_tau(self, move_number):
-        return self.tau_schedule[self.i]
-
-    def backwards_compatible_check(self):
-        if not hasattr(self, 'optimizer_step'):
-            self.optimizer_step = 0
-            self.last_self_optimizer_step_tau_decrease = 0
-            self.max_optimizer_steps_before_tau_decrease = -1
-
-    def update_metric(self, key, val):
-        self.backwards_compatible_check()
-
-        if key == 'optimizer_step':
-            self.optimizer_step = val
-
-            if 0 < self.max_optimizer_steps_before_tau_decrease <= val - self.last_self_optimizer_step_tau_decrease:
-                self.i = min(self.i + 1, len(self.tau_schedule) - 1)
-                self.max_metric = None
-                self.max_j = self.j
-                self.last_self_optimizer_step_tau_decrease = val
-
-        if key != self.plateau_metric:
-            return
-
-        self.j += 1
-
-        if self.max_metric is None or val > self.max_metric:
-            self.max_metric = val
-            self.max_j = self.j
-
-        if self.j - self.max_j >= self.plateau_patience:
-            self.i = min(self.i + 1, len(self.tau_schedule) - 1)
-            self.max_metric = None
-            self.max_j = self.j
-            self.last_self_optimizer_step_tau_decrease = self.optimizer_step
-
-
-class TrainingTauStepSchedule(TrainingTau):
-    """
-    A training tau based on a schedule for the optimizer step number
-
-    Example: TrainingTauStepSchedule([(1.0, int(100e3)), (0.5, int(200e3)), (0.1, int(300e3)), (0.0, None)])
-    """
-    def __init__(self, schedule: List[Tuple[float, int]]):
-        super().__init__(0)
-        self.schedule = schedule
-        self.i = 0
-
-    def update_metric(self, key, val):
-        if key == 'optimizer_step':
-            self.i = next((i for i, (_, step) in enumerate(self.schedule) if (step is None or step > val)),
-                          len(self.schedule) - 1  # default
-                          )
-
-    def get_tau(self, move_number):
-        return self.schedule[self.i][0]
-
-
-class EpisodeHistoryCheckpoint(Callback):
-    def __init__(self, ckpt_dir, file_name='latest_episode_history.pkl'):
-        self.ckpt_dir = ckpt_dir
-        self.file_name = file_name
-
-    def on_train_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-        os.makedirs(self.ckpt_dir, exist_ok=True)
-        # Save episode history for debugging purposes
-        torch.save(pl_module.agent.episode_history, os.path.join(self.ckpt_dir, self.file_name))
 
 
 class G2048TrainingRun(AlphaMultiTrainingRunLightning):
