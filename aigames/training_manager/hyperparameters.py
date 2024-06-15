@@ -8,7 +8,6 @@ from aigames.training_manager.alpha_dataset_multi import TrajectoryDataset, Alph
 class AlphaMultiTrainingHyperparameters(AlphaDatasetMultiHyperparameters):
     n_parallel_games: int = 1000
     value_weight_in_loss: float = 1.0
-    device: str = 'cpu'
     game_listeners: list = field(default_factory=list)
     lr: float = 0.01
     weight_decay: float = 1e-5
