@@ -151,7 +151,7 @@ class TrajectoryDataset(AlphaDatasetMulti):
                                         self.hyperparams.discount)
 
         if not self.hyperparams.store_data_processed:
-            states = self.evaluator.process_state(cur_traj.states)
+            states = self.evaluator.process_state(states)
 
         return states, cur_traj.pis.to(self.hyperparams.device), td_targets
 
