@@ -436,6 +436,10 @@ class Hearts(GameMulti):
 
         return out
 
+    @classmethod
+    def action_to_str(cls, action):
+        return str(HeartsHelper.Card(action))
+
 
 class HeartsCuda(Hearts):
     device = 'cuda'

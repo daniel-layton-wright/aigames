@@ -2,6 +2,8 @@ import unittest
 import torch
 from aigames.agent.alpha_agent_multi import AlphaAgentMulti, AlphaAgentHyperparametersMulti, ConstantMCTSIters
 from aigames.agent.alpha_agent_multi import DummyAlphaEvaluatorMulti
+from aigames.agent.random_agent_multi import RandomAgentMulti
+from aigames.game.hearts import Hearts
 from aigames.mcts.mcts import MCTS
 from aigames.game.G2048_multi import G2048Multi
 from ..helpers import Timer
@@ -111,3 +113,26 @@ class TestMCTS(unittest.TestCase):
         # w should be 0
         torch.testing.assert_close(mcts.w[leaf_root_idx, 1],
                                    torch.zeros_like(mcts.w[leaf_root_idx, leaf_root_nodes]))
+
+    def test_graph_from_mcts(self):
+        from aigames.mcts.utils import graph_from_mcts
+
+        hyperparams = AlphaAgentHyperparametersMulti()
+        hyperparams.n_mcts_iters = ConstantMCTSIters(100)
+        hyperparams.c_puct = 1
+        hyperparams.dirichlet_alpha = 1
+        hyperparams.dirichlet_epsilon = 0.25
+        hyperparams.discount = 1
+        hyperparams.expand_simultaneous_fraction = 1.0
+
+        # Do an MCTS with Hearts
+        hearts = Hearts(1, RandomAgentMulti(Hearts))
+        states = Hearts.get_initial_states(1)
+        states = Hearts.get_next_states(states, torch.tensor([0], dtype=torch.long))[0]
+
+        mcts = MCTS(hearts, DummyAlphaEvaluatorMulti(52, 4), hyperparams,
+                    100, states)
+
+        mcts.search_for_n_iters(100)
+        graph = graph_from_mcts(mcts)
+        graph.draw('mcts_graph.png', prog='dot')

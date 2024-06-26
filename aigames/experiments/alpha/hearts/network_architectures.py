@@ -1,8 +1,5 @@
 from dataclasses import dataclass
 from typing import Tuple
-
-from hydra.core.config_store import ConfigStore
-
 from aigames.agent.alpha_agent_multi import BaseAlphaEvaluator
 from aigames.game.hearts import Hearts
 from aigames.training_manager.alpha_training_manager_multi_lightning import AlphaMultiNetwork
@@ -74,8 +71,10 @@ class HeartsNetwork(AlphaMultiNetwork, BaseAlphaEvaluator):
         super().__init__()
         self.hyperparams = hyperparameters
 
-        self.embeddings = nn.Embedding(num_embeddings=52, embedding_dim=hyperparameters.embed_dim)
-        self.pos_embeddings = nn.Embedding(275, hyperparameters.embed_dim)
+        self.embeddings = nn.Embedding(num_embeddings=117, embedding_dim=hyperparameters.embed_dim)
+        self.pos_embeddings = nn.Embedding(263, hyperparameters.embed_dim)
+        self.row_embeddings = nn.Embedding(6, hyperparameters.embed_dim)
+        self.card_embeddings = nn.Embedding(52, hyperparameters.embed_dim)
         self.embedding_dropout = nn.Dropout(hyperparameters.dropout)
         self.transformer_blocks = nn.Sequential(*[TransformerBlock(hyperparameters) for _ in range(hyperparameters.num_layers)])
         self.ln = nn.LayerNorm(hyperparameters.embed_dim)
@@ -101,6 +100,18 @@ class HeartsNetwork(AlphaMultiNetwork, BaseAlphaEvaluator):
                                    4*55+1, 4*55+2]] = False
         self.register_buffer('flattened_state_mask', flattened_state_mask)
 
+        row_indices = torch.zeros((263,), dtype=torch.int)
+        row_indices[3:55] = 1
+        row_indices[55:107] = 2
+        row_indices[107:159] = 3
+        row_indices[159:211] = 4
+        row_indices[211:] = 5
+        self.register_buffer('row_indices', row_indices)
+
+        card_indices = torch.zeros((263,), dtype=torch.int)
+        card_indices[3:] = torch.arange(52).repeat(5)
+        self.register_buffer('card_indices', card_indices)
+
         self.register_buffer('buckets', torch.linspace(-26, 0, self.hyperparams.n_value_buckets))
 
     def forward(self, states):
@@ -108,7 +119,9 @@ class HeartsNetwork(AlphaMultiNetwork, BaseAlphaEvaluator):
         Output the logits for the policy and the value buckets
         """
         B, T = states.shape
-        x = self.embeddings(states) + self.pos_embeddings(torch.arange(T, device=states.device))
+        x = (self.embeddings(states) + self.pos_embeddings(torch.arange(T, device=states.device))
+             + self.row_embeddings(self.row_indices))
+        x[:, 3:] += self.card_embeddings(self.card_indices[states[:, 3:]])
         x = self.embedding_dropout(x)
         x = self.transformer_blocks(x)
         x = self.ln(x)
@@ -138,6 +151,19 @@ class HeartsNetwork(AlphaMultiNetwork, BaseAlphaEvaluator):
 
         # In the original state [:, 1-4, 0-2] are not used so let's filter those out
         state = state[:, self.flattened_state_mask].to(torch.int)
+
+        # element 0 ranges 1-4 (player)
+        # element 1 ranges 0-3 (count)
+        # element 2 ranges 0-51 (count)
+        # element 3-54 ranges 0-4 (player)
+        # element 55-106 ranges 0-51 (order)
+        # element 107-158 ranges 0-4 (player)
+        # element 159-210 ranges 0-4 (player)
+        # element 211-262 ranges 0-3 (order)
+        state[:, 1] += 5
+        state[:, 2] += (5 + 4)
+        state[:, 55:107] += (5 + 4 + 52)
+        state[:, 211:263] += (5 + 4 + 52 + 52)
 
         return state
 

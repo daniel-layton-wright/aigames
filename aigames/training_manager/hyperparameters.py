@@ -1,7 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Type
-from aigames.training_manager.alpha_dataset_multi import TrajectoryDataset, AlphaDatasetMultiHyperparameters, \
-    AlphaDatasetMulti
+from aigames.training_manager.alpha_dataset_multi import AlphaDatasetMultiHyperparameters
 
 
 @dataclass(kw_only=True, slots=True)
@@ -16,6 +14,6 @@ class AlphaMultiTrainingHyperparameters(AlphaDatasetMultiHyperparameters):
     eval_game_every_n_epochs: int = 10  # Set to -1 for never
     eval_game_network_only_every_n_epochs: int = 10
     eval_game_listeners: list = field(default_factory=list)
-    dataset_type: Type[AlphaDatasetMulti] = TrajectoryDataset
+    dataset_class: str = 'aigames.training_manager.alpha_dataset_multi.TrajectoryDataset'
     clear_dataset_before_self_play_rounds: list = field(default_factory=list)
     save_dataset_in_checkpoint: bool = False

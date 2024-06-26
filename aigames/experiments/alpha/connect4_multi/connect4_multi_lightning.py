@@ -208,7 +208,8 @@ def main():
         else:
             network = network_class()
 
-        training_run = Connect4TrainingRun(Connect4Multi, network, hyperparams, dataset=hyperparams.dataset_type)
+        training_run = Connect4TrainingRun(Connect4Multi, network, hyperparams,
+                                           dataset=import_string(hyperparams.dataset_class))
     else:
         training_run = Connect4TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
                                                              hyperparams=hyperparams,

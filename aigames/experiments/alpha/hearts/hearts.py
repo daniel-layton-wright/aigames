@@ -2,7 +2,8 @@
 Learn to play Hearts with AlphaZero
 """
 import argparse
-from typing import Type, Union
+from dataclasses import field, dataclass
+from typing import Type, Union, Any
 
 import hydra
 import wandb
@@ -13,6 +14,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 from aigames.agent.alpha_agent_multi import AlphaAgentMulti
 from aigames.agent.hearts.simple_hearts_agent import SimpleHeartsAgent
+from aigames.experiments.alpha.hearts.network_architectures import HeartsNetworkHyperparameters
 from aigames.experiments.alpha.utils.callbacks import CheckpointMidGame
 from aigames.game.game_multi import GameMulti
 from aigames.game.hearts import get_hearts_game_class
@@ -71,7 +73,7 @@ def main(cfg: DictConfig):
     Hearts = get_hearts_game_class(hyperparams.device)
     network_class = import_string(cfg.network_class)
 
-    if 'restore_ckpt_path' in cfg:
+    if 'restore_ckpt_path' in cfg and cfg.restore_ckp_path:
         training_run = HeartsTrainingRun.load_from_checkpoint(cfg.restore_ckpt_path, map_location='cpu')
         hyperparams = training_run.hyperparams
 
@@ -90,7 +92,7 @@ def main(cfg: DictConfig):
     hyperparams.game_listeners.append(ActionCounterProgressBar(52, 'Train game'))
     hyperparams.eval_game_listeners.append(ActionCounterProgressBar(52, 'Eval game'))
 
-    training_run = HeartsTrainingRun(Hearts, network, hyperparams, dataset=hyperparams.dataset_type)
+    training_run = HeartsTrainingRun(Hearts, network, hyperparams, dataset=import_string(hyperparams.dataset_class))
 
     # Start wandb run
     wandb_kwargs = dict(
@@ -109,6 +111,9 @@ def main(cfg: DictConfig):
     wandb.run.watch(training_run.network)
 
     torch.autograd.set_detect_anomaly(True)
+
+    # Print out the cfg in a nice way
+    print(OmegaConf.to_yaml(cfg))
 
     model_checkpoint = ModelCheckpoint(dirpath=os.path.join(cfg.ckpt_dir, wandb_run), save_last=True)
     trainer = pl.Trainer(reload_dataloaders_every_n_epochs=1,

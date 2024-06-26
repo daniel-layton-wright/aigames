@@ -15,6 +15,10 @@ training_hypers:
     weight_decay: 1e-5
     batch_size: 1024
     data_buffer_full_size: 16_384
+    ucb_formula:
+        _target_: aigames.mcts.mcts.UCBFormulaType
+        _args_:
+            - muzerolog
     td_lambda:
         _target_: aigames.agent.alpha_agent_multi.TDLambdaByRound
         td_lambda_schedule_list: [1, 0.9, 0.8, 0.7, 0.6, 0.5]
@@ -27,7 +31,7 @@ training_hypers:
 network_hypers:
     _target_: aigames.experiments.alpha.hearts.network_architectures.HeartsNetworkHyperparameters
 network_class: aigames.experiments.alpha.hearts.network_architectures.HeartsNetwork
-ckpt_dir: ./ckpt/G2048Multi/
+ckpt_dir: ./ckpt/hearts/
 debug: True
 max_epochs: 1000
 restore_wandb_run_id: null

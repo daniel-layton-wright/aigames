@@ -1,6 +1,5 @@
 import argparse
-from collections import defaultdict
-from typing import List, Any, Tuple
+from typing import Any
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning.utilities.types import STEP_OUTPUT
@@ -8,8 +7,7 @@ from pytorch_lightning.utilities.types import STEP_OUTPUT
 from aigames.experiments.alpha.utils.callbacks import CheckpointMidGame
 from aigames.experiments.alpha.utils.training_taus import TrainingTauStepSchedule
 from aigames.mcts.mcts import UCBFormulaType
-from aigames.training_manager.alpha_dataset_multi import PrioritizedTrajectoryDataset
-from ....agent.alpha_agent_multi import TrainingTau, TDLambdaByRound, ConstantMCTSIters
+from ....agent.alpha_agent_multi import TDLambdaByRound, ConstantMCTSIters
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
 from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
 from ....utils.listeners import ActionCounterProgressBar, RewardListenerMulti
@@ -197,7 +195,7 @@ def main():
         else:
             network = network_class()
 
-        training_run = G2048TrainingRun(G2048Multi, network, hyperparams, dataset=hyperparams.dataset_type)
+        training_run = G2048TrainingRun(G2048Multi, network, hyperparams, dataset=import_string(hyperparams.dataset_class))
     else:
         training_run = G2048TrainingRun.load_from_checkpoint(ckpt_path_args.restore_ckpt_path,
                                                              hyperparams=hyperparams,
