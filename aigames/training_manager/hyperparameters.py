@@ -17,3 +17,5 @@ class AlphaMultiTrainingHyperparameters(AlphaDatasetMultiHyperparameters):
     dataset_class: str = 'aigames.training_manager.alpha_dataset_multi.TrajectoryDataset'
     clear_dataset_before_self_play_rounds: list = field(default_factory=list)
     save_dataset_in_checkpoint: bool = False
+    network_class: str = ''
+    network_args: dict = field(default_factory=dict)

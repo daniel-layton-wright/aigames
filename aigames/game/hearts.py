@@ -434,15 +434,20 @@ class Hearts(GameMulti):
         # Add a line of --- under the state
         out += '-' * (2*len(columns) + sum(max_len[col] for col in columns)) + '\n'
 
+        out += str(state) + '\n'
+
         return out
 
     @classmethod
     def action_to_str(cls, action):
+        # convert tensor to int if necessary
+        if isinstance(action, torch.Tensor):
+            action = action.item()
         return str(HeartsHelper.Card(action))
 
 
 class HeartsCuda(Hearts):
-    device = 'cuda'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 def get_hearts_game_class(device):

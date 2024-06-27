@@ -8,6 +8,7 @@ from .hyperparameters import AlphaMultiTrainingHyperparameters
 from ..agent.alpha_agent_multi import AlphaAgentMulti, ConstantMCTSIters, AlphaAgentMultiListener
 from ..game.game_multi import GameMulti
 from ..utils.listeners import MaxActionGameKiller, ActionCounterProgressBar
+from ..utils.utils import import_string
 
 
 class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
@@ -20,9 +21,8 @@ class AlphaMultiNetwork(nn.Module, BaseAlphaEvaluator):
 
 
 class AlphaMultiTrainingRunLightning(pl.LightningModule):
-    def __init__(self, game_class: Type[GameMulti], network: AlphaMultiNetwork,
-                 hyperparams: AlphaMultiTrainingHyperparameters, agent_class=AlphaAgentMulti,
-                 dataset: Union[AlphaDatasetMulti, Type[AlphaDatasetMulti], None] = None):
+    def __init__(self, game_class: Type[GameMulti], hyperparams: AlphaMultiTrainingHyperparameters,
+                 agent_class=AlphaAgentMulti, dataset: Union[AlphaDatasetMulti, Type[AlphaDatasetMulti], None] = None):
         """
 
         :param game:
@@ -32,7 +32,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         self.save_hyperparameters('game_class', 'hyperparams')
         self.hyperparams = hyperparams
         self.game_class = game_class
-        self.network = torch.compile(network)
+        self.network = import_string(hyperparams.network_class)(**hyperparams.network_args)
+        self.network = torch.compile(self.network)
         self.dataset = self.create_dataset(dataset)
         self.agent_class = agent_class
         self.agent = agent_class(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
@@ -78,8 +79,8 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
             # Use a dummy agent so that we don't interfere if a game is being reloaded
             dummy_agent = self.agent_class(self.game_class, self.network, self.hyperparams, listeners=[self.dataset])
             dummy_game = self.game_class(self.hyperparams.n_parallel_games, dummy_agent,
-                                             listeners=[MaxActionGameKiller(2),
-                                                        ActionCounterProgressBar(2, 'Dummy game to test backprop')])
+                                         listeners=[MaxActionGameKiller(2),
+                                                    ActionCounterProgressBar(2, 'Dummy game to test backprop')])
 
             # play game for 2 moves then abort for minimal dataset for lightning to do its sanity checks then do the
             # full play in on_train_epoch_start

@@ -32,10 +32,10 @@ import torch
 
 
 class HeartsTrainingRun(AlphaMultiTrainingRunLightning):
-    def __init__(self, game_class: Type[GameMulti], network: AlphaMultiNetwork,
+    def __init__(self, game_class: Type[GameMulti],
                  hyperparams: AlphaMultiTrainingHyperparameters, agent_class=AlphaAgentMulti,
                  dataset: Union[AlphaDatasetMulti, Type[AlphaDatasetMulti], None] = None):
-        super().__init__(game_class, network, hyperparams, agent_class, dataset)
+        super().__init__(game_class, hyperparams, agent_class, dataset)
 
         # Overwrite the eval game to use the heuristic agents
         self.eval_game.players = [self.agent, SimpleHeartsAgent(), SimpleHeartsAgent(), SimpleHeartsAgent()]
@@ -71,17 +71,10 @@ def main(cfg: DictConfig):
 
     checkpoint_mid_game = CheckpointMidGame()
     Hearts = get_hearts_game_class(hyperparams.device)
-    network_class = import_string(cfg.network_class)
 
-    if 'restore_ckpt_path' in cfg and cfg.restore_ckp_path:
+    if 'restore_ckpt_path' in cfg and cfg.restore_ckpt_path:
         training_run = HeartsTrainingRun.load_from_checkpoint(cfg.restore_ckpt_path, map_location='cpu')
         hyperparams = training_run.hyperparams
-
-    # TO-DO: read in overrides from the command line for hyperparams
-    if hasattr(network_class, 'init_from_cfg'):
-        network = network_class.init_from_cfg(instantiate(cfg.network_hypers, _convert_='all'))
-    else:
-        network = network_class()
 
     # remove the CheckpointMidGame if it exists and add the current one
     for x in hyperparams.game_listeners:
@@ -92,7 +85,7 @@ def main(cfg: DictConfig):
     hyperparams.game_listeners.append(ActionCounterProgressBar(52, 'Train game'))
     hyperparams.eval_game_listeners.append(ActionCounterProgressBar(52, 'Eval game'))
 
-    training_run = HeartsTrainingRun(Hearts, network, hyperparams, dataset=import_string(hyperparams.dataset_class))
+    training_run = HeartsTrainingRun(Hearts, hyperparams, dataset=import_string(hyperparams.dataset_class))
 
     # Start wandb run
     wandb_kwargs = dict(

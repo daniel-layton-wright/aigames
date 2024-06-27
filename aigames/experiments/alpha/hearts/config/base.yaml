@@ -28,9 +28,10 @@ training_hypers:
     n_mcts_iters:
         _target_: aigames.agent.alpha_agent_multi.ConstantMCTSIters
         n_mcts_iters: 1
-network_hypers:
-    _target_: aigames.experiments.alpha.hearts.network_architectures.HeartsNetworkHyperparameters
-network_class: aigames.experiments.alpha.hearts.network_architectures.HeartsNetwork
+    network_class: aigames.experiments.alpha.hearts.network_architectures.HeartsNetwork
+    network_args:
+        hyperparameters:
+            _target_: aigames.experiments.alpha.hearts.network_architectures.HeartsNetworkHyperparameters
 ckpt_dir: ./ckpt/hearts/
 debug: True
 max_epochs: 1000
