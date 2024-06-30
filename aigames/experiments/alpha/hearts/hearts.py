@@ -1,13 +1,10 @@
 """
 Learn to play Hearts with AlphaZero
 """
-import argparse
-from dataclasses import field, dataclass
-from typing import Type, Union, Any
+from typing import Type, Union
 
 import hydra
 import wandb
-from hydra.core.config_store import ConfigStore
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -20,14 +17,12 @@ from aigames.game.game_multi import GameMulti
 from aigames.game.hearts import get_hearts_game_class
 from aigames.training_manager.alpha_dataset_multi import AlphaDatasetMulti
 from aigames.utils.listeners import ActionCounterProgressBar, RewardListenerMulti
-from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning, \
-    AlphaMultiNetwork
+from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
 from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
-from ....utils.utils import load_from_arg_parser, import_string
+from ....utils.utils import import_string
 import os
-import sys
 import torch
 
 
@@ -69,7 +64,7 @@ class HeartsTrainingRun(AlphaMultiTrainingRunLightning):
 def main(cfg: DictConfig):
     hyperparams: AlphaMultiTrainingHyperparameters = instantiate(cfg.training_hypers, _convert_='all')
 
-    checkpoint_mid_game = CheckpointMidGame()
+    checkpoint_mid_game = CheckpointMidGame(save_every_n_moves=5)
     Hearts = get_hearts_game_class(hyperparams.device)
 
     if 'restore_ckpt_path' in cfg and cfg.restore_ckpt_path:

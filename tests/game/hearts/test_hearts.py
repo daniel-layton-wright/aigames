@@ -8,15 +8,17 @@ from aigames import GameListenerMulti
 from aigames.agent.alpha_agent_multi import DummyAlphaEvaluatorMulti
 from aigames.agent.hearts.simple_hearts_agent import SimpleHeartsAgent
 from aigames.agent.random_agent_multi import RandomAgentMulti
-from aigames.game.hearts import Hearts
+from aigames.game.hearts import Hearts, HeartsCuda
 import torch
 
 from aigames.utils.listeners import RewardListenerMulti, ActionCounterProgressBar
 
 
 class TestHearts(unittest.TestCase):
+    game_class = Hearts
+
     def test_initial_states_have_correct_form(self):
-        states = Hearts.get_initial_states(4)
+        states = self.game_class.get_initial_states(4)
         self.assertEqual(states.shape, (4, 5, 55))
 
         # Each player should have 13 cards
@@ -26,14 +28,14 @@ class TestHearts(unittest.TestCase):
         self.assertTrue(((states[:, 0, 3:] == 4).sum(axis=-1) == 13).all())
 
         # legal actions should all only allow two of clubs
-        legal_action_masks = Hearts.get_legal_action_masks(states)
+        legal_action_masks = self.game_class.get_legal_action_masks(states)
 
         self.assertTrue((legal_action_masks[:, 0] == 1).all())
 
     def test_get_next_states(self):
-        states = Hearts.get_initial_states(4)
+        states = self.game_class.get_initial_states(4)
         actions = torch.tensor([0, 0, 0, 0])
-        next_states, rewards, is_env, is_terminal = Hearts.get_next_states(states, actions)
+        next_states, rewards, is_env, is_terminal = self.game_class.get_next_states(states, actions)
 
         # Check that the rewards are all zero
         self.assertTrue((rewards == 0).all())
@@ -48,23 +50,23 @@ class TestHearts(unittest.TestCase):
         # Get initial states and then advance to the end of the first trick by taking the first legal action for
         # each of the four players
 
-        states = Hearts.get_initial_states(4)
+        states = self.game_class.get_initial_states(4)
 
         for _ in range(4):
             # Get legal actions in next state and pick the first one for each player
-            print(Hearts.state_to_str(states[0]))
-            legal_action_masks = Hearts.get_legal_action_masks(states)
+            print(self.game_class.state_to_str(states[0]))
+            legal_action_masks = self.game_class.get_legal_action_masks(states)
             actions = legal_action_masks.to(torch.int8).argmax(dim=-1)
-            states, rewards, is_env, is_terminal = Hearts.get_next_states(states, actions)
+            states, rewards, is_env, is_terminal = self.game_class.get_next_states(states, actions)
 
-        print(Hearts.state_to_str(states[0]))
+        print(self.game_class.state_to_str(states[0]))
 
         # check no cards played to current trick
         self.assertTrue((states[:, 4, 3:] == 0).all())
         self.assertTrue(states[0, 0, 1] == 0)
 
     def test_shooting_the_moon_score(self):
-        state = Hearts.get_initial_states(1)
+        state = self.game_class.get_initial_states(1)
 
         # Now we overwrite the initial state so that someone is going to shoot the moon
         # Player 1 gets all the clubs so that they will always have the lead
@@ -79,7 +81,7 @@ class TestHearts(unittest.TestCase):
                 game.states = state
 
         reward_listener = RewardListenerMulti(1)
-        game = Hearts(1, SimpleHeartsAgent(), [reward_listener, StateOverwriter()])
+        game = self.game_class(1, SimpleHeartsAgent(), [reward_listener, StateOverwriter()])
         game.play()
 
         # Check that the rewards are [0, -26, -26, -26]
@@ -89,7 +91,7 @@ class TestHearts(unittest.TestCase):
         # Play a bunch of games and check the scores. They should sum to -26 or (if someone shoots the moon) -78
         n_games = 100
         reward_listener = RewardListenerMulti(1)
-        game = Hearts(n_games, RandomAgentMulti(Hearts), [reward_listener])
+        game = self.game_class(n_games, RandomAgentMulti(self.game_class), [reward_listener])
         game.play()
 
         sum_per_game = reward_listener.rewards.sum(dim=1)
@@ -105,8 +107,13 @@ class TestHearts(unittest.TestCase):
 
         eval = DummyAlphaEvaluatorMulti(52, 4)
         hypers = AlphaAgentHyperparametersMulti()
-        alpha_agent = AlphaAgentMulti(Hearts, eval, hypers)
+        hypers.n_mcts_iters.n_mcts_iters = 2
+        alpha_agent = AlphaAgentMulti(self.game_class, eval, hypers)
 
-        game = Hearts(1, alpha_agent,
+        game = self.game_class(1, alpha_agent,
                       [ActionCounterProgressBar(52, 'test_alpha_agent_works')])
         game.play()
+
+
+class TestHeartsCuda(TestHearts):
+    game_class = HeartsCuda

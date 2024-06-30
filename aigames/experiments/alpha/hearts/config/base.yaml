@@ -27,7 +27,7 @@ training_hypers:
         schedule: [[1.0, 200_000], [0.5, 400_000], [0.1, 600_000]]
     n_mcts_iters:
         _target_: aigames.agent.alpha_agent_multi.ConstantMCTSIters
-        n_mcts_iters: 1
+        n_mcts_iters: 100
     network_class: aigames.experiments.alpha.hearts.network_architectures.HeartsNetwork
     network_args:
         hyperparameters:
