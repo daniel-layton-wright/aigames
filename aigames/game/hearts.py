@@ -203,9 +203,9 @@ def get_next_states_core(states, actions, clubs_mask=HeartsHelper.clubs_mask, di
 
     # Get the index of the player who has all the hearts and the queen of spades
     moon_shooter = (points == -26).nonzero()
-    cur_moon_shooter_rewards = rewards[moon_shooter]
+    cur_moon_shooter_rewards = rewards[moon_shooter[:, 0], moon_shooter[:, 1]]
     rewards[moon_shooter[:, 0], :] = -26
-    rewards[moon_shooter] = 26 + cur_moon_shooter_rewards
+    rewards[moon_shooter[:, 0], moon_shooter[:, 1]] = 26 + cur_moon_shooter_rewards
 
     # TODO: maybe do early stopping if all the points have been taken
 
@@ -362,7 +362,7 @@ class Hearts(GameMulti):
         for pidx in range(4):
             player_name = f"Player {pidx + 1}"
             # Sum of rewards for this player
-            current_score = (state[3, 3:].eq(pidx + 1) * HeartsHelper.rewards_mask).sum().int().item()
+            current_score = (state[3, 3:].eq(pidx + 1) * HeartsHelper.rewards_mask.to(state.device)).sum().int().item()
             cards_in_hand = state[0, 3:] == (pidx + 1)  # Assuming cards in hand starts from index 3
             is_current_player = state[0, 0] == pidx + 1
 
