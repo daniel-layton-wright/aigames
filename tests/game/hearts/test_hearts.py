@@ -34,7 +34,7 @@ class TestHearts(unittest.TestCase):
 
     def test_get_next_states(self):
         states = self.game_class.get_initial_states(4)
-        actions = torch.tensor([0, 0, 0, 0])
+        actions = torch.tensor([0, 0, 0, 0], device=states.device)
         next_states, rewards, is_env, is_terminal = self.game_class.get_next_states(states, actions)
 
         # Check that the rewards are all zero
@@ -105,7 +105,7 @@ class TestHearts(unittest.TestCase):
         """
         from aigames.agent.alpha_agent_multi import AlphaAgentMulti, AlphaAgentHyperparametersMulti
 
-        eval = DummyAlphaEvaluatorMulti(52, 4)
+        eval = DummyAlphaEvaluatorMulti(52, 4, device=self.game_class.device)
         hypers = AlphaAgentHyperparametersMulti()
         hypers.n_mcts_iters.n_mcts_iters = 2
         alpha_agent = AlphaAgentMulti(self.game_class, eval, hypers)
