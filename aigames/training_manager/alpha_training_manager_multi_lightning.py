@@ -236,7 +236,10 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         # TODO: this writes a checkpoint without the game if a checkpoint was laoded without a dataset but with a game
         if (~self.game.is_term).any():
             # Game is still going, save to checkpoint
-            checkpoint['game'] = self.game
+            # Remove the player from the game, don't need to pickle that
+            game = copy.copy(self.game)
+            game.player = None
+            checkpoint['game'] = game
 
         checkpoint['n_self_play_rounds'] = self.n_self_play_rounds
 
