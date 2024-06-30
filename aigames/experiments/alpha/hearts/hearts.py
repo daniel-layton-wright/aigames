@@ -78,6 +78,7 @@ def main(cfg: DictConfig):
 
     hyperparams.game_listeners.append(checkpoint_mid_game)
     hyperparams.game_listeners.append(ActionCounterProgressBar(52, 'Train game'))
+    hyperparams.game_listeners.append(RewardListenerMulti(1.))
     hyperparams.eval_game_listeners.append(ActionCounterProgressBar(52, 'Eval game'))
 
     training_run = HeartsTrainingRun(Hearts, hyperparams, dataset=import_string(hyperparams.dataset_class))
