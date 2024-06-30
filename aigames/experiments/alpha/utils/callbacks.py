@@ -3,6 +3,7 @@ import os
 import pytorch_lightning as pl
 from pytorch_lightning import Callback
 import torch
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from aigames.game.game_multi import GameListenerMulti
 
