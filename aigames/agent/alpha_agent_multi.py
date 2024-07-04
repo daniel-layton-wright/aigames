@@ -423,6 +423,16 @@ class AlphaAgentMulti(AgentMulti):
     def get_trajectories(self):
         return self.episode_history.get_trajectories()
 
+    def prepare_for_pickling(self):
+        """
+        When the network being used as the evaluator is compiled using torch.compile it cannot be pickled.
+        This method removes that from this agent so that it can be pickled.
+        """
+        self.evaluator = None
+        self.mcts = None
+        self.game = None
+        self.listeners = None
+
 
 class DummyAlphaEvaluatorMulti(BaseAlphaEvaluator):
     def __init__(self, n_actions, n_players, device='cpu'):

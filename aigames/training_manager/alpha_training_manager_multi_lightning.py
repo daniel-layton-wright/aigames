@@ -231,14 +231,17 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         if self.hyperparams.save_dataset_in_checkpoint and not self.doing_dummy_epoch:
-            checkpoint['dataset'] = self.dataset
+            dataset = copy.copy(self.dataset)
+            dataset.evaluator = None
+            checkpoint['dataset'] = dataset
 
-        # TODO: this writes a checkpoint without the game if a checkpoint was laoded without a dataset but with a game
+        # TODO: this writes a checkpoint without the game if a checkpoint was loaded without a dataset but with a game
         if (~self.game.is_term).any():
             # Game is still going, save to checkpoint
             # Remove the player's network from the game, can't need to pickle that when it's compiled
             game = copy.copy(self.game)
-            game.player.evaluator = None
+            game.player = copy.copy(game.player)
+            game.player.prepare_for_pickling()
             checkpoint['game'] = game
 
         checkpoint['n_self_play_rounds'] = self.n_self_play_rounds
