@@ -3,8 +3,9 @@ training_hypers:
     n_parallel_games: 100
     self_play_every_n_epochs: 2
     lr: 3e-4
-    eval_game_every_n_epochs: 20
+    eval_game_every_n_epochs: 6
     eval_game_network_only_every_n_epochs: 2
+    eval_game_on_start: True
     discount: 1.0
     max_data_size: 3500000
     min_data_size: 1024
@@ -15,6 +16,7 @@ training_hypers:
     weight_decay: 1e-5
     batch_size: 1024
     data_buffer_full_size: 16_384
+    save_dataset_in_checkpoint: True
     ucb_formula:
         _target_: aigames.mcts.mcts.UCBFormulaType
         _args_:
@@ -33,7 +35,8 @@ training_hypers:
         hyperparameters:
             _target_: aigames.experiments.alpha.hearts.network_architectures.HeartsNetworkHyperparameters
 ckpt_dir: ./ckpt/hearts/
-debug: True
+debug: False
 max_epochs: 1000
 restore_wandb_run_id: null
+restore_ckpt_path: null
 gradient_clip_val: 1.0

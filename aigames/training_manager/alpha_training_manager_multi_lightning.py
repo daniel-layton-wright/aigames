@@ -131,7 +131,7 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
 
     def time_to_play_eval_game(self):
         return (not self.resume_game and self.hyperparams.eval_game_every_n_epochs > 0
-                and self.current_epoch > 0
+                and (self.current_epoch > 0 or self.hyperparams.eval_game_on_start)
                 and self.current_epoch % self.hyperparams.eval_game_every_n_epochs == 0)
 
     def time_to_play_eval_game_network_only(self):
@@ -236,9 +236,9 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
         # TODO: this writes a checkpoint without the game if a checkpoint was laoded without a dataset but with a game
         if (~self.game.is_term).any():
             # Game is still going, save to checkpoint
-            # Remove the player from the game, don't need to pickle that
+            # Remove the player's network from the game, can't need to pickle that when it's compiled
             game = copy.copy(self.game)
-            game.player = None
+            game.player.evaluator = None
             checkpoint['game'] = game
 
         checkpoint['n_self_play_rounds'] = self.n_self_play_rounds
