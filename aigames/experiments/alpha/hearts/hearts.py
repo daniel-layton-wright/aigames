@@ -9,7 +9,7 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from aigames.agent.alpha_agent_multi import AlphaAgentMulti
+from aigames.agent.alpha_agent_multi import AlphaAgentMulti, ConstantMCTSIters
 from aigames.agent.hearts.simple_hearts_agent import SimpleHeartsAgent
 from aigames.experiments.alpha.hearts.network_architectures import HeartsNetworkHyperparameters
 from aigames.experiments.alpha.utils.callbacks import CheckpointMidGame
@@ -18,12 +18,13 @@ from aigames.game.hearts import get_hearts_game_class
 from aigames.training_manager.alpha_dataset_multi import AlphaDatasetMulti
 from aigames.utils.listeners import ActionCounterProgressBar, RewardListenerMulti
 from ....training_manager.alpha_training_manager_multi_lightning import AlphaMultiTrainingRunLightning
-from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters
+from aigames.training_manager.hyperparameters import AlphaMultiTrainingHyperparameters, EvalGameConfig
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
 from ....utils.utils import import_string
 import os
 import torch
+import copy
 
 
 class HeartsTrainingRun(AlphaMultiTrainingRunLightning):
@@ -32,12 +33,33 @@ class HeartsTrainingRun(AlphaMultiTrainingRunLightning):
                  dataset: Union[AlphaDatasetMulti, Type[AlphaDatasetMulti], None] = None):
         super().__init__(game_class, hyperparams, agent_class, dataset)
 
-        # Overwrite the eval game to use the heuristic agents
-        self.eval_game.players = [self.agent, SimpleHeartsAgent(), SimpleHeartsAgent(), SimpleHeartsAgent()]
-
-        # If the eval_game does not have a rewardlistenermulti, add one
-        if not any(isinstance(x, RewardListenerMulti) for x in self.eval_game.listeners):
-            self.eval_game.listeners.append(RewardListenerMulti(1.))
+    def create_eval_games(self):
+        eval_games = []
+        
+        # Create three types of evaluation games
+        eval_configs = [
+            EvalGameConfig(n_parallel_games=self.hyperparams.n_parallel_games, n_mcts_iters=-1, eval_every_n_epochs=1, eval_on_start=True, 
+                           listeners=[RewardListenerMulti(1.), ActionCounterProgressBar(52, 'Full eval game')]),
+            EvalGameConfig(n_parallel_games=self.hyperparams.n_parallel_games, n_mcts_iters=0, eval_every_n_epochs=1, eval_on_start=True, 
+                           listeners=[RewardListenerMulti(1.), ActionCounterProgressBar(52, 'No search eval game')]),
+            EvalGameConfig(n_parallel_games=self.hyperparams.n_parallel_games, n_mcts_iters=-1, eval_every_n_epochs=1, eval_on_start=True, 
+                           listeners=[RewardListenerMulti(1.), ActionCounterProgressBar(52, 'Search vs no search eval game')])
+        ]
+        
+        for i, eval_config in enumerate(eval_configs):            
+            eval_game = self.game_class(eval_config.n_parallel_games, self.agent, listeners=eval_config.listeners)
+            eval_game.players = [self.agent] + [SimpleHeartsAgent() for _ in range(3)]
+            
+            if i == 2:
+                # Agent w/search against agents without
+                agent_no_search = copy.copy(self.agent)
+                agent_no_search.hyperparams = copy.deepcopy(self.agent.hyperparams)
+                agent_no_search.hyperparams.n_mcts_iters = ConstantMCTSIters(0)
+                eval_game.players = [self.agent] + [agent_no_search for _ in range(3)]
+            
+            eval_games.append((eval_game, eval_config))
+        
+        return eval_games
 
     def log_game_results(self, game, suffix):
         log_dict = {}
@@ -52,12 +74,27 @@ class HeartsTrainingRun(AlphaMultiTrainingRunLightning):
 
     def after_self_play_game(self):
         self.log_game_results(self.game, 'train')
+    def after_eval_game(self, eval_game: GameMulti, eval_config: EvalGameConfig):
+        """
+        Log results after an evaluation game.
 
-    def after_eval_game(self):
-        self.log_game_results(self.eval_game, 'eval')
+        :param eval_game: The evaluation game that was played
+        :param eval_config: Configuration for the evaluation game
+        """
+        suffix = "eval_"
+        if eval_config.n_mcts_iters == 0:
+            suffix += "no_search"
+        elif eval_config.n_mcts_iters == -1:
+            suffix += "full_search"
+        else:
+            suffix += f"search_{eval_config.n_mcts_iters}"
 
-    def after_eval_game_network_only(self):
-        self.log_game_results(self.eval_game, 'eval_network_only')
+        if isinstance(eval_game.players[1], SimpleHeartsAgent):
+            suffix += "_vs_simple"
+        elif isinstance(eval_game.players[1], AlphaAgentMulti):
+            suffix += "_vs_no_search"
+
+        self.log_game_results(eval_game, suffix)
 
 
 @hydra.main(config_name='base.yaml', config_path='./config/', version_base='1.3.2')
@@ -79,7 +116,6 @@ def main(cfg: DictConfig):
     hyperparams.game_listeners.append(checkpoint_mid_game)
     hyperparams.game_listeners.append(ActionCounterProgressBar(52, 'Train game'))
     hyperparams.game_listeners.append(RewardListenerMulti(1.))
-    hyperparams.eval_game_listeners.append(ActionCounterProgressBar(52, 'Eval game'))
 
     training_run = HeartsTrainingRun(Hearts, hyperparams, dataset=import_string(hyperparams.dataset_class))
 
@@ -124,4 +160,14 @@ if __name__ == '__main__':
 
 """
 2:50 for 100games/100mcts
+"""
+
+
+"""
+Evaluations:
+1. Game with naive networks but search against SimpleAgents
+2. Game with trained networks and no search against SimpleAgents
+3. Game with trained networks and search against SimpleAgents
+
+Once search doesn't improve over no search, the networks are considered trained.
 """
