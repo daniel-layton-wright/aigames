@@ -21,7 +21,7 @@ training_hypers:
         td_lambda_schedule_list: [1, 0.9, 0.8, 0.7, 0.6, 0.5]
     training_tau:
         _target_: aigames.experiments.alpha.utils.training_taus.TrainingTauStepSchedule
-        schedule: [[1.0, 200_000], [0.5, 400_000], [0.1, 600_000]]
+        schedule: [[1.0, 200_000_000]]
     n_mcts_iters:
         _target_: aigames.agent.alpha_agent_multi.ConstantMCTSIters
         n_mcts_iters: 100
