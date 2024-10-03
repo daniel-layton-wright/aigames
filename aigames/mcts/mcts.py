@@ -16,16 +16,210 @@ class UCBFormulaType(enum.Enum):
         return self.value
 
 
+class ActionSelector:
+    def get_actions(self, mcts, idx, cur_nodes):
+        raise NotImplementedError()
+    
+    def get_final_actions_and_pi(self, mcts, tau):
+        raise NotImplementedError()
+    
+    def on_mcts_init(self, mcts):
+        pass
+
+
 @dataclass(kw_only=True, slots=True)
-class MCTSHyperparameters:
+class UCBHyperparameters:
     c_puct: float = 1.0
     c_base_log_term: float = 19652.0  # The base for the log term in the UCB formula
+    scaleQ: bool = True  # Whether to scale Q values to be between 0 and 1 my the min and max Q values in the tree
+    ucb_formula: UCBFormulaType = UCBFormulaType.Simple
+
+
+class UCBActionSelector(ActionSelector):
+    def __init__(self, hyperparams: UCBHyperparameters):
+        self.hyperparams = hyperparams
+
+    def Q(self, mcts, idx, cur_nodes):
+        return mcts.Q(idx, cur_nodes, scale_Q=self.hyperparams.scaleQ)
+
+    def U(self, mcts, idx, nodes):
+        N = mcts.n[idx, nodes]
+        if self.hyperparams.ucb_formula == UCBFormulaType.Simple:
+            return self.hyperparams.c_puct * mcts.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
+        elif self.hyperparams.ucb_formula == UCBFormulaType.MuZeroLog:
+            return (
+                mcts.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
+                * (self.hyperparams.c_puct
+                   + torch.log((1 + N.sum(dim=1, keepdim=True) + self.hyperparams.c_base_log_term) / self.hyperparams.c_base_log_term))
+            )
+        elif self.hyperparams.ucb_formula == UCBFormulaType.MuZeroLogVisitAll:
+            return (
+                mcts.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
+                * (self.hyperparams.c_puct
+                   + torch.log((1 + N.sum(dim=1, keepdim=True) + self.hyperparams.c_base_log_term) / self.hyperparams.c_base_log_term))
+                + (1./(1 - ((N == 0.) & (nodes == 1).unsqueeze(-1) & mcts.legal_actions_mask[idx, nodes]).float()) - 1.)  # inf if N == 0 and nodes == 1
+            )
+
+    def get_actions(self, mcts, idx, cur_nodes):
+        Q = self.Q(mcts, idx, cur_nodes)
+        U = self.U(mcts, idx, cur_nodes)
+
+        return (Q + U).argmax(dim=1)
+    
+    def get_final_actions_and_pi(self, mcts, tau):
+        n_parallel_games = mcts.n_roots
+        pi = torch.zeros((n_parallel_games, mcts.n_actions), device=mcts.device, dtype=torch.float32)
+        actions = torch.zeros(n_parallel_games, dtype=torch.long, device=mcts.device)
+
+        if isinstance(tau, float):
+            tau = torch.tensor([[tau]], device=mcts.device, dtype=torch.float32).repeat(n_parallel_games, 1)        
+
+        if mcts.n[:, 0, 0].amax() > 1:
+            action_distribution = mcts.n[:, 1]
+        else:
+            mcts.expand()
+            action_distribution = mcts.pi[:, 1]
+
+        non_zero = (tau > 0).flatten()
+        pi[non_zero] = action_distribution[non_zero] ** (1. / tau[non_zero])
+        pi[non_zero] /= pi[non_zero].sum(dim=1, keepdim=True)
+        # Choose the action according to the distribution pi
+        actions[non_zero] = torch.multinomial(pi[non_zero], num_samples=1).flatten()
+
+        pi[torch.arange(n_parallel_games, device=non_zero.device)[~non_zero], action_distribution[~non_zero].argmax(dim=1)] = 1
+        actions[~non_zero] = action_distribution[~non_zero].argmax(dim=1).flatten()
+
+        return actions, pi
+
+
+@dataclass(kw_only=True, slots=True)
+class GumbelHyperparameters:
+    c_visit: float = 50.0
+    c_scale: float = 1.0
+    m: int = 8  # max number of actions to sample without replacement in first round
+
+
+class GumbelActionSelector(ActionSelector):
+    """
+    Based on the paper: POLICY IMPROVEMENT BY PLANNING WITH GUMBEL
+    https://openreview.net/pdf?id=bERaNdoegnO
+    
+    Relevant algorithm:
+    Algorithm 2 Sequential Halving with Gumbel
+    Require: k: number of actions.
+    Require: m ≤ k: number of actions sampled without replacement.
+    Require: n: number of simulations.
+    Require: logits ∈ Rk: predictor logits from a policy network π.
+    Sample k Gumbel variables:
+    (g ∈ Rk) ~ Gumbel(0)
+    Find m actions with the highest g(a) + logits(a):
+    Atopm = argtop(g + logits, m)
+    Use Sequential Halving with n simulations to identify the best action from the Atopm actions,
+    by comparing g(a) + logits(a) + sigma(q_hat(a)).
+    An+1 = arg maxa∈Remaining (g(a) + logits(a) + sigma(q_hat(a)))
+    return An+1
+    
+    sigma(q_hat(a)) = (c_visit + max N(b)) * c_scale * q_hat(a), 
+    """
+    def __init__(self, hyperparams: GumbelHyperparameters):
+        self.hyperparams = hyperparams
+        self.gumbel = torch.zeros(0)  # will be filled in later
+        self.starting_top_k = torch.zeros(0)
+        self.cur_top_k = torch.zeros(0)
+        self.last_update_at = torch.zeros(0)
+        self.next_update_at = torch.zeros(0)
+        self.top_actions = torch.zeros(0)
+        self.k_schedule = []
+        self.n_schedule = []
+        self._need_setup = True
+        
+        
+    def sigma(self, N, Q):
+        return (self.hyperparams.c_visit + N.amax(dim=1, keepdim=True)) * self.hyperparams.c_scale * Q
+    
+    def on_mcts_init(self, mcts):
+        self._need_setup = True
+
+    def setup(self, mcts):
+        n = mcts.n_iters
+        
+        self.gumbel = torch.distributions.gumbel.Gumbel(0, 1).sample((mcts.n_roots, mcts.n_actions))
+        
+        n_legal_actions_at_root = mcts.legal_actions_mask[:, 1].sum(dim=1)
+        self.cur_top_k = 2*torch.minimum(n_legal_actions_at_root, torch.tensor(self.hyperparams.m, device=n_legal_actions_at_root.device))
+        self.last_update_at = torch.zeros(mcts.n_roots, dtype=torch.int, device=mcts.device)
+        self.next_update_at = torch.zeros(mcts.n_roots, dtype=torch.int, device=mcts.device) # (torch.floor(n / (torch.log2(self.cur_top_k) * self.cur_top_k)) * self.cur_top_k).to(torch.int)
+        self.cur_top_k = self.cur_top_k.to(torch.int)
+        self.starting_top_k = self.cur_top_k / 2
+        max_k = int(self.starting_top_k.amax())
+        self.top_actions = torch.zeros(mcts.n_roots, max_k, dtype=torch.long, device=mcts.device)
+        
+        self._need_setup = False
+        
+    def get_actions(self, mcts, idx, cur_nodes):
+        if self._need_setup:
+            self.setup(mcts)
+        
+        roots = (cur_nodes == 1)
+        actions = torch.zeros((idx.shape[0],), dtype=torch.long, device=mcts.device)
+        actions[roots] = self.get_actions_roots(mcts, idx[roots], cur_nodes[roots])
+        actions[~roots] = self.get_actions_non_roots(mcts, idx[~roots], cur_nodes[~roots])
+        return actions
+
+    def get_actions_non_roots(self, mcts, idx, cur_nodes):
+        """
+        arg max pi'(a) - [ N(a) / [ 1 + ∑b N(b) ] ]
+        where pi' = softmax(logits + sigma(completedQ))
+        """
+        pi_prime = torch.softmax(mcts.logits[idx, cur_nodes] + self.sigma(mcts.n[idx, cur_nodes], mcts.Q(idx, cur_nodes)), dim=1)
+        objective = pi_prime - (mcts.n[idx, cur_nodes] / (1 + mcts.n[idx, cur_nodes].sum(dim=1, keepdim=True)))
+        return objective.argmax(dim=1)
+        
+
+    def get_actions_roots(self, mcts, idx, cur_nodes):
+        if len(idx) == 0:
+            return self.top_actions[idx, torch.zeros_like(idx)]
+        
+        total_n = mcts.n_iters
+        
+        N = mcts.n[idx, 0, 0]  # current iteration count
+        need_to_update = idx[N == self.next_update_at[idx]]
+        update_nodes = cur_nodes[N == self.next_update_at[idx]]
+        
+        self.cur_top_k[need_to_update] = torch.maximum(self.cur_top_k[need_to_update] // 2, torch.tensor(2, device=self.cur_top_k.device))
+        self.last_update_at[need_to_update] = mcts.n[need_to_update, 0, 0]
+        self.next_update_at[need_to_update] = (self.last_update_at[need_to_update] + 
+                                               (torch.floor(total_n / 
+                                                            (torch.log2(self.starting_top_k[need_to_update].float()) * self.cur_top_k[need_to_update].float()))
+                                                * self.cur_top_k[need_to_update]).to(torch.int))
+        
+        max_k = int(self.cur_top_k[idx].amax())
+        self.top_actions[need_to_update, :max_k] = (mcts.logits[need_to_update, update_nodes] + self.gumbel[need_to_update] 
+                                                    + self.sigma(mcts.n[need_to_update, update_nodes], mcts.Q(need_to_update, update_nodes))
+                                                    ).topk(dim=1, k=max_k, sorted=True).indices
+        
+        top_action_index = (N - self.last_update_at[idx]) % self.cur_top_k[idx]
+        return self.top_actions[idx, top_action_index]
+    
+    def get_final_actions_and_pi(self, mcts, tau):
+        """
+        The final action is the one with the highest logit + gumbel + sigma(Q)
+        The pi to be used for training is the softmax of the logits + sigma(Q)
+        """
+        idx = mcts.root_idx
+        nodes = 1
+        actions = (mcts.logits[idx, nodes] + self.sigma(mcts.n[idx, nodes], mcts.Q(idx, nodes))).argmax(dim=1)
+        pi = torch.softmax(mcts.logits[idx, nodes] + self.sigma(mcts.n[idx, nodes], mcts.Q(idx, nodes)), dim=1)
+        return actions, pi
+
+
+@dataclass(kw_only=True, slots=True)
+class MCTSHyperparameters:
     dirichlet_alpha: float = 0.3
     dirichlet_epsilon: float = 0.25
     discount: float = 1.0
     expand_simultaneous_fraction: float = 1.0  # The fraction of trees that need to be at a leaf to be expanded
-    scaleQ: bool = True  # Whether to scale Q values to be between 0 and 1 my the min and max Q values in the tree
-    ucb_formula: UCBFormulaType = UCBFormulaType.Simple
+    action_selector: ActionSelector = UCBActionSelector(UCBHyperparameters())
 
 
 class MCTS:
@@ -33,8 +227,8 @@ class MCTS:
     Implementation of MCTS, trying to do simultaneous roll-outs of different nodes and use GPU as much as possible
     """
 
-    def __init__(self, game: GameMulti, evaluator, hyperparams: MCTSHyperparameters, max_n_iters: int,
-                 root_states: torch.Tensor, add_dirichlet_noise: bool = True):
+    def __init__(self, game: GameMulti, evaluator, hyperparams: MCTSHyperparameters, 
+                 max_n_iters: int, root_states: torch.Tensor, add_dirichlet_noise: bool = True):
         self.hyperparams = hyperparams
         self.evaluator = evaluator
         self.game = game
@@ -44,6 +238,7 @@ class MCTS:
 
         # The network's pi value for each root, state (outputs a policy size)
         n_roots = root_states.shape[0]
+        self.n_roots = n_roots
         self.n_actions = game.get_n_actions()
         state_shape = game.get_state_shape()
         n_players = game.get_n_players()
@@ -54,6 +249,13 @@ class MCTS:
         self.state_shape = state_shape
 
         self.pi = torch.zeros(
+            (n_roots, self.total_states, self.n_actions),
+            dtype=torch.float32,
+            device=self.device,
+            requires_grad=False
+        )
+        
+        self.logits = torch.zeros(
             (n_roots, self.total_states, self.n_actions),
             dtype=torch.float32,
             device=self.device,
@@ -179,9 +381,15 @@ class MCTS:
 
         self.only_one_action = torch.zeros((n_roots,), dtype=torch.bool, device=self.device, requires_grad=False)
         self.handle_terminal_roots()
+        
+        self.action_selector.on_mcts_init(self)
 
         if add_dirichlet_noise:
             self.add_dirichlet_noise()
+            
+    @property
+    def action_selector(self):
+        return self.hyperparams.action_selector
 
     @property
     def r(self):
@@ -249,43 +457,9 @@ class MCTS:
             return
 
         # For the other nodes, choose best action and search down
-        N = self.n[idx, cur_nodes]
-        U = self.get_U(idx, cur_nodes, N)
-
-        if self.hyperparams.scaleQ:
-            maxQ = torch.where(torch.isnan(self.maxQ[idx]), self.values[idx, cur_nodes].amax(dim=1), self.maxQ[idx]).unsqueeze(-1)
-            minQ = torch.where(torch.isnan(self.minQ[idx]), self.values[idx, cur_nodes].amin(dim=1), self.minQ[idx]).unsqueeze(-1)
-
-            # Q replace unexplored edges with the given state's value
-            Q = ((self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]]
-                  + (N == 0) * self.legal_actions_mask[idx, cur_nodes, :self.n_actions]
-                  * self.values[idx, cur_nodes, self.player_index[idx, cur_nodes]].unsqueeze(1))
-                 / (N + (N == 0)))
-
-            Q = (Q - minQ + 0.5*(maxQ == minQ))*self.legal_actions_mask[idx, cur_nodes, :self.n_actions] / (maxQ - minQ + (maxQ == minQ))
-        else:
-            Q = self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]] / (N + (N == 0))
-
-        next_actions = torch.argmax(Q + U, dim=1)
+        next_actions = self.action_selector.get_actions(self, idx, cur_nodes)
 
         self.advance_to_next_states(idx, cur_nodes, next_actions)
-
-    def get_U(self, idx, nodes, N):
-        if self.hyperparams.ucb_formula == UCBFormulaType.Simple:
-            return self.hyperparams.c_puct * self.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
-        elif self.hyperparams.ucb_formula == UCBFormulaType.MuZeroLog:
-            return (
-                self.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
-                * (self.hyperparams.c_puct
-                   + torch.log((1 + N.sum(dim=1, keepdim=True) + self.hyperparams.c_base_log_term) / self.hyperparams.c_base_log_term))
-            )
-        elif self.hyperparams.ucb_formula == UCBFormulaType.MuZeroLogVisitAll:
-            return (
-                self.pi[idx, nodes] * torch.sqrt(1 + N.sum(dim=1, keepdim=True)) / (1 + N)
-                * (self.hyperparams.c_puct
-                   + torch.log((1 + N.sum(dim=1, keepdim=True) + self.hyperparams.c_base_log_term) / self.hyperparams.c_base_log_term))
-                + (1./(1 - ((N == 0.) & (nodes == 1).unsqueeze(-1) & self.legal_actions_mask[idx, nodes]).float()) - 1.)  # inf if N == 0 and nodes == 1
-            )
 
     def search_for_n_iters(self, n_iters):
         searchable = self.searchable_roots()
@@ -374,8 +548,9 @@ class MCTS:
 
         states = self.states[idx, nodes]
         self.player_index[idx, nodes] = self.game.get_cur_player_index(states).to(self.player_index.dtype)
-        network_result = self.evaluator.evaluate(states)
-        self.pi[idx, nodes], values = network_result[0], network_result[1]
+        # Evaluate network and store results
+        pi, values = self.evaluator.evaluate(states)
+        self.pi[idx, nodes] = pi
         self.values[idx, nodes] = values
         
         player_leaves = is_leaf_mask & ~self.is_env[self.root_idx, self.cur_nodes]
@@ -387,6 +562,8 @@ class MCTS:
         self.pi[player_idx, player_nodes] *= self.legal_actions_mask[player_idx, player_nodes, :self.n_actions]
         # re-normalize pi
         self.pi[player_idx, player_nodes] /= self.pi[player_idx, player_nodes].sum(dim=1, keepdim=True)
+        
+        self.logits[player_idx, player_nodes] = torch.log(self.pi[player_idx, player_nodes])
 
         env_leaves = is_leaf_mask & self.is_env[self.root_idx, self.cur_nodes]
         env_nodes = self.cur_nodes[env_leaves]
@@ -479,6 +656,24 @@ class MCTS:
 
         self.pi[idx, 1] = ((1 - self.hyperparams.dirichlet_epsilon) * self.pi[idx, 1]
                            + self.hyperparams.dirichlet_epsilon * dirichlet)
+        
+    def Q(self, idx, cur_nodes, scale_Q: bool = True):
+        N = self.n[idx, cur_nodes]
+        if scale_Q:
+            maxQ = torch.where(torch.isnan(self.maxQ[idx]), self.values[idx, cur_nodes].amax(dim=1), self.maxQ[idx]).unsqueeze(-1)
+            minQ = torch.where(torch.isnan(self.minQ[idx]), self.values[idx, cur_nodes].amin(dim=1), self.minQ[idx]).unsqueeze(-1)
+
+            # Q replace unexplored edges with the given state's value
+            Q = ((self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]]
+                  + (N == 0) * self.legal_actions_mask[idx, cur_nodes, :self.n_actions]
+                  * self.values[idx, cur_nodes, self.player_index[idx, cur_nodes]].unsqueeze(1))
+                 / (N + (N == 0)))
+
+            Q = (Q - minQ + 0.5*(maxQ == minQ))*self.legal_actions_mask[idx, cur_nodes, :self.n_actions] / (maxQ - minQ + (maxQ == minQ))
+        else:
+            Q = self.w[idx, cur_nodes, :, self.player_index[idx, cur_nodes]] / (N + (N == 0))
+            
+        return Q
 
     def get_next_mcts(self, new_roots: torch.Tensor, add_dirichlet_noise=True):
         """
@@ -591,6 +786,8 @@ class MCTS:
 
         if add_dirichlet_noise:
             self.add_dirichlet_noise()
+            
+        self.action_selector.on_mcts_init(self)
 
         # Update the n row zero
         self.n[:, 0, 0] = self.n[:, 1].sum(dim=1)

@@ -4,7 +4,7 @@ from .agent import AgentMulti
 from typing import Type, List, Tuple
 import torch
 from ..game.game_multi import GameMulti
-from ..mcts.mcts import MCTS, MCTSHyperparameters
+from ..mcts.mcts import MCTS, MCTSHyperparameters, ActionSelector
 import json_fix
 
 
@@ -299,21 +299,18 @@ class AlphaAgentMulti(AgentMulti):
         self.move_number_in_current_game = 0
         self.n_players = 0
         self.listeners = listeners if listeners is not None else []
+        
+    @property
+    def action_selector(self):
+        return self.hyperparams.action_selector
 
     def get_actions(self, states, mask):
         n_mcts_iters, use_to_train_network = self.hyperparams.n_mcts_iters.get_n_mcts_iters()
         self.setup_mcts(self.hyperparams, n_mcts_iters, states)
         self.mcts.search_for_n_iters(n_mcts_iters)
-
-        tau = self.get_tau()
-
-        if n_mcts_iters > 1:
-            action_distribution = self.mcts.n[:, 1]
-        else:
-            self.mcts.expand()
-            action_distribution = self.mcts.pi[:, 1]
-
-        actions, pi = self.get_actions_and_pi(action_distribution, states, tau)
+        tau = self.get_tau()        
+        actions, pi = self.action_selector.get_final_actions_and_pi(self.mcts, tau)
+        
         mcts_value = self.mcts.w[:, 1].sum(dim=1) / self.mcts.n[:, 1].sum(dim=1).unsqueeze(-1)
         network_value = self.mcts.values[:, 1]
 
@@ -332,25 +329,6 @@ class AlphaAgentMulti(AgentMulti):
                 listener.advise_incoming_data_size(self.episode_history.num_data_points())
 
         return actions
-
-    def get_actions_and_pi(self, action_distribution, states, tau):
-        n_parallel_games = states.shape[0]
-        pi = torch.zeros((n_parallel_games, self.game_class.get_n_actions()), device=states.device, dtype=torch.float32)
-        actions = torch.zeros(n_parallel_games, dtype=torch.long, device=states.device)
-
-        if isinstance(tau, float):
-            tau = torch.tensor([[tau]], device=states.device, dtype=torch.float32).repeat(n_parallel_games, 1)
-
-        non_zero = (tau > 0).flatten()
-        pi[non_zero] = action_distribution[non_zero] ** (1. / tau[non_zero])
-        pi[non_zero] /= pi[non_zero].sum(dim=1, keepdim=True)
-        # Choose the action according to the distribution pi
-        actions[non_zero] = torch.multinomial(pi[non_zero], num_samples=1).flatten()
-
-        pi[torch.arange(n_parallel_games, device=non_zero.device)[~non_zero], action_distribution[~non_zero].argmax(dim=1)] = 1
-        actions[~non_zero] = action_distribution[~non_zero].argmax(dim=1).flatten()
-
-        return actions, pi
 
     def get_tau(self):
         if self.training:
