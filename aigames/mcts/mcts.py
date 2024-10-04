@@ -143,10 +143,10 @@ class GumbelActionSelector(ActionSelector):
     def setup(self, mcts):
         n = mcts.n_iters
         
-        self.gumbel = torch.distributions.gumbel.Gumbel(0, 1).sample((mcts.n_roots, mcts.n_actions))
+        self.gumbel = torch.distributions.gumbel.Gumbel(0, 1).sample((mcts.n_roots, mcts.n_actions)).to(mcts.device)
         
         n_legal_actions_at_root = mcts.legal_actions_mask[:, 1].sum(dim=1)
-        self.cur_top_k = 2*torch.minimum(n_legal_actions_at_root, torch.tensor(self.hyperparams.m, device=n_legal_actions_at_root.device))
+        self.cur_top_k = 2*torch.minimum(n_legal_actions_at_root, torch.tensor(self.hyperparams.m, device=mcts.device))
         self.last_update_at = torch.zeros(mcts.n_roots, dtype=torch.int, device=mcts.device)
         self.next_update_at = torch.zeros(mcts.n_roots, dtype=torch.int, device=mcts.device) # (torch.floor(n / (torch.log2(self.cur_top_k) * self.cur_top_k)) * self.cur_top_k).to(torch.int)
         self.cur_top_k = self.cur_top_k.to(torch.int)
