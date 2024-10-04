@@ -69,11 +69,13 @@ class HeartsTrainingRun(AlphaMultiTrainingRunLightning):
 
         if undiscounted_reward_listener is not None:
             log_dict[f'avg_reward/{suffix}'] = undiscounted_reward_listener.rewards[:, 0].mean().item()
+            log_dict[f'avg_reward/{suffix}/opponent'] = undiscounted_reward_listener.rewards[:, 1:].mean().item()
 
         self.log_to_wandb(log_dict)
 
     def after_self_play_game(self):
         self.log_game_results(self.game, 'train')
+    
     def after_eval_game(self, eval_game: GameMulti, eval_config: EvalGameConfig):
         """
         Log results after an evaluation game.
