@@ -463,6 +463,9 @@ class MCTS:
 
     def search_for_n_iters(self, n_iters):
         searchable = self.searchable_roots()
+        
+        # We always at least need to expand the root
+        self.expand()
 
         while searchable.any().item() and self.n[searchable, 1].sum(dim=1).min() < n_iters:
             self.search()
