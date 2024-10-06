@@ -135,25 +135,25 @@ class TrajectoryDataset(AlphaDatasetMulti):
             data_buffer.add_to_buffer(*self.get_data(cur_traj))
 
             while data_buffer.full():
-                yield data_buffer.yield_data()
+                yield data_buffer.yield_data(device=self.hyperparams.device)
 
         while len(data_buffer) > 0:
-            yield data_buffer.yield_data()
+            yield data_buffer.yield_data(device=self.hyperparams.device)
 
     def get_data(self, cur_traj):
         self.evaluator.eval()
-        states = cur_traj.states.to(self.hyperparams.device)
-        network_result = self.evaluator.evaluate(states)
+        states = cur_traj.states
+        network_result = self.evaluator.evaluate(states.to(self.hyperparams.device))
         self.evaluator.train()
-        state_values = network_result[1]
-        td_targets = compute_td_targets(state_values, cur_traj.rewards.to(state_values.device),
+        state_values = network_result[1].to(self.hyperparams.dataset_device)
+        td_targets = compute_td_targets(state_values, cur_traj.rewards,
                                         self.hyperparams.td_lambda.get_lambda(),
                                         self.hyperparams.discount)
 
         if not self.hyperparams.store_data_processed:
             states = self.evaluator.process_state(states)
 
-        return states, cur_traj.pis.to(self.hyperparams.device), td_targets
+        return states, cur_traj.pis, td_targets
 
     def clear(self):
         self.trajectories = []
@@ -178,17 +178,17 @@ class TrajectoryDataset(AlphaDatasetMulti):
         if device is None:
             return torch.cat([traj.states for traj in self.trajectories])
         else:
-            return torch.cat([traj.states.to(device) for traj in self.trajectories])
+            return torch.cat([traj.states for traj in self.trajectories]).to(device)
 
     def rewards(self, device=None):
         """
         Returns a M x R x N tensor of the rewards, padding the rewards to the max length
         where M is the number of trajectories, R is the max episode length, N is the number of players
         """
-        if device is None:
-            return torch.nn.utils.rnn.pad_sequence([traj.rewards for traj in self.trajectories], batch_first=True)
-        else:
-            return torch.nn.utils.rnn.pad_sequence([traj.rewards.to(device) for traj in self.trajectories], batch_first=True)
+        padded_rewards = torch.nn.utils.rnn.pad_sequence([traj.rewards for traj in self.trajectories], batch_first=True)
+        if device is not None:
+            padded_rewards = padded_rewards.to(device)
+        return padded_rewards
 
     def to(self, device):
         for traj in self.trajectories:

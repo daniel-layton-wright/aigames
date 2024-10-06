@@ -183,6 +183,17 @@ class AlphaMultiTrainingRunLightning(pl.LightningModule):
                 eval_game.play()
                 self.after_eval_game(eval_game, eval_config)
                 
+                # Reset MCTS for Alpha agents and refresh GPU memory
+                for player in eval_game.players:
+                    if isinstance(player, AlphaAgentMulti):
+                        if hasattr(player, 'mcts'):
+                            del player.mcts
+                            player.mcts = None
+                        
+                        # Refresh GPU memory if using CUDA
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                
                 # Restore original n_mcts_iters
                 if eval_config.n_mcts_iters >= 0:
                     eval_game.players[0].hyperparams.n_mcts_iters = tmp_n_mcts_iters
