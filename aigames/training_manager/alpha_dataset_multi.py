@@ -142,8 +142,8 @@ class TrajectoryDataset(AlphaDatasetMulti):
 
     def get_data(self, cur_traj):
         self.evaluator.eval()
-        states = cur_traj.states
-        network_result = self.evaluator.evaluate(states.to(self.hyperparams.device))
+        states = cur_traj.states.to(self.hyperparams.device)
+        network_result = self.evaluator.evaluate(states)
         self.evaluator.train()
         state_values = network_result[1].to(self.hyperparams.dataset_device)
         td_targets = compute_td_targets(state_values, cur_traj.rewards,
@@ -153,7 +153,7 @@ class TrajectoryDataset(AlphaDatasetMulti):
         if not self.hyperparams.store_data_processed:
             states = self.evaluator.process_state(states)
 
-        return states, cur_traj.pis, td_targets
+        return states.to(self.hyperparams.dataset_device), cur_traj.pis, td_targets
 
     def clear(self):
         self.trajectories = []
