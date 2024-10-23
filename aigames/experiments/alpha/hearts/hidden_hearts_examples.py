@@ -1,6 +1,7 @@
 from aigames.agent.alpha_agent_hidden import AlphaAgentHidden, AlphaAgentHiddenHyperparameters
 from aigames.agent.alpha_agent_multi import ConstantMCTSIters, DummyAlphaEvaluatorMulti
 from aigames.agent.hearts.hearts_sampler import HeartsSampler
+from aigames.agent.hearts.simple_hearts_agent import SimpleHeartsAgent
 from aigames.agent.random_agent_multi import RandomAgentMulti
 from aigames.game.command_line_game import CommandLineGame
 from aigames.game.hearts import Hearts
@@ -15,7 +16,7 @@ def main():
     import os
 
     parser = argparse.ArgumentParser(description="Run Hidden Hearts game with AlphaAgent")
-    parser.add_argument("--num_games", type=int, default=10, help="Number of games to run")
+    parser.add_argument("--num_games", type=int, default=1000, help="Number of games to run")
     parser.add_argument("--mcts_iters", type=int, default=100, help="Number of MCTS iterations")
     parser.add_argument("--model_checkpoint", type=str, default=None, help="Path to the model checkpoint (optional)")
 
@@ -51,7 +52,7 @@ def main():
     
     hidden_alpha_agent.eval()
     
-    simple_hearts_agents = [RandomAgentMulti(HeartsHidden) for _ in range(3)]
+    simple_hearts_agents = [SimpleHeartsAgent() for _ in range(3)]
 
     # Set up the game
     all_agents = [hidden_alpha_agent] + simple_hearts_agents

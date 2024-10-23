@@ -72,9 +72,9 @@ class HeartsSampler(AlphaAgentHidden.Sampler):
             with each group of n_samples consecutive states corresponding to one input state.
         """        
         batch_size = hidden_states.shape[0]
-        hidden_states = hidden_states.repeat(
-            n_samples, *[1] * (len(hidden_states.shape) - 1)
-        )
+        
+        # Repeat each hidden state n_samples times
+        hidden_states = hidden_states.repeat_interleave(n_samples, dim=0)
         
         player_indices = player_indices.repeat(n_samples)
         
