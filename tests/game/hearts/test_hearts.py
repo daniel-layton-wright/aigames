@@ -113,6 +113,46 @@ class TestHearts(unittest.TestCase):
         game = self.game_class(1, alpha_agent,
                       [ActionCounterProgressBar(52, 'test_alpha_agent_works')])
         game.play()
+        
+
+    def test_alpha_agent_vs_simple_agents(self):
+        """
+        Test a game of 100 no-search Alpha agents vs 3 Simple agents.
+        Check that the sum of rewards for each game is either -26 or -78.
+        """
+        from aigames.agent.alpha_agent_multi import AlphaAgentMulti, AlphaAgentHyperparametersMulti
+        from aigames.agent.hearts.simple_hearts_agent import SimpleHeartsAgent
+
+        n_games = 100
+        n_players = 4
+
+        # Set up the Alpha agent with no search
+        eval = DummyAlphaEvaluatorMulti(52, n_players, device=self.game_class.device)
+        hypers = AlphaAgentHyperparametersMulti()
+        hypers.n_mcts_iters.n_mcts_iters = 0  # No search
+        alpha_agent = AlphaAgentMulti(self.game_class, eval, hypers)
+
+        # Create a mixed list of agents: 1 Alpha agent and 3 Simple agents
+        agents = [alpha_agent] + [SimpleHeartsAgent() for _ in range(n_players - 1)]
+
+        # Set up the reward listener
+        reward_listener = RewardListenerMulti(1.)
+
+        # Create and play the game
+        game = self.game_class(n_games, agents, [reward_listener])
+        game.play()
+
+        # Check that the sum of rewards for each game is either -26 or -78
+        sum_per_game = reward_listener.rewards.sum(dim=1)
+        
+        # Assert that all sums are either -26 or -78
+        self.assertTrue(((sum_per_game == -26) | (sum_per_game == -78)).all())
+
+        # Additional checks (optional)
+        n_normal_games = (sum_per_game == -26).sum().item()
+        n_shoot_moon_games = (sum_per_game == -78).sum().item()
+        
+        print(f"Normal games: {n_normal_games}, Shoot the moon games: {n_shoot_moon_games}")
 
 
 class TestHeartsCuda(TestHearts):

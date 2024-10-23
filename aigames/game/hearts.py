@@ -324,7 +324,8 @@ class Hearts(GameMulti):
         states[:, 0, 0] = player_with_2clubs  # two of clubs goes first
         return states
 
-    def get_cur_player_index(self, states) -> torch.Tensor:
+    @classmethod
+    def get_cur_player_index(cls, states) -> torch.Tensor:
         return states[:, 0, 0] - 1
 
     @classmethod

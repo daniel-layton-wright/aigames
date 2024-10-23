@@ -1,5 +1,6 @@
 import enum
 from dataclasses import dataclass
+from typing import Tuple
 import torch
 from aigames.game.game_multi import GameMulti
 import json_fix
@@ -20,7 +21,7 @@ class ActionSelector:
     def get_actions(self, mcts, idx, cur_nodes):
         raise NotImplementedError()
     
-    def get_final_actions_and_pi(self, mcts, tau):
+    def get_final_actions_and_pi(self, mcts, tau) -> Tuple[torch.Tensor, torch.Tensor]:
         raise NotImplementedError()
     
     def on_mcts_init(self, mcts):
