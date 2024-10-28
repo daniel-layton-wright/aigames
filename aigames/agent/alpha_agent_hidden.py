@@ -74,8 +74,9 @@ class AlphaAgentHidden(AlphaAgentMulti):
         
         samples = samples.reshape(states.shape[0] * self.hyperparams.n_samples, *self.game_class.get_state_shape())
         
-        self.setup_mcts(self.hyperparams, 0, samples)
-        self.mcts.search_for_n_iters(0)
+        n_mcts_iters, _ = self.hyperparams.n_mcts_iters.get_n_mcts_iters()
+        self.setup_mcts(self.hyperparams, n_mcts_iters, samples)
+        self.mcts.search_for_n_iters(n_mcts_iters)
         _, pi = self.action_selector.get_final_actions_and_pi(self.mcts, tau=1.0)
         
         # Reshape pi
